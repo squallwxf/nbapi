@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NBAPI | AI 模型聚合网关</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-2: #f9fafc;
+      --line: #e8edf4;
+      --text: #172033;
+      --muted: #6b778c;
+      --blue: #1d6fff;
+      --green: #17b26a;
+      --cyan: #00a6a6;
+      --orange: #f59e0b;
+      --purple: #7c3aed;
+      --shadow: 0 16px 38px rgba(21, 32, 54, 0.08);
+      --radius: 10px;
+    }
+    body.dark {
+      --bg: #0b1020;
+      --surface: #111827;
+      --surface-2: #182235;
+      --line: #243044;
+      --text: #eef4ff;
+      --muted: #b7c5d9;
+      --shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input { font: inherit; }
+    a { color: inherit; text-decoration: none; }
+
+    .app { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+    .sidebar { background: var(--surface); border-right: 1px solid var(--line); padding: 18px 14px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; border-bottom: 1px solid var(--line); }
+    .logo { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, rgba(255,255,255,0.32), transparent 42%), linear-gradient(135deg, #0f66ff, #00b8a9 55%, #20c997); display: grid; place-items: center; box-shadow: 0 10px 22px rgba(29,111,255,0.24); color: white; font-weight: 900; letter-spacing: 0; line-height: 1; }
+    .brand-text strong { display: block; font-size: 16px; letter-spacing: 0; }
+    .brand-text span { color: var(--muted); font-size: 12px; }
+
+    .nav-section { display: grid; gap: 6px; }
+    .nav-title { color: #96a0af; font-size: 12px; padding: 0 10px 4px; }
+    .nav-item { height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: var(--radius); color: #4a5568; cursor: pointer; }
+    .nav-item:hover { background: #f1f5fb; color: var(--text); }
+    .nav-item.active { background: #eef5ff; color: var(--blue); font-weight: 700; }
+    body.dark .nav-title { color: #c1cde0; }
+    body.dark .nav-item { color: #b9c7da; }
+    body.dark .nav-item:hover { background: #1b2a42; color: #f4f8ff; }
+    body.dark .nav-item.active { background: #e8f1ff; color: #125bd6; }
+    .icon { width: 18px; height: 18px; border-radius: 5px; background: currentColor; opacity: .82; flex: 0 0 auto; }
+    .i-token { border-radius: 50%; }
+    .i-channel { background: linear-gradient(90deg, currentColor 0 28%, transparent 28% 36%, currentColor 36% 64%, transparent 64% 72%, currentColor 72%); }
+    .i-doc { border-radius: 3px; }
+    .i-setting { border-radius: 50%; box-shadow: inset 0 0 0 6px var(--surface); }
+
+    .side-card { margin-top: auto; background: linear-gradient(180deg, #f5fbff, #f8fff9); border: 1px solid #dcecff; border-radius: var(--radius); padding: 12px; }
+    body.dark .side-card { background: linear-gradient(180deg, #132238, #10231e); border-color: #25405a; }
+    .side-card strong { display: block; margin-bottom: 5px; }
+    .side-card p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+
+    .main { min-width: 0; display: grid; grid-template-rows: 64px 1fr; }
+    .topbar { position: sticky; top: 0; z-index: 3; background: rgba(246,248,251,0.84); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; }
+    body.dark .topbar { background: rgba(11,16,32,0.84); }
+    .search { width: min(520px, 46vw); height: 38px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px; color: var(--muted); }
+    .search input { border: 0; outline: 0; background: transparent; width: 100%; color: var(--text); }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .top-nav { display: flex; align-items: center; gap: 6px; margin-right: auto; }
+    .top-nav a { padding: 9px 13px; border-radius: 8px; color: var(--muted); font-weight: 700; }
+    .top-nav a:hover, .top-nav a.active { color: var(--blue); background: #eef5ff; }
+    body.dark .top-nav a:hover, body.dark .top-nav a.active { background: #172b4e; }
+    .pill, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: #354158; height: 36px; padding: 0 12px; white-space: nowrap; }
+    body.dark .pill, body.dark .btn { color: #d9e4f5; }
+    .btn.primary { background: var(--blue); color: white; border-color: var(--blue); box-shadow: 0 10px 20px rgba(29,111,255,0.18); }
+    .btn.success { background: var(--green); color: white; border-color: var(--green); }
+
+    .content { padding: 24px; display: grid; gap: 18px; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) 360px; gap: 18px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .welcome { padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 18px; overflow: hidden; position: relative; }
+    .welcome::after { content: "NB"; position: absolute; right: 32px; bottom: -42px; font-size: 170px; line-height: 1; font-weight: 900; color: rgba(29,111,255,0.06); letter-spacing: 0; pointer-events: none; }
+    .welcome h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.2; letter-spacing: 0; }
+    .welcome p { margin: 0; color: var(--muted); max-width: 68ch; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    .mini-console { background: #101828; border-radius: var(--radius); padding: 14px; color: #dce7f7; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; min-height: 154px; align-self: stretch; }
+    .mini-console .green { color: #5ee0a5; }
+    .mini-console .blue { color: #8bb9ff; }
+
+    .notice { padding: 18px; display: grid; gap: 12px; }
+    .notice h2 { margin: 0; font-size: 17px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .row:first-of-type { border-top: 0; padding-top: 0; }
+    small { color: var(--muted); display: block; margin-top: 2px; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .stat { padding: 16px; min-height: 116px; }
+    .stat .label { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; }
+    .stat .value { font-size: 28px; font-weight: 800; margin-top: 12px; letter-spacing: 0; }
+    .stat .sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .trend { color: var(--green); font-size: 12px; font-weight: 700; }
+
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 4px 0 -2px; }
+    .section-head h2 { margin: 0; font-size: 18px; }
+    .section-head p { margin: 2px 0 0; color: var(--muted); }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
+    #models, #models + .workspace > .table-card { display: none; }
+    .workspace:has(> .table-card) { grid-template-columns: 1fr; }
+    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings { display: none; }
+    body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
+    body.route-square .content > #square { display: grid; }
+    body.route-tokens .content > .workspace, body.route-docs .content > .workspace, body.route-channels .content > .workspace { display: block; }
+    body.route-tokens .workspace #tokens, body.route-docs .workspace #docs, body.route-channels .workspace #channels { display: block; }
+    body.route-tokens .workspace #docs, body.route-tokens .workspace #channels, body.route-docs .workspace #tokens, body.route-docs .workspace #channels, body.route-channels .workspace #tokens, body.route-channels .workspace #docs { display: none; }
+    body.route-logs .content > #logs, body.route-wallet .content > #wallet, body.route-settings .content > #settings { display: block; }
+    .square-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .square-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      min-height: 168px;
+    }
+    .square-card h3 { margin: 0; font-size: 16px; }
+    .square-card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .square-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .square-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+    .square-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; }
+    .square-foot code { color: #344054; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    body.dark .square-foot code { color: #d9e4f5; }
+    .plaza-shell {
+      display: grid;
+      grid-template-columns: 258px minmax(0, 1fr);
+      gap: 14px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+    .plaza-filter { padding: 4px 6px; }
+    .plaza-filter h3 { margin: 0 0 12px; font-size: 18px; }
+    .filter-group { padding: 16px 0; border-top: 1px solid var(--line); }
+    .filter-group:first-of-type { border-top: 0; padding-top: 0; }
+    .filter-group h4 { margin: 0 0 10px; font-size: 14px; }
+    .filter-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+    .filter-button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--muted); padding: 8px 9px; text-align: left; cursor: pointer; font-size: 12px; }
+    .filter-button.active { color: var(--blue); border-color: #bcd3ff; background: #eef5ff; font-weight: 700; }
+    body.dark .filter-button.active { background: #172b4e; border-color: #315b9e; }
+    body.dark .filter-button { color: #c1cde0; }
+    .plaza-main { min-width: 0; }
+    .plaza-banner { min-height: 92px; padding: 18px; color: #fff; border-radius: 10px; background: linear-gradient(120deg, #1461dc, #2d4cc8 60%, #2d8bca); position: relative; overflow: hidden; }
+    .plaza-banner::after { content: "NB"; position: absolute; right: 22px; bottom: -35px; font-size: 112px; font-weight: 900; color: rgba(255,255,255,.13); }
+    .plaza-banner h3 { margin: 0 0 6px; font-size: 20px; }
+    .plaza-banner p { margin: 0; color: rgba(255,255,255,.8); font-size: 13px; }
+    .plaza-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 0 14px; }
+    .plaza-search { flex: 1; min-width: 0; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+    .plaza-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); }
+    .plaza-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+    .plaza-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .plaza-card { min-width: 0; min-height: 166px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; }
+    .plaza-card:hover { border-color: #b7cdf3; box-shadow: 0 8px 20px rgba(29,111,255,.08); }
+    .plaza-card-top { display: flex; align-items: flex-start; gap: 10px; }
+    .plaza-card-name { min-width: 0; flex: 1; }
+    .plaza-card-name strong { display: block; overflow-wrap: anywhere; font-size: 15px; }
+    .copy-model { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--muted); cursor: pointer; flex: 0 0 auto; }
+    .copy-model:hover { color: var(--blue); border-color: #9abcf6; }
+    .copy-icon { display: inline-block; width: 12px; height: 12px; border: 1px solid currentColor; border-radius: 2px; position: relative; }
+    .copy-icon::after { content: ""; position: absolute; width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 2px; left: 4px; top: -4px; background: var(--surface-2); }
+    .plaza-price { color: var(--muted); font-size: 12px; line-height: 1.65; min-height: 40px; }
+    .plaza-price strong { color: var(--text); font-size: 14px; }
+    .billing-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .billing-input { width: 84px; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); padding: 0 7px; }
+    .billing-select { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); padding: 0 5px; }
+    .call-model { margin-left: auto; border: 1px solid #bcd3ff; border-radius: 7px; background: #eef5ff; color: var(--blue); padding: 6px 9px; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .call-model:hover { background: var(--blue); color: #fff; }
+    body.dark .call-model { background: #172b4e; border-color: #315b9e; }
+    .account-balance { color: var(--green); font-weight: 800; }
+    .plaza-description { margin: 0; color: var(--muted); font-size: 12px; }
+    .plaza-card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; }
+    .compact-plaza .plaza-card { min-height: 126px; padding: 11px; gap: 6px; }
+    .compact-plaza .plaza-description { display: none; }
+    .compact-plaza .plaza-price { min-height: 0; }
+    .copy-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(12px); background: #172033; color: white; padding: 9px 14px; border-radius: 8px; opacity: 0; pointer-events: none; transition: .2s ease; z-index: 20; }
+    .copy-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .console-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .console-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: start;
+    }
+    .console-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .console-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .console-head h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+    .console-body {
+      padding: 16px;
+    }
+    .console-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .console-metric {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      min-height: 92px;
+    }
+    .console-metric .k {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .console-metric .v {
+      margin-top: 8px;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .console-metric .s {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .table-wrap {
+      overflow: auto;
+    }
+    .console-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .console-table th, .console-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .console-table th {
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .console-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .mini-list {
+      display: grid;
+      gap: 10px;
+    }
+    .mini-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+    }
+    .mini-item strong { display: block; }
+    .mini-item small { color: var(--muted); }
+
+    .table-card { overflow: hidden; }
+    .table-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { border: 1px solid var(--line); background: var(--surface-2); color: #516078; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+    body.dark .chip { color: #c1cde0; }
+    .chip.active { background: #eaf2ff; color: var(--blue); border-color: #cfe0ff; font-weight: 700; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 13px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    th { color: #7b8798; font-size: 12px; font-weight: 700; background: #fbfcfe; }
+    body.dark th { background: #141e2f; color: #9dafc7; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #f8fbff; }
+    body.dark tbody tr:hover { background: #162238; }
+    .model { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+    .avatar { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: white; font-weight: 800; letter-spacing: 0; flex: 0 0 auto; }
+    .a-blue { background: linear-gradient(135deg, #1d6fff, #45b3ff); }
+    .a-green { background: linear-gradient(135deg, #17b26a, #12c7a1); }
+    .a-purple { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+    .a-orange { background: linear-gradient(135deg, #f59e0b, #f97316); }
+    .a-red { background: linear-gradient(135deg, #ef4444, #fb7185); }
+    .model small { display: block; color: var(--muted); margin-top: 1px; }
+
+    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; font-size: 12px; border: 1px solid transparent; white-space: nowrap; }
+    .tag.green { background: #ecfdf3; color: #067647; border-color: #abefc6; }
+    .tag.blue { background: #eef5ff; color: #175cd3; border-color: #cfe0ff; }
+    .tag.orange { background: #fff7ed; color: #b54708; border-color: #fed7aa; }
+    .tag.purple { background: #f4f0ff; color: #6d28d9; border-color: #ddd6fe; }
+    .tag.gray { background: #f2f4f7; color: #475467; border-color: #e4e7ec; }
+    body.dark .tag.gray { background: #243044; color: #cdd7e6; border-color: #344258; }
+
+    .price-cell { min-width: 118px; }
+    .price-value { font-weight: 700; }
+    .price-input {
+      width: 94px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 0 8px;
+      outline: 0;
+    }
+    .admin-hint {
+      display: none;
+      margin-top: 8px;
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    body.admin .admin-hint { display: block; }
+    body:not(.admin) #channels { display: none; }
+    body:not(.admin) .admin-only { opacity: .72; }
+
+    .detail { display: grid; gap: 14px; align-content: start; }
+    .detail-card { padding: 16px; }
+    .detail-card h3 { margin: 0 0 12px; font-size: 16px; }
+    .token-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .token-head h3 { margin: 0; }
+    .token-list { display: grid; gap: 8px; margin-top: 12px; }
+    .token-row { display: grid; gap: 5px; padding: 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+    .token-row-top, .token-row-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .token-row code { color: var(--text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    .token-row-meta { color: var(--muted); font-size: 11px; }
+    .token-actions { display: flex; gap: 6px; }
+    .token-actions .btn { height: 28px; padding: 0 8px; font-size: 12px; }
+    .key-box { border: 1px dashed #b8c7dd; background: #f7fbff; border-radius: var(--radius); padding: 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #344054; overflow-wrap: anywhere; }
+    body.dark .key-box { background: #162238; color: #d9e4f5; border-color: #3c4d68; }
+    .progress { height: 8px; background: #edf2f7; border-radius: 999px; overflow: hidden; margin-top: 8px; }
+    .progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+    .endpoint-list { display: grid; gap: 10px; }
+    .endpoint { border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius); padding: 10px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .endpoint code { color: #344054; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    body.dark .endpoint code { color: #d9e4f5; }
+    .muted { color: var(--muted); }
+    .code { margin: 0; background: #101828; color: #e4ecf7; border-radius: var(--radius); padding: 14px; overflow: auto; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+    .mobile-nav { display: none; }
+
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 72px minmax(0, 1fr); }
+      .brand-text, .nav-title, .nav-item span:not(.icon), .side-card { display: none; }
+      .sidebar { padding: 16px 10px; align-items: center; }
+      .brand { padding: 0 0 14px; }
+      .hero, .workspace { grid-template-columns: 1fr; }
+      .welcome { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .plaza-shell { grid-template-columns: 1fr; }
+      .plaza-filter { display: none; }
+      .plaza-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 720px) {
+      .app { display: block; }
+      .sidebar { display: none; }
+      .mobile-nav { display: flex; gap: 8px; overflow-x: auto; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+      .topbar { padding: 10px 16px; height: auto; align-items: stretch; flex-direction: column; }
+      .top-nav { order: -1; }
+      .top-actions { justify-content: space-between; overflow-x: auto; }
+      .content { padding: 16px; }
+      .stats { grid-template-columns: 1fr; }
+      .table-tools, .section-head { flex-direction: column; align-items: flex-start; }
+      th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { display: none; }
+      .welcome h1 { font-size: 22px; }
+      .welcome::after { font-size: 110px; right: 12px; bottom: -28px; }
+      .plaza-grid { grid-template-columns: 1fr; }
+      .plaza-toolbar { align-items: stretch; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">NB</div>
+        <div class="brand-text"><strong>NBAPI</strong><span>AI 模型聚合网关</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">控制台</div>
+        <a class="nav-item active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
+        <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
+        <a class="nav-item admin-only" href="#channels" title="仅管理员可用"><span class="icon i-channel"></span><span>渠道管理</span></a>
+        <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
+        <a class="nav-item" href="#wallet"><span class="icon i-money"></span><span>充值订阅</span></a>
+        <a class="nav-item" href="#logs"><span class="icon i-log"></span><span>使用日志</span></a>
+        <a class="nav-item" href="#settings"><span class="icon i-setting"></span><span>系统设置</span></a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">入口</div>
+        <a class="nav-item" href="#square"><span class="icon i-model"></span><span>模型广场</span></a>
+      </div>
+      <div class="side-card">
+        <strong>NB 专属网关</strong>
+        <p>OpenAI、Claude、Gemini 统一协议，密钥一次配置，多模型调用。</p>
+        <a class="btn primary" href="#docs">查看接入</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#square">模型广场</a></div>
+      <header class="topbar">
+        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#square">模型广场</a></nav>
+        <div class="top-actions">
+          <span class="pill">余额 <strong class="account-balance" id="balanceDisplay">$ 100.00</strong></span>
+          <button class="btn" id="themeToggle" type="button">深色模式</button>
+          <span class="pill" id="adminState">访客</span>
+          <button class="btn" id="userLogin" type="button">用户登录</button>
+          <button class="btn" id="adminLogin" type="button">管理员登录</button>
+          <a class="btn primary" href="#signup">注册</a>
+        </div>
+      </header>
+
+      <section class="content">
+        <div class="hero">
+          <section class="panel welcome">
+            <div>
+              <h1>欢迎使用 NBAPI 模型聚合分发系统</h1>
+              <p>统一管理 OpenAI、Anthropic Claude、Google Gemini、DeepSeek、通义千问、豆包、Sora 等模型渠道，并转换为 OpenAI / Claude / Gemini 兼容接口。</p>
+              <div class="hero-actions"><a class="btn primary" href="#tokens">创建令牌</a><a class="btn" href="#docs">查看 API 文档</a><a class="btn" href="#square">模型广场</a></div>
+            </div>
+            <pre class="mini-console"><span class="green">$</span> curl https://ai.krapi.cn/v1/chat/completions \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json"
+
+<span class="blue">200 OK</span> unified model gateway ready</pre>
+          </section>
+          <aside class="panel notice">
+            <h2>系统公告</h2>
+            <div class="row"><div><strong>模型价格同步完成</strong><small>GPT、Claude、Gemini、DeepSeek 已更新</small></div><span class="tag green">正常</span></div>
+            <div class="row"><div><strong>渠道监控开启</strong><small>异常渠道会自动降权并重试</small></div><span class="tag blue">实时</span></div>
+            <div class="row"><div><strong>新用户注册送额度</strong><small>用于测试聊天、图片和视频模型</small></div><span class="tag orange">活动</span></div>
+          </aside>
+        </div>
+
+        <section class="stats">
+          <article class="panel stat"><div class="label">可用模型 <span class="trend">已同步</span></div><div class="value">32</div><div class="sub">对话、图片与视频模型</div></article>
+          <article class="panel stat"><div class="label">今日请求 <span class="trend">+18.6%</span></div><div class="value">84,291</div><div class="sub">平均响应 1.2s</div></article>
+          <article class="panel stat"><div class="label">在线渠道 <span class="trend">健康</span></div><div class="value">36</div><div class="sub">自动轮询与失败重试</div></article>
+          <article class="panel stat"><div class="label">本月消耗 <span class="trend">可控</span></div><div class="value">$ 926</div><div class="sub">按倍率与分组计费</div></article>
+        </section>
+
+        <section class="console-shell" id="console">
+          <div class="console-card">
+            <div class="console-head">
+              <h3>控制台总览</h3>
+              <div class="console-tabs">
+                <span class="chip active">总览</span>
+                <span class="chip">模型</span>
+                <span class="chip">渠道</span>
+                <span class="chip">日志</span>
+              </div>
+            </div>
+            <div class="console-body">
+              <div class="console-grid">
+                <div class="console-metric"><div class="k">在线模型</div><div class="v">32</div><div class="s">可切换全部接口</div></div>
+                <div class="console-metric"><div class="k">健康渠道</div><div class="v">36</div><div class="s">自动降权和重试</div></div>
+                <div class="console-metric"><div class="k">今日调用</div><div class="v">84,291</div><div class="s">增长 18.6%</div></div>
+                <div class="console-metric"><div class="k">账户余额</div><div class="v">$ 926</div><div class="s">管理员可调价</div></div>
+              </div>
+              <div class="console-toolbar" style="margin-top:16px;">
+                <div class="filters">
+                  <span class="chip active">全部</span>
+                  <span class="chip">OpenAI</span>
+                  <span class="chip">Claude</span>
+                  <span class="chip">Gemini</span>
+                  <span class="chip">图片</span>
+                  <span class="chip">视频</span>
+                </div>
+                <span class="pill">接口基址： https://ai.krapi.cn/v1</span>
+              </div>
+              <div class="table-wrap">
+                <table class="console-table">
+                  <thead>
+                    <tr>
+                      <th>模型</th>
+                      <th>接口</th>
+                      <th>价格</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>GPT 系列</td><td>/v1/chat/completions</td><td class="price-cell" data-price-id="gpt-main" data-default-price="1.00x"></td><td><span class="tag green">在线</span></td></tr>
+                    <tr><td>Claude 系列</td><td>/v1/messages</td><td class="price-cell" data-price-id="claude-main" data-default-price="1.20x"></td><td><span class="tag green">在线</span></td></tr>
+                    <tr><td>Gemini 系列</td><td>/v1beta/models</td><td class="price-cell" data-price-id="gemini-main" data-default-price="0.85x"></td><td><span class="tag green">在线</span></td></tr>
+                    <tr><td>视频模型</td><td>/v1/videos</td><td class="price-cell" data-price-id="video-main" data-default-price="按任务"></td><td><span class="tag orange">排队</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <aside class="console-card">
+            <div class="console-head">
+              <h3>快捷信息</h3>
+              <span class="tag blue">Console</span>
+            </div>
+            <div class="console-body">
+              <div class="mini-list">
+                <div class="mini-item"><div><strong>管理员开关</strong><small>登录后可修改价格</small></div><span class="tag green">已支持</span></div>
+                <div class="mini-item"><div><strong>深浅色主题</strong><small>自动记住浏览器设置</small></div><span class="tag blue">已支持</span></div>
+                <div class="mini-item"><div><strong>调用文档</strong><small>兼容 OpenAI / Gemini / 视频接口</small></div><span class="tag orange">v1</span></div>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="plaza-shell" id="square">
+          <aside class="plaza-filter">
+            <h3>筛选</h3>
+            <div class="filter-group">
+              <h4>供应商</h4>
+              <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="provider" data-filter="all">全部供应商 <b>32</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Google">Google <b>2</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="OpenAI">OpenAI <b>4</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Grok">Grok <b>4</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Omni">Omni <b>9</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Sora / Veo">Sora / Veo <b>13</b></button></div>
+            </div>
+            <div class="filter-group">
+              <h4>计费类型</h4>
+              <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="billing" data-filter="all">全部类型 <b>32</b></button><button class="filter-button" type="button" data-filter-group="billing" data-filter="per_task">按次计费</button><button class="filter-button" type="button" data-filter-group="billing" data-filter="per_token">按 Token</button></div>
+            </div>
+            <div class="filter-group">
+              <h4>模型能力</h4>
+              <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="kind" data-filter="all">全部能力</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="对话模型">对话模型</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="图片生成">图片生成</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="视频生成">视频生成</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="视频编辑">视频编辑</button></div>
+            </div>
+          </aside>
+          <div class="plaza-main">
+            <div class="plaza-banner"><h3>全部供应商 <span class="tag" id="plazaCount" style="background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.28);">当前显示 32 / 32 个模型</span></h3><p>查看所有可用的 AI 模型供应商，包括 GPT、图片和视频生成模型。</p></div>
+            <div class="plaza-toolbar">
+              <label class="plaza-search"><span>⌕</span><input id="modelSearch" placeholder="模糊搜索模型名称" /></label>
+              <div class="plaza-tools"><button class="btn" id="copyVisibleModels" type="button">复制当前模型</button><button class="btn" id="plazaPriceToggle" type="button">显示价格</button><button class="btn" id="plazaModeToggle" type="button">卡片视图</button></div>
+            </div>
+            <section class="plaza-grid" id="modelGrid"></section>
+          </div>
+        </section>
+
+        <div class="section-head" id="models">
+          <div><h2>模型价格与渠道</h2><p>参考站点的模型类型已覆盖到这里，适合直接替换成你的真实倍率。</p></div>
+          <a class="btn primary" href="#channels">新增渠道</a>
+        </div>
+
+        <section class="workspace">
+          <div class="panel table-card">
+            <div class="table-tools">
+              <div class="filters"><span class="chip active">全部</span><span class="chip">OpenAI</span><span class="chip">Claude</span><span class="chip">Gemini</span><span class="chip">国产模型</span><span class="chip">视频生成</span></div>
+              <span class="pill">共 32 个模型类型</span>
+            </div>
+            <table>
+              <thead><tr><th>模型</th><th>类型</th><th>计费倍率</th><th>状态</th><th>兼容接口</th></tr></thead>
+              <tbody>
+                <tr><td><div class="model"><div class="avatar a-blue">O</div><div><strong>OpenAI</strong><small>GPT、Codex、Embeddings</small></div></div></td><td><span class="tag blue">通用大模型</span></td><td class="price-cell" data-price-id="openai" data-default-price="1.00x"></td><td><span class="tag green">可用</span></td><td>OpenAI</td></tr>
+                <tr><td><div class="model"><div class="avatar a-purple">C</div><div><strong>Anthropic Claude</strong><small>Claude / AWS Claude</small></div></div></td><td><span class="tag purple">推理模型</span></td><td class="price-cell" data-price-id="claude" data-default-price="1.20x"></td><td><span class="tag green">可用</span></td><td>Claude / OpenAI</td></tr>
+                <tr><td><div class="model"><div class="avatar a-orange">G</div><div><strong>Google Gemini</strong><small>Gemini / Vertex AI</small></div></div></td><td><span class="tag orange">多模态</span></td><td class="price-cell" data-price-id="gemini" data-default-price="0.85x"></td><td><span class="tag green">可用</span></td><td>Gemini / OpenAI</td></tr>
+                <tr><td><div class="model"><div class="avatar a-green">D</div><div><strong>DeepSeek</strong><small>DeepSeek Chat / Reasoner</small></div></div></td><td><span class="tag green">高性价比</span></td><td class="price-cell" data-price-id="deepseek" data-default-price="0.35x"></td><td><span class="tag green">可用</span></td><td>OpenAI</td></tr>
+                <tr><td><div class="model"><div class="avatar a-red">S</div><div><strong>Sora / 可灵 / 即梦 / Vidu</strong><small>视频生成渠道</small></div></div></td><td><span class="tag gray">视频模型</span></td><td class="price-cell" data-price-id="video" data-default-price="按任务"></td><td><span class="tag orange">排队</span></td><td>OpenAI-like</td></tr>
+                <tr><td><div class="model"><div class="avatar a-blue">Q</div><div><strong>通义千问 / 文心 / 星火 / 混元</strong><small>国产模型集合</small></div></div></td><td><span class="tag blue">中文优化</span></td><td class="price-cell" data-price-id="cn-models" data-default-price="0.50x"></td><td><span class="tag green">可用</span></td><td>OpenAI</td></tr>
+              </tbody>
+            </table>
+            <div class="admin-hint" style="padding: 0 16px 14px;">管理员模式已开启：价格修改会自动保存到本地。</div>
+          </div>
+
+          <aside class="detail">
+            <article class="panel detail-card" id="tokens">
+              <div class="token-head"><h3>令牌管理</h3><button class="btn primary" id="createToken" type="button">添加令牌</button></div>
+              <p class="muted" id="tokenAuthHint">新用户默认没有令牌，请登录后手动添加。</p>
+              <div class="token-list" id="tokenList"></div>
+            </article>
+            <article class="panel detail-card" id="docs">
+              <h3>兼容接口</h3>
+              <div class="endpoint-list">
+                <div class="endpoint"><code>https://ai.krapi.cn/v1/chat/completions</code><span class="tag green">OpenAI</span></div>
+                <div class="endpoint"><code>https://ai.krapi.cn/v1/messages</code><span class="tag purple">Claude</span></div>
+                <div class="endpoint"><code>https://ai.krapi.cn/v1beta/models</code><span class="tag orange">Gemini</span></div>
+                <div class="endpoint"><code>https://ai.krapi.cn/v1/images/generations</code><span class="tag blue">Image</span></div>
+              </div>
+            </article>
+            <article class="panel detail-card" id="channels">
+              <h3>渠道健康度</h3>
+              <div class="row"><strong>OpenAI 主渠道</strong><span class="tag green">99.98%</span></div>
+              <div class="progress"><span style="width: 96%"></span></div>
+              <div class="row" style="margin-top:12px;"><strong>Claude 备用渠道</strong><span class="tag blue">98.70%</span></div>
+              <div class="progress"><span style="width: 82%"></span></div>
+            </article>
+          </aside>
+        </section>
+
+        <section class="panel detail-card" id="logs">
+          <h3>快速调用示例</h3>
+          <pre class="code">POST https://ai.krapi.cn/v1/chat/completions
+Authorization: Bearer nb_sk_live_xxxxxx
+Content-Type: application/json
+
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "user", "content": "用一句话介绍 NBAPI" }
+  ]
+}</pre>
+        </section>
+
+        <section class="panel detail-card route-placeholder" id="wallet">
+          <h2>充值订阅</h2>
+          <p class="muted">管理账户余额、充值记录和订阅方案。</p>
+          <div class="key-box">充值功能将在支付渠道配置完成后开放。</div>
+        </section>
+
+        <section class="panel detail-card route-placeholder" id="settings">
+          <h2>系统设置</h2>
+          <p class="muted">管理账户偏好、通知设置和安全选项。</p>
+          <div class="key-box">系统设置模块已预留，后续将接入服务器端配置。</div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <div class="copy-toast" id="copyToast">模型名称已复制</div>
+  <script>
+    const storageKeys = {
+      theme: "nbapi-theme",
+      admin: "nbapi-admin",
+      prices: "nbapi-prices"
+    };
+
+    const themeToggle = document.getElementById("themeToggle");
+    const adminLogin = document.getElementById("adminLogin");
+    const adminState = document.getElementById("adminState");
+    const priceCells = Array.from(document.querySelectorAll("[data-price-id]"));
+    const modelGrid = document.getElementById("modelGrid");
+    const modelSearch = document.getElementById("modelSearch");
+    const copyVisibleModels = document.getElementById("copyVisibleModels");
+    const plazaPriceToggle = document.getElementById("plazaPriceToggle");
+    const plazaModeToggle = document.getElementById("plazaModeToggle");
+    const copyToast = document.getElementById("copyToast");
+    const balanceDisplay = document.getElementById("balanceDisplay");
+    const userLogin = document.getElementById("userLogin");
+    const createToken = document.getElementById("createToken");
+    const tokenList = document.getElementById("tokenList");
+    const tokenAuthHint = document.getElementById("tokenAuthHint");
+    const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
+    let sessionToken = localStorage.getItem("nbapi-session-token") || "";
+    let currentUser = null;
+    let activeApiKey = localStorage.getItem("nbapi-active-api-key") || "";
+
+    async function apiRequest(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+      const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+      return data;
+    }
+
+    function formatTokenDate(timestamp) {
+      return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN", { hour12: false }) : "从未使用";
+    }
+
+    async function loadTokens() {
+      if (!sessionToken) {
+        tokenAuthHint.textContent = "新用户默认没有令牌，请先登录后手动添加。";
+        tokenList.innerHTML = "<small>当前未登录</small>";
+        return;
+      }
+      try {
+        const data = await apiRequest("/api/tokens");
+        tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。原始 Key 只在创建时显示一次。` : "令牌已安全存储在服务端。";
+        tokenList.innerHTML = data.items.length ? data.items.map((item) => `
+          <div class="token-row">
+            <div class="token-row-top"><strong>${item.name}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
+            <code>${item.hint}</code>
+            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" data-copy-token="${item.hint}">复制脱敏 Key</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
+          </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
+        tokenList.querySelectorAll("[data-copy-token]").forEach((button) => button.addEventListener("click", () => copyModelName(button.dataset.copyToken)));
+        tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));
+      } catch (error) {
+        tokenList.innerHTML = `<small>${error.message}</small>`;
+      }
+    }
+
+    async function disableToken(id) {
+      if (!confirm("禁用后该 Key 将无法继续调用模型，确定继续吗？")) return;
+      try { await apiRequest(`/api/tokens/${id}`, { method: "DELETE" }); loadTokens(); showToast("令牌已禁用"); }
+      catch (error) { alert(error.message); }
+    }
+
+    const documentedModels = [
+      ["T香蕉2", "Gemini 图片", "Google", "图片生成", "/v1beta/models/{model}:generateContent", "a-orange", "G", "异步"],
+      ["T香蕉pro", "Gemini 图片", "Google", "图片生成", "/v1beta/models/{model}:generateContent", "a-orange", "G", "异步"],
+      ["gpt-5.5", "GPT 5.5", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
+      ["gpt-5.6-sol", "GPT 5.6 Sol", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
+      ["gpt-5.6-terra", "GPT 5.6 Terra", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
+      ["gpt-image-2", "GPT 图片", "OpenAI", "图片生成", "/v1/images/generations", "a-blue", "O", "异步"],
+      ["grok-video-480p", "Grok 视频", "Grok", "视频生成", "/v1/videos", "a-red", "G", "异步"],
+      ["grok-video-720p", "Grok 视频", "Grok", "视频生成", "/v1/videos", "a-red", "G", "异步"],
+      ["grok-imagine-video-1.5-480p", "Grok 1.5 视频", "Grok", "视频生成", "/v1/videos", "a-red", "G", "单图"],
+      ["grok-imagine-video-1.5-720p", "Grok 1.5 视频", "Grok", "视频生成", "/v1/videos", "a-red", "G", "单图"],
+      ["omni-flash", "Omni 视频", "Omni", "视频生成", "/v1/videos", "a-purple", "O", "异步"],
+      ["omni-flash-1080p", "Omni 视频", "Omni", "视频生成", "/v1/videos", "a-purple", "O", "异步"],
+      ["omni-flash-4k", "Omni 视频", "Omni", "视频生成", "/v1/videos", "a-purple", "O", "异步"],
+      ["omni-flash-components", "Omni 视频", "Omni", "参考图生视频", "/v1/videos", "a-purple", "O", "图片"],
+      ["omni-flash-components-1080p", "Omni 视频", "Omni", "参考图生视频", "/v1/videos", "a-purple", "O", "图片"],
+      ["omni-flash-components-4k", "Omni 视频", "Omni", "参考图生视频", "/v1/videos", "a-purple", "O", "图片"],
+      ["omni-flash-edit", "Omni 视频编辑", "Omni", "视频编辑", "/v1/videos", "a-purple", "E", "编辑"],
+      ["omni-flash-edit-1080p", "Omni 视频编辑", "Omni", "视频编辑", "/v1/videos", "a-purple", "E", "编辑"],
+      ["omni-flash-edit-4k", "Omni 视频编辑", "Omni", "视频编辑", "/v1/videos", "a-purple", "E", "编辑"],
+      ["sora-v3-fast", "Sora 视频", "Sora / Veo", "文生视频", "/v1/video/submit/generate", "a-blue", "S", "快速"],
+      ["sora-v3-fast-1080p", "Sora 视频", "Sora / Veo", "文生视频", "/v1/video/submit/generate", "a-blue", "S", "快速"],
+      ["sora-v3-pro", "Sora 视频", "Sora / Veo", "视频生成", "/v1/video/submit/generate", "a-blue", "S", "专业"],
+      ["sora-v3-pro-1080p", "Sora 视频", "Sora / Veo", "视频生成", "/v1/video/submit/generate", "a-blue", "S", "专业"],
+      ["veo-3.1-lite-720", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "720p"],
+      ["veo-3.1-lite-1080", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "1080p"],
+      ["veo-3.1-lite-4k", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "4K"],
+      ["veo-3.1-fast-720", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "720p"],
+      ["veo-3.1-fast-1080", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "1080p"],
+      ["veo-3.1-fast-4k", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "4K"],
+      ["veo-3.1-quality-720", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "720p"],
+      ["veo-3.1-quality-1080", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "1080p"],
+      ["veo-3.1-quality-4k", "Veo 视频", "Sora / Veo", "视频生成", "/v1/videos", "a-green", "V", "4K"]
+    ];
+
+    let prices = JSON.parse(localStorage.getItem(storageKeys.prices) || "{}");
+    let isAdmin = localStorage.getItem(storageKeys.admin) === "true";
+    let accountBalance = Number(localStorage.getItem("nbapi-balance") || "100");
+    let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
+    let showPlazaPrices = true;
+    let compactPlaza = false;
+    const selectedFilters = { provider: "all", billing: "all", kind: "all" };
+    const routes = ["console", "square", "tokens", "docs", "channels", "logs", "wallet", "settings"];
+
+    function applyRoute() {
+      let route = (location.hash || "#console").slice(1) || "console";
+      if (route === "models") route = "square";
+      if (!routes.includes(route)) route = "console";
+      if (route === "channels" && !isAdmin) {
+        alert("渠道管理仅管理员可用，请先登录管理员账号。");
+        route = "console";
+        history.replaceState(null, "", "#console");
+      }
+      document.body.classList.remove(...routes.map((item) => `route-${item}`));
+      document.body.classList.add(`route-${route}`);
+      document.querySelectorAll("a[href^='#']").forEach((link) => {
+        link.classList.toggle("active", link.getAttribute("href") === `#${route}`);
+      });
+    }
+    window.addEventListener("hashchange", applyRoute);
+
+    const defaultModelPricing = Object.fromEntries(documentedModels.map(([name, providerLabel, provider, kind]) => [name, {
+      amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5,
+      unit: kind === "对话模型" ? "per_token" : "per_task"
+    }]));
+
+    function getModelPricing(name, kind) {
+      return modelPricing[name] || defaultModelPricing[name] || { amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5, unit: kind === "对话模型" ? "per_token" : "per_task" };
+    }
+
+    function formatModelPrice(pricing) {
+      const amount = Number(pricing.amount || 0).toFixed(4);
+      if (pricing.unit === "per_token" && Number(pricing.amount || 0) === 0) return "价格待管理员配置 / 1K Tokens";
+      return pricing.unit === "per_token" ? `$${amount} / 1K Tokens` : `$${amount} / 次`;
+    }
+
+    function saveModelPricing(name, amount, unit) {
+      modelPricing[name] = { amount: Math.max(0, Number(amount) || 0), unit };
+      localStorage.setItem("nbapi-model-pricing", JSON.stringify(modelPricing));
+    }
+
+    function updateBalance() {
+      balanceDisplay.textContent = `$ ${accountBalance.toFixed(2)}`;
+      localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
+    }
+
+    function setTheme(theme) {
+      const dark = theme === "dark";
+      document.body.classList.toggle("dark", dark);
+      themeToggle.textContent = dark ? "浅色模式" : "深色模式";
+      localStorage.setItem(storageKeys.theme, theme);
+    }
+
+    function getPrice(cell) {
+      return prices[cell.dataset.priceId] || cell.dataset.defaultPrice;
+    }
+
+    function savePrice(id, value) {
+      prices[id] = value.trim() || "未设置";
+      localStorage.setItem(storageKeys.prices, JSON.stringify(prices));
+    }
+
+    function renderModelSquare() {
+      const query = (modelSearch?.value || "").trim().toLowerCase();
+      const visibleModels = documentedModels.filter(([name, providerLabel, provider, kind]) =>
+        `${name} ${providerLabel} ${provider} ${kind}`.toLowerCase().includes(query) &&
+        (selectedFilters.provider === "all" || provider === selectedFilters.provider) &&
+        (selectedFilters.kind === "all" || kind === selectedFilters.kind) &&
+        (selectedFilters.billing === "all" || getModelPricing(name, kind).unit === selectedFilters.billing)
+      );
+      modelGrid.classList.toggle("compact-plaza", compactPlaza);
+      document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${documentedModels.length} 个模型`;
+      modelGrid.innerHTML = visibleModels.map(([name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode]) => {
+        const pricing = getModelPricing(name, kind);
+        const priceMarkup = isAdmin
+          ? `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${name}" /><select class="billing-select" data-unit-model="${name}"><option value="per_task" ${pricing.unit === "per_task" ? "selected" : ""}>按次</option><option value="per_token" ${pricing.unit === "per_token" ? "selected" : ""}>按1K Token</option></select></div>`
+          : `<strong>${formatModelPrice(pricing)}</strong>`;
+        return `
+        <article class="plaza-card">
+          <div class="plaza-card-top">
+            <div class="avatar ${avatarClass}">${initial}</div>
+            <div class="plaza-card-name"><strong>${name}</strong><small>${providerLabel}</small></div>
+            <button class="copy-model" type="button" data-copy-model="${name.replace(/"/g, "&quot;")}" title="复制模型名称" aria-label="复制 ${name}"><span class="copy-icon"></span></button>
+          </div>
+          ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1K Token" : "按次"}</span></div>` : ""}
+          <p class="plaza-description">${kind}，提交任务后通过对应查询接口获取结果。</p>
+          <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${kind}</span><span class="tag blue">${mode}</span><code>${endpoint}</code><button class="call-model" type="button" data-call-model="${name}">调用并扣费</button></div>
+        </article>
+      `;
+      }).join("");
+      modelGrid.querySelectorAll("[data-copy-model]").forEach((button) => {
+        button.addEventListener("click", () => copyModelName(button.dataset.copyModel));
+      });
+      modelGrid.querySelectorAll("[data-call-model]").forEach((button) => {
+        button.addEventListener("click", () => chargeModel(button.dataset.callModel));
+      });
+      modelGrid.querySelectorAll("[data-price-model], [data-unit-model]").forEach((control) => {
+        control.addEventListener("change", () => {
+          const name = control.dataset.priceModel || control.dataset.unitModel;
+          const card = control.closest(".plaza-card");
+          const amount = card.querySelector("[data-price-model]").value;
+          const unit = card.querySelector("[data-unit-model]").value;
+          saveModelPricing(name, amount, unit);
+          renderModelSquare();
+          showToast(`${name} 价格已保存`);
+        });
+      });
+    }
+
+    function showToast(message) {
+      copyToast.textContent = message;
+      copyToast.classList.add("show");
+      window.clearTimeout(copyToast.timer);
+      copyToast.timer = window.setTimeout(() => copyToast.classList.remove("show"), 1600);
+    }
+
+    async function chargeModel(name) {
+      const model = documentedModels.find(([modelName]) => modelName === name);
+      if (!model) return;
+      if (!activeApiKey) {
+        alert("调用模型必须使用自己的 API Key，请先登录并在令牌管理中创建令牌。");
+        location.hash = "tokens";
+        return;
+      }
+      const pricing = getModelPricing(model[0], model[2]);
+      let quantity = 1;
+      if (pricing.unit === "per_token") {
+        quantity = Number(prompt(`请输入本次调用的 Token 数量（${name}）`, "1000"));
+        if (!Number.isFinite(quantity) || quantity <= 0) return;
+      }
+      try {
+        const idempotencyKey = crypto.randomUUID();
+        const data = await fetch(`${API_BASE}/api/billing/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-NBAPI-Key": activeApiKey, "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ model: name, usage: { inputTokens: pricing.unit === "per_token" ? quantity : 0, outputTokens: 0 }, idempotencyKey })
+        }).then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "调用失败");
+          return result;
+        });
+        accountBalance = Number(data.balance);
+        updateBalance();
+        showToast(`${name} 调用成功，扣除 $${Number(data.charged).toFixed(6)}`);
+      } catch (error) {
+        alert(error.message === "insufficient_balance" ? "余额不足，本次调用已拒绝。" : error.message);
+      }
+    }
+
+    async function copyModelName(modelName) {
+      try {
+        await navigator.clipboard.writeText(modelName);
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = modelName;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      copyToast.textContent = `${modelName} 已复制`;
+      copyToast.classList.add("show");
+      window.clearTimeout(copyToast.timer);
+      copyToast.timer = window.setTimeout(() => copyToast.classList.remove("show"), 1600);
+    }
+
+    function renderPrices() {
+      document.body.classList.toggle("admin", isAdmin);
+      adminState.textContent = isAdmin ? "管理员" : "访客";
+      adminLogin.textContent = isAdmin ? "退出管理" : "管理员登录";
+      adminLogin.classList.toggle("success", isAdmin);
+
+      priceCells.forEach((cell) => {
+        const value = getPrice(cell);
+        if (isAdmin) {
+          cell.innerHTML = `<input class="price-input" aria-label="修改价格" value="${value.replace(/"/g, "&quot;")}" />`;
+          const input = cell.querySelector("input");
+          input.addEventListener("change", () => savePrice(cell.dataset.priceId, input.value));
+          input.addEventListener("blur", () => {
+            savePrice(cell.dataset.priceId, input.value);
+            input.value = getPrice(cell);
+          });
+        } else {
+          cell.innerHTML = `<span class="price-value">${value}</span>`;
+        }
+      });
+      renderModelSquare();
+    }
+
+    themeToggle.addEventListener("click", () => {
+      setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+    });
+
+    adminLogin.addEventListener("click", async () => {
+      if (isAdmin) {
+        isAdmin = false;
+        sessionToken = "";
+        currentUser = null;
+        localStorage.setItem(storageKeys.admin, "false");
+        localStorage.removeItem("nbapi-session-token");
+        renderPrices();
+        return;
+      }
+
+      const username = prompt("请输入管理员用户名");
+      if (username === null) return;
+      const password = prompt("请输入管理员密码");
+      if (password === null) return;
+      try {
+        const data = await fetch(`${API_BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "登录失败");
+          return result;
+        });
+        if (data.user.role !== "admin") throw new Error("admin_required");
+        sessionToken = data.token;
+        currentUser = data.user;
+        isAdmin = true;
+        localStorage.setItem(storageKeys.admin, "true");
+        localStorage.setItem("nbapi-session-token", sessionToken);
+        accountBalance = Number(data.user.balance);
+        updateBalance();
+        renderPrices();
+        showToast("管理员登录成功");
+      } catch (error) {
+        alert(error.message === "admin_required" ? "该账号不是管理员" : "管理员登录失败");
+      }
+    });
+
+    userLogin.addEventListener("click", async () => {
+      if (sessionToken) {
+        sessionToken = "";
+        currentUser = null;
+        localStorage.removeItem("nbapi-session-token");
+        userLogin.textContent = "用户登录";
+        loadTokens();
+        return;
+      }
+      const username = prompt("用户名（演示账号：demo）");
+      if (username === null) return;
+      const password = prompt("密码（演示密码：demo123）");
+      if (password === null) return;
+      try {
+        const data = await fetch(`${API_BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "登录失败");
+          return result;
+        });
+        sessionToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem("nbapi-session-token", sessionToken);
+        userLogin.textContent = `退出 ${currentUser.username}`;
+        accountBalance = Number(currentUser.balance);
+        updateBalance();
+        loadTokens();
+        showToast("登录成功");
+      } catch (error) { alert(error.message); }
+    });
+
+    createToken.addEventListener("click", async () => {
+      if (!sessionToken) { alert("请先登录用户账号，再创建令牌。"); return; }
+      const name = prompt("请输入令牌名称", "我的令牌");
+      if (name === null) return;
+      try {
+        const data = await apiRequest("/api/tokens", { method: "POST", body: JSON.stringify({ name }) });
+        activeApiKey = data.token;
+        localStorage.setItem("nbapi-active-api-key", activeApiKey);
+        alert(`令牌创建成功，请立即保存这串完整 Key：\n\n${data.token}\n\n出于安全原因，之后页面只显示脱敏 Key。`);
+        loadTokens();
+      } catch (error) { alert(error.message); }
+    });
+
+    document.querySelectorAll(".admin-only").forEach((item) => {
+      item.addEventListener("click", (event) => {
+        if (!isAdmin) {
+          event.preventDefault();
+          alert("渠道管理仅管理员可用，请先登录管理员账号。");
+        }
+      });
+    });
+
+    modelSearch.addEventListener("input", renderModelSquare);
+    copyVisibleModels.addEventListener("click", () => {
+      const query = (modelSearch.value || "").trim().toLowerCase();
+      const names = documentedModels.filter(([name, providerLabel, provider, kind]) => `${name} ${providerLabel} ${provider} ${kind}`.toLowerCase().includes(query)).map(([name]) => name);
+      copyModelName(names.join("\n"));
+    });
+    document.querySelectorAll("[data-filter-group]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const group = button.dataset.filterGroup;
+        selectedFilters[group] = button.dataset.filter;
+        document.querySelectorAll(`[data-filter-group="${group}"]`).forEach((item) => item.classList.toggle("active", item === button));
+        renderModelSquare();
+      });
+    });
+    plazaPriceToggle.addEventListener("click", () => {
+      showPlazaPrices = !showPlazaPrices;
+      plazaPriceToggle.textContent = showPlazaPrices ? "隐藏价格" : "显示价格";
+      renderModelSquare();
+    });
+    plazaModeToggle.addEventListener("click", () => {
+      compactPlaza = !compactPlaza;
+      plazaModeToggle.textContent = compactPlaza ? "标准视图" : "紧凑视图";
+      renderModelSquare();
+    });
+
+    setTheme(localStorage.getItem(storageKeys.theme) || "light");
+    updateBalance();
+    renderModelSquare();
+    renderPrices();
+    loadTokens();
+    applyRoute();
+  </script>
+</body>
+</html>
