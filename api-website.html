@@ -730,7 +730,7 @@
               <p>统一管理 OpenAI、Anthropic Claude、Google Gemini、DeepSeek、通义千问、豆包、Sora 等模型渠道，并转换为 OpenAI / Claude / Gemini 兼容接口。</p>
               <div class="hero-actions"><a class="btn primary" href="#tokens">创建令牌</a><a class="btn" href="#docs">查看 API 文档</a><a class="btn" href="#square">模型广场</a></div>
             </div>
-            <pre class="mini-console"><span class="green">$</span> curl https://ai.krapi.cn/v1/chat/completions \
+            <pre class="mini-console"><span class="green">$</span> curl https://nbapi.win/v1/chat/completions \
   -H "Authorization: Bearer nb_sk_xxx" \
   -H "Content-Type: application/json"
 
@@ -898,10 +898,10 @@
             <article class="panel detail-card" id="docs">
               <h3>兼容接口</h3>
               <div class="endpoint-list">
-                <div class="endpoint"><code>https://ai.krapi.cn/v1/chat/completions</code><span class="tag green">OpenAI</span></div>
-                <div class="endpoint"><code>https://ai.krapi.cn/v1/messages</code><span class="tag purple">Claude</span></div>
-                <div class="endpoint"><code>https://ai.krapi.cn/v1beta/models</code><span class="tag orange">Gemini</span></div>
-                <div class="endpoint"><code>https://ai.krapi.cn/v1/images/generations</code><span class="tag blue">Image</span></div>
+                <div class="endpoint"><code>https://nbapi.win/v1/chat/completions</code><span class="tag green">OpenAI</span></div>
+                <div class="endpoint"><code>https://nbapi.win/v1/messages</code><span class="tag purple">Claude</span></div>
+                <div class="endpoint"><code>https://nbapi.win/v1beta/models</code><span class="tag orange">Gemini</span></div>
+                <div class="endpoint"><code>https://nbapi.win/v1/images/generations</code><span class="tag blue">Image</span></div>
               </div>
             </article>
             <article class="panel detail-card" id="users">
@@ -1183,7 +1183,7 @@
 
     function setUpstreamUiState(config = null) {
       const adminMode = Boolean(canManage && sessionToken);
-      upstreamBaseUrl.value = config?.upstreamBaseUrl || "https://ai.krapi.cn";
+      upstreamBaseUrl.value = config?.upstreamBaseUrl || "https://nbapi.win/v1";
       upstreamApiKey.disabled = !adminMode;
       saveUpstreamApiKey.disabled = !adminMode;
       clearUpstreamApiKey.disabled = !adminMode;
@@ -1193,9 +1193,10 @@
         return;
       }
       upstreamApiKey.value = "";
+      const routeHint = config?.activeChannelName ? `当前路由：${config.activeChannelName}。` : "";
       upstreamConfigStatus.textContent = config?.upstreamApiKeySet
-        ? `已保存上游 Key，当前脱敏显示为 ${config.upstreamApiKeyHint || "******"}.`
-        : "当前尚未保存上游 API Key。";
+        ? `${routeHint} 已保存上游 Key，当前脱敏显示为 ${config.upstreamApiKeyHint || "******"}.`
+        : `${routeHint} 当前尚未保存上游 API Key。`;
     }
 
     async function loadUpstreamConfig() {

@@ -22,6 +22,7 @@ NBAPI 是一个面向 AI 模型聚合分发的站点，目标是对齐 `https://
 ## 本地开发
 
 - 当前工作副本目录：`D:\ai web`
+- 对外调用地址：`https://nbapi.win/v1`
 - 启动后端：`python server.py`
 - 启动静态页：`python -m http.server 8000 --bind 127.0.0.1`
 - 打开：`http://127.0.0.1:8000/api-website.html`
@@ -58,4 +59,3 @@ NBAPI 是一个面向 AI 模型聚合分发的站点，目标是对齐 `https://
 - 这个数据库包含用户、令牌、余额、扣费记录和渠道密钥
 - 备份文件会放在 `backups/`
 - 如需迁移或备份，应该从服务器单独导出
-

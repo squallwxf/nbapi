@@ -8,7 +8,9 @@ import traceback
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +19,17 @@ HTML_PATH = ROOT / "api-website.html"
 UPSTREAM = "https://ai.krapi.cn"
 MICROS_PER_DOLLAR = 1_000_000
 TOKEN_PREFIX = "nb_sk_"
+PROXY_PREFIXES = ("/v1/", "/v1beta/")
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
 
 MODEL_ROWS = [
     ("T香蕉2", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
@@ -236,6 +249,123 @@ def json_bytes(payload) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
+def should_proxy_path(path: str) -> bool:
+    return path == "/v1" or path == "/v1beta" or path.startswith(PROXY_PREFIXES)
+
+
+def try_parse_json_bytes(body: bytes):
+    if not body:
+        return None
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return None
+
+
+def extract_model_name(path: str, payload) -> str:
+    if path.startswith("/v1beta/models/"):
+        model_part = path[len("/v1beta/models/"):]
+        suffix = ":generateContent"
+        if model_part.endswith(suffix):
+            return unquote(model_part[:-len(suffix)]).strip()
+    if isinstance(payload, dict):
+        model = str(payload.get("model", "")).strip()
+        if model:
+            return model
+    return ""
+
+
+def extract_usage_counts(payload) -> tuple[int, int]:
+    if not isinstance(payload, dict):
+        return 0, 0
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        usage = payload.get("usageMetadata") if isinstance(payload.get("usageMetadata"), dict) else {}
+    if not isinstance(usage, dict):
+        return 0, 0
+    candidates = (
+        ("inputTokens", "input_tokens", "prompt_tokens", "promptTokens"),
+        ("outputTokens", "output_tokens", "completion_tokens", "completionTokens"),
+        ("totalTokens", "total_tokens", "totalTokens"),
+    )
+
+    def pick(keys):
+        for key in keys:
+            value = usage.get(key)
+            if value is not None:
+                try:
+                    return max(0, int(value))
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    input_tokens = pick(candidates[0])
+    output_tokens = pick(candidates[1])
+    total_tokens = pick(candidates[2])
+    if input_tokens is None and output_tokens is None and total_tokens is not None:
+        return total_tokens, 0
+    return input_tokens or 0, output_tokens or 0
+
+
+def get_upstream_route(db):
+    row = db.execute(
+        "SELECT id, name, upstream_base_url, upstream_api_key FROM channels WHERE active=1 ORDER BY priority ASC, id ASC LIMIT 1"
+    ).fetchone()
+    if row:
+        base_url = str(row[2] or "").strip() or UPSTREAM
+        api_key = str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")
+        return {
+            "channel_id": row[0],
+            "channel_name": row[1],
+            "base_url": base_url.rstrip("/"),
+            "api_key": api_key,
+        }
+    return {
+        "channel_id": None,
+        "channel_name": None,
+        "base_url": UPSTREAM.rstrip("/"),
+        "api_key": get_setting(db, "upstream_api_key", ""),
+    }
+
+
+def fetch_model_row(db, model_name: str):
+    return db.execute(
+        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active FROM models WHERE name=?",
+        (model_name,),
+    ).fetchone()
+
+
+def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0):
+    existing = db.execute(
+        "SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?",
+        (user_id, idempotency_key),
+    ).fetchone()
+    if existing:
+        balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
+        return {
+            "idempotent": True,
+            "amount_micros": existing[0],
+            "balance_micros": balance,
+            "status": existing[1],
+        }
+    balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
+    if balance < amount_micros:
+        raise ValueError("insufficient_balance")
+    db.execute("UPDATE users SET balance_micros=balance_micros-? WHERE id=?", (amount_micros, user_id))
+    db.execute(
+        """INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit,
+                              input_tokens, output_tokens, status, created_at, token_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?)""",
+        (user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, now(), token_id),
+    )
+    return {
+        "idempotent": False,
+        "amount_micros": amount_micros,
+        "balance_micros": balance - amount_micros,
+        "status": "charged",
+    }
+
+
 def mask_secret(value: str, prefix: int = 4, suffix: int = 4) -> str:
     value = value or ""
     if not value:
@@ -307,6 +437,154 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request body too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def _send_raw_response(self, status: int, headers: dict, body: bytes) -> None:
+        self.send_response(status)
+        for key, value in headers.items():
+            if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "content-length":
+                continue
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _estimate_token_quantity(self, payload) -> int:
+        if not isinstance(payload, dict):
+            return 1
+        for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens"):
+            value = payload.get(key)
+            if value is not None:
+                try:
+                    return max(1, int(value))
+                except (TypeError, ValueError):
+                    continue
+        text = json.dumps(payload, ensure_ascii=False)
+        return max(1, min(100000, len(text) // 4))
+
+    def _proxy_upstream(self, method: str) -> bool:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not should_proxy_path(path):
+            return False
+
+        api_user = self.require_api_token()
+        if not api_user:
+            return True
+
+        body = b""
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length else b""
+        payload = try_parse_json_bytes(body)
+        model_name = extract_model_name(path, payload)
+
+        if method in ("POST", "PUT", "PATCH", "DELETE") and not model_name:
+            self.send_json(400, {"error": "model_required"})
+            return True
+
+        with sqlite3.connect(DB_PATH) as db:
+            route = get_upstream_route(db)
+            if not route["api_key"]:
+                self.send_json(503, {"error": "upstream_api_key_not_configured"})
+                return True
+
+            model_row = None
+            if model_name:
+                model_row = fetch_model_row(db, model_name)
+                if not model_row or not model_row[6]:
+                    self.send_json(400, {"error": "model_not_available"})
+                    return True
+                if model_row[4] == "per_task":
+                    balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (api_user[1],)).fetchone()[0]
+                    if balance < model_row[5]:
+                        self.send_json(400, {"error": "insufficient_balance"})
+                        return True
+
+            upstream_url = f"{route['base_url']}{path}"
+            if parsed.query:
+                upstream_url = f"{upstream_url}?{parsed.query}"
+            upstream_headers = {}
+            for key, value in self.headers.items():
+                lower_key = key.lower()
+                if lower_key in HOP_BY_HOP_HEADERS or lower_key in {"host", "content-length", "authorization"}:
+                    continue
+                upstream_headers[key] = value
+            upstream_headers["Authorization"] = f"Bearer {route['api_key']}"
+            if body and "content-type" not in {key.lower() for key in upstream_headers}:
+                upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
+            request = Request(
+                upstream_url,
+                data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None,
+                headers=upstream_headers,
+                method=method,
+            )
+            try:
+                with urlopen(request, timeout=300) as response:
+                    resp_status = response.status
+                    resp_headers = dict(response.headers.items())
+                    resp_body = response.read()
+            except HTTPError as exc:
+                resp_status = exc.code
+                resp_headers = dict(exc.headers.items()) if exc.headers else {}
+                resp_body = exc.read() or b""
+            except URLError as exc:
+                self.send_json(502, {"error": "upstream_unreachable", "detail": str(getattr(exc, "reason", exc))})
+                return True
+
+        if not (200 <= resp_status < 300):
+            self._send_raw_response(resp_status, resp_headers, resp_body)
+            return True
+
+        if model_row:
+            response_payload = try_parse_json_bytes(resp_body)
+            billing_unit = model_row[4]
+            price_micros = model_row[5]
+            input_tokens = 0
+            output_tokens = 0
+            if billing_unit == "per_token":
+                input_tokens, output_tokens = extract_usage_counts(response_payload)
+                quantity = input_tokens + output_tokens
+                if quantity <= 0:
+                    quantity = self._estimate_token_quantity(payload)
+                amount_micros = (price_micros * quantity + 999) // 1000
+            else:
+                amount_micros = price_micros
+
+            idempotency_key = (
+                str(self.headers.get("Idempotency-Key", "")).strip()
+                or str(response_payload.get("id") if isinstance(response_payload, dict) else "").strip()
+                or str(response_payload.get("task_id") if isinstance(response_payload, dict) else "").strip()
+                or hashlib.sha256((method + "|" + path + "|" + body.decode("utf-8", "ignore")).encode("utf-8")).hexdigest()
+            )
+            with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
+                try:
+                    db.execute("BEGIN IMMEDIATE")
+                    charge_result = bill_ledger(
+                        db,
+                        api_user[1],
+                        api_user[0],
+                        model_name,
+                        idempotency_key,
+                        amount_micros,
+                        billing_unit,
+                        input_tokens,
+                        output_tokens,
+                    )
+                    db.execute("COMMIT")
+                except ValueError as exc:
+                    db.execute("ROLLBACK")
+                    self.send_json(402 if str(exc) == "insufficient_balance" else 400, {"error": str(exc)})
+                    return True
+                except sqlite3.IntegrityError:
+                    db.execute("ROLLBACK")
+                    self.send_json(409, {"error": "duplicate_idempotency_key"})
+                    return True
+            if charge_result["idempotent"]:
+                resp_headers["X-NBAPI-Idempotent"] = "1"
+
+        self._send_raw_response(resp_status, resp_headers, resp_body)
+        return True
+
     def current_user(self):
         header = self.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
@@ -365,16 +643,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if self._proxy_upstream("GET"):
+            return
         if path == "/api/admin/config":
             admin = self.require_user(admin=True)
             if not admin:
                 return
             with sqlite3.connect(DB_PATH) as db:
-                upstream_api_key = get_setting(db, "upstream_api_key", "")
+                route = get_upstream_route(db)
             self.send_json(200, {
-                "upstreamBaseUrl": UPSTREAM,
-                "upstreamApiKeySet": bool(upstream_api_key),
-                "upstreamApiKeyHint": mask_secret(upstream_api_key),
+                "upstreamBaseUrl": route["base_url"],
+                "activeChannelName": route["channel_name"],
+                "upstreamApiKeySet": bool(route["api_key"]),
+                "upstreamApiKeyHint": mask_secret(route["api_key"]),
             })
             return
         if path == "/api/admin/users":
@@ -476,6 +757,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if self._proxy_upstream("POST"):
+            return
         try:
             path = urlparse(self.path).path
             try:
@@ -599,16 +882,11 @@ class Handler(BaseHTTPRequestHandler):
                 with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                     try:
                         db.execute("BEGIN IMMEDIATE")
-                        existing = db.execute("SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?", (user[0], key)).fetchone()
-                        if existing:
-                            balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user[0],)).fetchone()[0]
-                            db.execute("COMMIT")
-                            self.send_json(200, {"charged": micros_to_dollars(existing[0]), "balance": micros_to_dollars(balance), "idempotent": True, "status": existing[1]})
-                            return
-                        model = db.execute("SELECT billing_unit, price_micros, active FROM models WHERE name=?", (model_name,)).fetchone()
-                        if not model or not model[2]:
+                        model = fetch_model_row(db, model_name)
+                        if not model or not model[6]:
                             raise ValueError("model_not_available")
-                        unit, price_micros, _ = model
+                        unit = model[4]
+                        price_micros = model[5]
                         if unit == "per_token":
                             quantity = input_tokens + output_tokens
                             if quantity <= 0:
@@ -616,22 +894,22 @@ class Handler(BaseHTTPRequestHandler):
                             amount = (price_micros * quantity + 999) // 1000
                         else:
                             amount = price_micros
-                        balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user[0],)).fetchone()[0]
-                        if balance < amount:
-                            raise ValueError("insufficient_balance")
-                        db.execute("UPDATE users SET balance_micros=balance_micros-? WHERE id=?", (amount, user[0]))
-                        db.execute("INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?)", (user[0], model_name, key, amount, unit, input_tokens, output_tokens, now(), token_id))
-                        new_balance = balance - amount
+                        charge_result = bill_ledger(db, user[0], token_id, model_name, key, amount, unit, input_tokens, output_tokens)
                         db.execute("COMMIT")
                     except ValueError as exc:
                         db.execute("ROLLBACK")
-                        self.send_json(400, {"error": str(exc)})
+                        self.send_json(402 if str(exc) == "insufficient_balance" else 400, {"error": str(exc)})
                         return
                     except sqlite3.IntegrityError:
                         db.execute("ROLLBACK")
                         self.send_json(409, {"error": "duplicate_idempotency_key"})
                         return
-                self.send_json(200, {"charged": micros_to_dollars(amount), "balance": micros_to_dollars(new_balance), "idempotent": False, "status": "charged"})
+                self.send_json(200, {
+                    "charged": micros_to_dollars(charge_result["amount_micros"]),
+                    "balance": micros_to_dollars(charge_result["balance_micros"]),
+                    "idempotent": charge_result["idempotent"],
+                    "status": charge_result["status"],
+                })
                 return
 
             if path == "/api/admin/channels":
@@ -678,6 +956,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         path = urlparse(self.path).path
+        if self._proxy_upstream("PUT"):
+            return
         if path == "/api/admin/config":
             admin = self.require_user(admin=True)
             if not admin:
@@ -693,10 +973,12 @@ class Handler(BaseHTTPRequestHandler):
             upstream_api_key = str(payload.get("upstreamApiKey", "") or "").strip()
             with sqlite3.connect(DB_PATH) as db:
                 set_setting(db, "upstream_api_key", upstream_api_key)
+                route = get_upstream_route(db)
             self.send_json(200, {
-                "upstreamBaseUrl": UPSTREAM,
-                "upstreamApiKeySet": bool(upstream_api_key),
-                "upstreamApiKeyHint": mask_secret(upstream_api_key),
+                "upstreamBaseUrl": route["base_url"],
+                "activeChannelName": route["channel_name"],
+                "upstreamApiKeySet": bool(route["api_key"]),
+                "upstreamApiKeyHint": mask_secret(route["api_key"]),
             })
             return
         if path == "/api/admin/users":
@@ -780,6 +1062,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         path = urlparse(self.path).path
+        if self._proxy_upstream("PATCH"):
+            return
         if path.startswith("/api/admin/channels/"):
             admin = self.require_user(admin=True)
             if not admin:
@@ -837,6 +1121,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
+        if self._proxy_upstream("DELETE"):
+            return
         prefix = "/api/tokens/"
         if not path.startswith(prefix):
             self.send_json(404, {"error": "not_found"})

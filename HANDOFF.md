@@ -7,6 +7,7 @@
 - 前端页面：`api-website.html`
 - 后端服务：`server.py`
 - 服务器域名：`nbapi.win`
+- 对外调用地址：`https://nbapi.win/v1`
 - 服务器项目目录：`/opt/nbapi`
 - 本地项目目录：`D:\ai web`
 
