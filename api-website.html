@@ -1072,6 +1072,18 @@
     let isSuperAdmin = false;
     let activeApiKey = localStorage.getItem("nbapi-active-api-key") || "";
 
+    function tokenCacheKey() {
+      return currentUser ? `nbapi-token-cache:${currentUser.username}` : "nbapi-token-cache:guest";
+    }
+
+    function readTokenCache() {
+      try { return JSON.parse(localStorage.getItem(tokenCacheKey()) || "{}"); } catch { return {}; }
+    }
+
+    function writeTokenCache(cache) {
+      localStorage.setItem(tokenCacheKey(), JSON.stringify(cache));
+    }
+
     async function apiRequest(path, options = {}) {
       const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
       if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
@@ -1171,14 +1183,15 @@
       }
       try {
         const data = await apiRequest("/api/tokens");
+        const cachedTokens = readTokenCache();
         tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
         tokenList.innerHTML = data.items.length ? data.items.map((item) => `
           <div class="token-row">
             <div class="token-row-top"><strong>${escapeHtml(item.name)}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
             <code>${escapeHtml(item.hint)}</code>
-            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" disabled>仅创建时显示完整 Key</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
+            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建 Key</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
           </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
-        tokenList.querySelectorAll("[data-copy-token]").forEach((button) => button.addEventListener("click", () => copyFullToken(button.dataset.copyToken)));
+        tokenList.querySelectorAll("[data-copy-token-id]").forEach((button) => button.addEventListener("click", () => copyFullToken(cachedTokens[button.dataset.copyTokenId])));
         tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));
       } catch (error) {
         tokenList.innerHTML = `<small>${error.message}</small>`;
@@ -1791,7 +1804,10 @@
         const data = await apiRequest("/api/tokens", { method: "POST", body: JSON.stringify({ name }) });
         activeApiKey = data.token;
         localStorage.setItem("nbapi-active-api-key", activeApiKey);
-        alert(`令牌创建成功，请立即保存这串完整 Key：\n\n${data.token}\n\n出于安全原因，之后页面只显示脱敏 Key。`);
+        const cachedTokens = readTokenCache();
+        cachedTokens[data.id] = data.token;
+        writeTokenCache(cachedTokens);
+        alert(`令牌创建成功，请立即保存这串完整 Key：\n\n${data.token}\n\n之后可在当前浏览器的令牌列表中直接复制。更换设备或清理浏览器数据后，需要重新创建令牌。`);
         loadTokens();
       } catch (error) { alert(error.message); }
     });
