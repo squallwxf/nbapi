@@ -19,6 +19,9 @@ HTML_PATH = ROOT / "api-website.html"
 UPSTREAM = "https://ai.krapi.cn"
 MICROS_PER_DOLLAR = 1_000_000
 TOKEN_PREFIX = "nb_sk_"
+DEFAULT_SUPER_ADMIN_USERNAME = "squallwxf"
+DEFAULT_SUPER_ADMIN_PASSWORD = "Aa19860120"
+DEFAULT_SUPER_ADMIN_EMAIL = "squallwxf@nbapi.local"
 PROXY_PREFIXES = ("/v1/", "/v1beta/")
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -213,10 +216,39 @@ def init_db() -> None:
         if "token_secret" not in token_columns:
             db.execute("ALTER TABLE api_tokens ADD COLUMN token_secret TEXT NOT NULL DEFAULT ''")
         timestamp = now()
-        db.execute(
-            "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'super_admin', 1, ?, ?)",
-            ("root", "root@nbapi.local", hash_password("root123"), 100 * MICROS_PER_DOLLAR, timestamp),
-        )
+        super_admin_row = db.execute(
+            "SELECT id, username FROM users WHERE role='super_admin' ORDER BY id LIMIT 1"
+        ).fetchone()
+        desired_super_admin = db.execute(
+            "SELECT id FROM users WHERE lower(username)=lower(?) LIMIT 1",
+            (DEFAULT_SUPER_ADMIN_USERNAME,),
+        ).fetchone()
+        if desired_super_admin:
+            db.execute(
+                """UPDATE users
+                   SET role='super_admin', active=1, password_hash=?, email=?
+                   WHERE id=?""",
+                (hash_password(DEFAULT_SUPER_ADMIN_PASSWORD), DEFAULT_SUPER_ADMIN_EMAIL, desired_super_admin[0]),
+            )
+            if super_admin_row and super_admin_row[0] != desired_super_admin[0]:
+                db.execute("UPDATE users SET role='admin' WHERE id=?", (super_admin_row[0],))
+        elif super_admin_row:
+            db.execute(
+                """UPDATE users
+                   SET username=?, email=?, password_hash=?, role='super_admin', active=1
+                   WHERE id=?""",
+                (
+                    DEFAULT_SUPER_ADMIN_USERNAME,
+                    DEFAULT_SUPER_ADMIN_EMAIL,
+                    hash_password(DEFAULT_SUPER_ADMIN_PASSWORD),
+                    super_admin_row[0],
+                ),
+            )
+        else:
+            db.execute(
+                "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'super_admin', 1, ?, ?)",
+                (DEFAULT_SUPER_ADMIN_USERNAME, DEFAULT_SUPER_ADMIN_EMAIL, hash_password(DEFAULT_SUPER_ADMIN_PASSWORD), 100 * MICROS_PER_DOLLAR, timestamp),
+            )
         db.execute(
             "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'admin', 1, ?, ?)",
             ("admin", "admin@nbapi.local", hash_password("admin123"), 100 * MICROS_PER_DOLLAR, timestamp),
@@ -1147,7 +1179,8 @@ def main():
     init_db()
     server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     print("NBAPI running at http://127.0.0.1:8765")
-    print("Demo admin: admin / admin123")
+    print(f"Super admin: {DEFAULT_SUPER_ADMIN_USERNAME} / {DEFAULT_SUPER_ADMIN_PASSWORD}")
+    print("Admin: admin / admin123")
     print("Demo user: demo / demo123")
     try:
         server.serve_forever()

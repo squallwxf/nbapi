@@ -669,7 +669,7 @@
               <span>没有账户？</span>
               <a href="#signup">去注册</a>
             </div>
-            <div class="auth-note">演示账号：<br />用户名 `demo`<br />密码 `demo123`<br />管理员账号：`admin` / `admin123`</div>
+            <div class="auth-note">演示账号：<br />普通用户：`demo` / `demo123`<br />管理员：`admin` / `admin123`<br />超级管理员：`squallwxf` / `Aa19860120`</div>
           </div>
         </section>
 
@@ -1082,7 +1082,7 @@
     }
 
     function roleLabel(role) {
-      return role === "super_admin" ? "主管理员" : role === "admin" ? "管理员" : "用户";
+      return role === "super_admin" ? "超级管理员" : role === "admin" ? "管理员" : "用户";
     }
 
     function syncAuthState() {
@@ -1231,7 +1231,7 @@
 
     function renderUserCard(user) {
       const roleOptions = isSuperAdmin
-        ? `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option><option value="super_admin" ${user.role === "super_admin" ? "selected" : ""}>主管理员</option>`
+        ? `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option><option value="super_admin" ${user.role === "super_admin" ? "selected" : ""}>超级管理员</option>`
         : `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>`;
       return `
         <div class="management-card" data-user-id="${user.id}" data-user-active="${user.active ? "1" : "0"}">
