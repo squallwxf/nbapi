@@ -307,6 +307,21 @@
     .compact-plaza .plaza-price { min-height: 0; }
     .copy-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(12px); background: #172033; color: white; padding: 9px 14px; border-radius: 8px; opacity: 0; pointer-events: none; transition: .2s ease; z-index: 20; }
     .copy-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .usage-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:16px 0; }
+    .usage-stat { padding:14px 16px; background:var(--surface-2); border:1px solid var(--line); border-radius:8px; }
+    .usage-stat span { display:block; color:var(--muted); font-size:12px; }
+    .usage-stat strong { display:block; margin-top:5px; font-size:22px; }
+    .usage-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; padding:14px; background:var(--surface-2); border:1px solid var(--line); border-radius:8px; }
+    .usage-filters .auth-field { min-width:0; }
+    .usage-filter-actions { display:flex; align-items:end; gap:8px; }
+    .usage-table-wrap { overflow:auto; margin-top:14px; border:1px solid var(--line); border-radius:8px; }
+    .usage-table { min-width:1180px; }
+    .usage-table td { font-size:12px; }
+    .usage-table code { color:var(--muted); font-size:11px; }
+    .usage-detail { white-space:normal!important; min-width:260px; color:var(--muted); background:var(--surface-2); }
+    .usage-pagination { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding-top:14px; }
+    .usage-pagination .page-actions { display:flex; align-items:center; gap:8px; }
+    @media (max-width:800px) { .usage-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .usage-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
     .console-tabs {
       display: flex;
@@ -1018,27 +1033,25 @@
         </section>
 
         <section class="panel detail-card" id="logs">
-          <div class="log-toolbar">
-            <div>
-              <h3>使用日志</h3>
-              <p class="muted">查看近期调用、计费、登录和渠道变化。</p>
-            </div>
-            <div class="filters"><span class="chip active">全部</span><span class="chip">调用</span><span class="chip">计费</span><span class="chip">登录</span><span class="chip">渠道</span></div>
+          <div class="log-toolbar"><div><h3>使用日志</h3><p class="muted">查看真实模型调用、令牌归属、耗时与扣费记录。</p></div><button class="btn" id="refreshUsageLogs" type="button">刷新</button></div>
+          <div class="usage-stats">
+            <div class="usage-stat"><span>消耗额度</span><strong id="usageAmount">$0.000000</strong></div>
+            <div class="usage-stat"><span>调用次数</span><strong id="usageRequests">0</strong></div>
+            <div class="usage-stat"><span>输入 Token</span><strong id="usageInputTokens">0</strong></div>
+            <div class="usage-stat"><span>输出 Token</span><strong id="usageOutputTokens">0</strong></div>
           </div>
-          <div class="log-list">
-            <div class="log-item">
-              <div class="log-head"><strong>POST /v1/chat/completions</strong><span class="tag green">成功</span></div>
-              <div class="log-code">2026-09-02 10:18:42  model=gpt-5.5  token=nb_sk_***7f2a  usage=1,024 tokens  charged=$0.000000</div>
-            </div>
-            <div class="log-item">
-              <div class="log-head"><strong>POST /api/tokens</strong><span class="tag blue">创建</span></div>
-              <div class="log-code">2026-09-02 09:52:11  user=demo  name=测试令牌  result=created  hint=nb_sk_***9bd1</div>
-            </div>
-            <div class="log-item">
-              <div class="log-head"><strong>GET /api/models</strong><span class="tag gray">读取</span></div>
-              <div class="log-code">2026-09-02 09:30:25  models=32  source=pricing cache=hit  latency=18ms</div>
-            </div>
+          <div class="usage-filters">
+            <div class="auth-field"><label for="logFrom">开始时间</label><input class="auth-input" id="logFrom" type="datetime-local" /></div>
+            <div class="auth-field"><label for="logTo">结束时间</label><input class="auth-input" id="logTo" type="datetime-local" /></div>
+            <div class="auth-field"><label for="logToken">令牌名称</label><input class="auth-input" id="logToken" placeholder="搜索令牌" /></div>
+            <div class="auth-field"><label for="logModel">模型名称</label><input class="auth-input" id="logModel" placeholder="搜索模型" /></div>
+            <div class="auth-field"><label for="logGroup">分组</label><input class="auth-input" id="logGroup" placeholder="default" /></div>
+            <div class="auth-field"><label for="logRequestId">Request ID</label><input class="auth-input" id="logRequestId" placeholder="搜索请求 ID" /></div>
+            <div class="auth-field"><label for="logType">类型</label><select class="auth-input" id="logType"><option value="">全部类型</option><option value="per_task">按次计费</option><option value="per_token">按 Token</option></select></div>
+            <div class="usage-filter-actions"><button class="btn primary" id="queryUsageLogs" type="button">查询</button><button class="btn" id="resetUsageLogs" type="button">重置</button></div>
           </div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>令牌</th><th>分组</th><th>类型</th><th>模型</th><th>用时</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="11" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
+          <div class="usage-pagination"><span class="muted" id="usagePageInfo">共 0 条</span><div class="page-actions"><select class="auth-input" id="usagePageSize" style="width:92px;height:34px"><option>10</option><option>20</option><option>50</option></select><button class="btn" id="usagePrevPage" type="button">上一页</button><button class="btn" id="usageNextPage" type="button">下一页</button></div></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="wallet">
@@ -1177,7 +1190,28 @@
     const newChannelKey = document.getElementById("newChannelKey");
     const newChannelPriority = document.getElementById("newChannelPriority");
     const newChannelNote = document.getElementById("newChannelNote");
+    const refreshUsageLogs = document.getElementById("refreshUsageLogs");
+    const queryUsageLogs = document.getElementById("queryUsageLogs");
+    const resetUsageLogs = document.getElementById("resetUsageLogs");
+    const usageLogBody = document.getElementById("usageLogBody");
+    const usagePageInfo = document.getElementById("usagePageInfo");
+    const usagePageSize = document.getElementById("usagePageSize");
+    const usagePrevPage = document.getElementById("usagePrevPage");
+    const usageNextPage = document.getElementById("usageNextPage");
+    const usageAmount = document.getElementById("usageAmount");
+    const usageRequests = document.getElementById("usageRequests");
+    const usageInputTokens = document.getElementById("usageInputTokens");
+    const usageOutputTokens = document.getElementById("usageOutputTokens");
+    const logFrom = document.getElementById("logFrom");
+    const logTo = document.getElementById("logTo");
+    const logToken = document.getElementById("logToken");
+    const logModel = document.getElementById("logModel");
+    const logGroup = document.getElementById("logGroup");
+    const logRequestId = document.getElementById("logRequestId");
+    const logType = document.getElementById("logType");
     const API_BASE = location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
+    let usageLogsPage = 1;
+    let usageLogsTotalPages = 1;
     let sessionToken = localStorage.getItem("nbapi-session-token") || "";
     let currentUser = null;
     let canManage = false;
@@ -1282,6 +1316,38 @@
     function formatTokenDate(timestamp) {
       return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN", { hour12: false }) : "从未使用";
     }
+
+    function usageLogQuery() {
+      const values = { from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, group: logGroup.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
+      return Object.entries(values).filter(([, value]) => value !== "" && value != null).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
+    }
+
+    function renderUsageLogs(data) {
+      const stats = data.stats || {};
+      usageAmount.textContent = `$${Number(stats.amount || 0).toFixed(6)}`;
+      usageRequests.textContent = Number(stats.requests || 0).toLocaleString();
+      usageInputTokens.textContent = Number(stats.inputTokens || 0).toLocaleString();
+      usageOutputTokens.textContent = Number(stats.outputTokens || 0).toLocaleString();
+      usageLogsTotalPages = Number(data.totalPages || 1);
+      usagePageInfo.textContent = data.total ? `显示第 ${(data.page - 1) * data.pageSize + 1} 条到第 ${Math.min(data.page * data.pageSize, data.total)} 条，共 ${data.total} 条` : "共 0 条";
+      usagePrevPage.disabled = usageLogsPage <= 1;
+      usageNextPage.disabled = usageLogsPage >= usageLogsTotalPages;
+      if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
+      usageLogBody.innerHTML = data.items.map((item) => `<tr>
+        <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td><td>${escapeHtml(item.tokenGroup || "default")}</td>
+        <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${Number(item.latencyMs || 0)} ms</td>
+        <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>$${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
+        <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}</div></td></tr>`).join("");
+      usageLogBody.querySelectorAll("[data-log-detail]").forEach((button) => button.addEventListener("click", () => { const detail = document.getElementById(`log-detail-${button.dataset.logDetail}`); detail.hidden = !detail.hidden; button.textContent = detail.hidden ? "查看" : "收起"; }));
+    }
+
+    async function loadUsageLogs() {
+      if (!sessionToken) { usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">请先登录后查看使用日志。</td></tr>'; return; }
+      usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">正在加载真实账单记录...</td></tr>';
+      try { renderUsageLogs(await apiRequest(`/api/ledger?${usageLogQuery()}`)); } catch (error) { usageLogBody.innerHTML = `<tr><td colspan="11" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`; }
+    }
+
+    function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; usageLogsPage = 1; loadUsageLogs(); }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -1701,6 +1767,7 @@
       document.querySelectorAll("a[href^='#']").forEach((link) => {
         link.classList.toggle("active", link.getAttribute("href") === `#${route}`);
       });
+      if (route === "logs") loadUsageLogs();
     }
     window.addEventListener("hashchange", applyRoute);
 
@@ -2176,6 +2243,12 @@
     });
     refreshUsers.addEventListener("click", loadAdminUsers);
     refreshChannels.addEventListener("click", loadAdminChannels);
+    refreshUsageLogs.addEventListener("click", loadUsageLogs);
+    queryUsageLogs.addEventListener("click", () => { usageLogsPage = 1; loadUsageLogs(); });
+    resetUsageLogs.addEventListener("click", resetLogFilters);
+    usagePageSize.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
+    usagePrevPage.addEventListener("click", () => { if (usageLogsPage > 1) { usageLogsPage -= 1; loadUsageLogs(); } });
+    usageNextPage.addEventListener("click", () => { if (usageLogsPage < usageLogsTotalPages) { usageLogsPage += 1; loadUsageLogs(); } });
     createChannelButton.addEventListener("click", createChannel);
     userSearch.addEventListener("input", () => {
       usersPage = 1;

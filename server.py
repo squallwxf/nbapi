@@ -168,7 +168,11 @@ def init_db() -> None:
               output_tokens INTEGER NOT NULL DEFAULT 0,
               status TEXT NOT NULL CHECK(status IN ('charged', 'refunded')),
               created_at INTEGER NOT NULL,
-              UNIQUE(user_id, idempotency_key)
+              UNIQUE(user_id, idempotency_key),
+              client_ip TEXT NOT NULL DEFAULT '',
+              latency_ms INTEGER NOT NULL DEFAULT 0,
+              request_path TEXT NOT NULL DEFAULT '',
+              request_id TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
@@ -219,6 +223,14 @@ def init_db() -> None:
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
             db.execute("ALTER TABLE ledger ADD COLUMN token_id INTEGER REFERENCES api_tokens(id)")
+        for column, definition in (
+            ("client_ip", "TEXT NOT NULL DEFAULT ''"),
+            ("latency_ms", "INTEGER NOT NULL DEFAULT 0"),
+            ("request_path", "TEXT NOT NULL DEFAULT ''"),
+            ("request_id", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in columns:
+                db.execute(f"ALTER TABLE ledger ADD COLUMN {column} {definition}")
         token_columns = {row[1] for row in db.execute("PRAGMA table_info(api_tokens)")}
         if "token_secret" not in token_columns:
             db.execute("ALTER TABLE api_tokens ADD COLUMN token_secret TEXT NOT NULL DEFAULT ''")
@@ -415,7 +427,7 @@ def token_allows_ip(ip_allowlist: str, client_ip: str) -> bool:
     return False
 
 
-def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0):
+def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0, client_ip: str = "", latency_ms: int = 0, request_path: str = "", request_id: str = ""):
     existing = db.execute(
         "SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?",
         (user_id, idempotency_key),
@@ -440,9 +452,10 @@ def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_ke
     db.execute("UPDATE api_tokens SET used_micros=used_micros+? WHERE id=?", (amount_micros, token_id))
     db.execute(
         """INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit,
-                              input_tokens, output_tokens, status, created_at, token_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?)""",
-        (user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, now(), token_id),
+                              input_tokens, output_tokens, status, created_at, token_id,
+                              client_ip, latency_ms, request_path, request_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?)""",
+        (user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, now(), token_id, client_ip, latency_ms, request_path, request_id),
     )
     return {
         "idempotent": False,
@@ -557,6 +570,8 @@ class Handler(BaseHTTPRequestHandler):
         if not api_user:
             return True
 
+        started_at = time.perf_counter()
+        client_ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
         body = b""
         if method in ("POST", "PUT", "PATCH", "DELETE"):
             length = int(self.headers.get("Content-Length", "0"))
@@ -658,6 +673,10 @@ class Handler(BaseHTTPRequestHandler):
                         billing_unit,
                         input_tokens,
                         output_tokens,
+                        client_ip,
+                        round((time.perf_counter() - started_at) * 1000),
+                        path,
+                        idempotency_key,
                     )
                     db.execute("COMMIT")
                 except ValueError as exc:
@@ -826,9 +845,53 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ledger":
             user = self.require_user()
             if user:
+                query = parse_qs(urlparse(self.path).query)
+                get_filter = lambda key: str(query.get(key, [""])[0]).strip()
+                def as_int(key, default, minimum, maximum):
+                    try:
+                        return min(maximum, max(minimum, int(get_filter(key) or default)))
+                    except ValueError:
+                        return default
+                page = as_int("page", 1, 1, 1000000)
+                page_size = as_int("pageSize", 10, 1, 100)
+                filters = ["l.user_id=?"]
+                params = [user[0]]
+                for key, expression in (("model", "lower(l.model_name) LIKE ?"), ("requestId", "lower(COALESCE(l.request_id, l.idempotency_key)) LIKE ?"), ("token", "(lower(COALESCE(t.name, '')) LIKE ? OR lower(COALESCE(t.token_hint, '')) LIKE ?)") , ("group", "lower(COALESCE(t.token_group, '')) LIKE ?")):
+                    value = get_filter(key).lower()
+                    if value:
+                        filters.append(expression)
+                        params.extend([f"%{value}%"] * (2 if key == "token" else 1))
+                if get_filter("status"):
+                    filters.append("l.status=?")
+                    params.append(get_filter("status"))
+                if get_filter("type"):
+                    filters.append("l.billing_unit=?")
+                    params.append(get_filter("type"))
+                def parse_time(value, end=False):
+                    if not value:
+                        return None
+                    try:
+                        return int(time.mktime(time.strptime(value[:16], "%Y-%m-%dT%H:%M"))) + (59 if end else 0)
+                    except ValueError:
+                        return None
+                start_time = parse_time(get_filter("from"))
+                end_time = parse_time(get_filter("to"), True)
+                if start_time is not None:
+                    filters.append("l.created_at>=?"); params.append(start_time)
+                if end_time is not None:
+                    filters.append("l.created_at<=?"); params.append(end_time)
+                where = " AND ".join(filters)
                 with sqlite3.connect(DB_PATH) as db:
-                    rows = db.execute("SELECT model_name, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 100", (user[0],)).fetchall()
-                self.send_json(200, {"items": [{"model": r[0], "amount": micros_to_dollars(r[1]), "billingUnit": r[2], "inputTokens": r[3], "outputTokens": r[4], "status": r[5], "createdAt": r[6]} for r in rows]})
+                    total, amount_total, input_total, output_total = db.execute(
+                        f"SELECT COUNT(*), COALESCE(SUM(l.amount_micros),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
+                    ).fetchone()
+                    rows = db.execute(
+                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
+                        [*params, page_size, (page - 1) * page_size],
+                    ).fetchall()
+                self.send_json(200, {"items": [{
+                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15]
+                } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
         if path == "/api/tokens":
             user = self.require_user()
@@ -1056,7 +1119,8 @@ class Handler(BaseHTTPRequestHandler):
                             amount = (price_micros * quantity + 999) // 1000
                         else:
                             amount = price_micros
-                        charge_result = bill_ledger(db, user[0], token_id, model_name, key, amount, unit, input_tokens, output_tokens)
+                        client_ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
+                        charge_result = bill_ledger(db, user[0], token_id, model_name, key, amount, unit, input_tokens, output_tokens, client_ip, 0, path, key)
                         db.execute("COMMIT")
                     except ValueError as exc:
                         db.execute("ROLLBACK")
