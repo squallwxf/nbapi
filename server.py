@@ -940,6 +940,29 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
 
+            if path == "/api/tokens/bulk":
+                user = self.require_user()
+                if not user:
+                    return
+                ids = payload.get("ids")
+                action = str(payload.get("action", "")).strip().lower()
+                if action != "disable" or not isinstance(ids, list) or not ids or len(ids) > 100:
+                    self.send_json(400, {"error": "invalid_bulk_token_action"})
+                    return
+                try:
+                    token_ids = sorted({int(value) for value in ids})
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid_token_id"})
+                    return
+                placeholders = ",".join("?" for _ in token_ids)
+                with sqlite3.connect(DB_PATH) as db:
+                    cursor = db.execute(
+                        f"UPDATE api_tokens SET active=0 WHERE user_id=? AND id IN ({placeholders})",
+                        [user[0], *token_ids],
+                    )
+                self.send_json(200, {"updated": cursor.rowcount, "active": False})
+                return
+
             if path == "/api/tokens":
                 user = self.require_user()
                 if not user:
