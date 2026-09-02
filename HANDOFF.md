@@ -23,5 +23,7 @@
 
 - `nbapi.sqlite3` 不要提交到 GitHub
 - 用户余额、API Key、扣费记录都在数据库里
+- 本地备份命令：`python tools/backup_db.py`
+- 数据库路径可通过 `NBAPI_DB_PATH` 改
+- 备份目录可通过 `NBAPI_BACKUP_DIR` 改
 - 服务器改动后要记得同步到仓库
-
