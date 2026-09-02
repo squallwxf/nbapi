@@ -946,7 +946,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 ids = payload.get("ids")
                 action = str(payload.get("action", "")).strip().lower()
-                if action != "disable" or not isinstance(ids, list) or not ids or len(ids) > 100:
+                if action not in ("enable", "disable", "delete") or not isinstance(ids, list) or not ids or len(ids) > 100:
                     self.send_json(400, {"error": "invalid_bulk_token_action"})
                     return
                 try:
@@ -956,11 +956,16 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 placeholders = ",".join("?" for _ in token_ids)
                 with sqlite3.connect(DB_PATH) as db:
+                    if action == "delete":
+                        db.execute(f"UPDATE ledger SET token_id=NULL WHERE user_id=? AND token_id IN ({placeholders})", [user[0], *token_ids])
+                        cursor = db.execute(f"DELETE FROM api_tokens WHERE user_id=? AND id IN ({placeholders})", [user[0], *token_ids])
+                        self.send_json(200, {"deleted": cursor.rowcount})
+                        return
                     cursor = db.execute(
-                        f"UPDATE api_tokens SET active=0 WHERE user_id=? AND id IN ({placeholders})",
-                        [user[0], *token_ids],
+                        f"UPDATE api_tokens SET active=? WHERE user_id=? AND id IN ({placeholders})",
+                        [1 if action == "enable" else 0, user[0], *token_ids],
                     )
-                self.send_json(200, {"updated": cursor.rowcount, "active": False})
+                self.send_json(200, {"updated": cursor.rowcount, "active": action == "enable"})
                 return
 
             if path == "/api/tokens":
@@ -1110,6 +1115,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         path = urlparse(self.path).path
         if self._proxy_upstream("PUT"):
+            return
+        if path.startswith("/api/tokens/"):
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                token_id = int(path.rsplit("/", 1)[1])
+                payload = self.read_json()
+                active = bool(payload.get("active"))
+            except (ValueError, json.JSONDecodeError):
+                self.send_json(400, {"error": "invalid_token_update"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                cursor = db.execute("UPDATE api_tokens SET active=? WHERE id=? AND user_id=?", (1 if active else 0, token_id, user[0]))
+            if cursor.rowcount != 1:
+                self.send_json(404, {"error": "token_not_found"})
+                return
+            self.send_json(200, {"id": token_id, "active": active})
             return
         if path == "/api/admin/config":
             admin = self.require_user(admin=True)
@@ -1289,11 +1312,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "invalid_token_id"})
             return
         with sqlite3.connect(DB_PATH) as db:
-            cursor = db.execute("UPDATE api_tokens SET active=0 WHERE id=? AND user_id=?", (token_id, user[0]))
+            db.execute("UPDATE ledger SET token_id=NULL WHERE token_id=? AND user_id=?", (token_id, user[0]))
+            cursor = db.execute("DELETE FROM api_tokens WHERE id=? AND user_id=?", (token_id, user[0]))
         if cursor.rowcount != 1:
             self.send_json(404, {"error": "token_not_found"})
             return
-        self.send_json(200, {"id": token_id, "active": False})
+        self.send_json(200, {"id": token_id, "deleted": True})
 
 
 def main():

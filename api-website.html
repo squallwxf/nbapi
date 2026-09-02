@@ -915,7 +915,7 @@
                 <div class="mini-item"><div><strong>最近使用</strong><small>记录最后调用时间</small></div><span class="tag blue">追踪</span></div>
                 <div class="mini-item"><div><strong>停用控制</strong><small>可随时禁用泄露 Key</small></div><span class="tag orange">防护</span></div>
               </div>
-              <div class="token-bulk-tools"><button class="btn" id="copySelectedTokens" type="button">复制所选 Key</button><button class="btn" id="disableSelectedTokens" type="button">批量禁用</button><span class="muted" id="tokenSelectionInfo">已选择 0 个</span></div>
+              <div class="token-bulk-tools"><button class="btn" id="copySelectedTokens" type="button">复制所选 Key</button><button class="btn" id="enableSelectedTokens" type="button">批量启用</button><button class="btn" id="disableSelectedTokens" type="button">批量禁用</button><button class="btn" id="deleteSelectedTokens" type="button">批量删除</button><span class="muted" id="tokenSelectionInfo">已选择 0 个</span></div>
               <div class="token-list" id="tokenList"></div>
             </article>
             <article class="panel detail-card" id="docs">
@@ -1085,7 +1085,9 @@
     const tokenModelsInput = document.getElementById("tokenModelsInput");
     const tokenIpInput = document.getElementById("tokenIpInput");
     const copySelectedTokens = document.getElementById("copySelectedTokens");
+    const enableSelectedTokens = document.getElementById("enableSelectedTokens");
     const disableSelectedTokens = document.getElementById("disableSelectedTokens");
+    const deleteSelectedTokens = document.getElementById("deleteSelectedTokens");
     const tokenSelectionInfo = document.getElementById("tokenSelectionInfo");
     const tokenList = document.getElementById("tokenList");
     const tokenAuthHint = document.getElementById("tokenAuthHint");
@@ -1255,11 +1257,13 @@
                 <td>${formatTokenDate(item.createdAt)}</td>
                 <td>${formatTokenDate(item.lastUsedAt)}</td>
                 <td>${item.expiresAt ? formatTokenDate(item.expiresAt) : "永不过期"}</td>
-                <td><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></td>
+                <td><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : `<button class="btn" type="button" data-enable-token="${item.id}">启用</button>`}<button class="btn" type="button" data-delete-token="${item.id}">删除</button></div></td>
               </tr>`).join("")}</tbody>
           </table>` : "<small>暂无令牌，请点击“添加令牌”。</small>";
         tokenList.querySelectorAll("[data-copy-token-id]").forEach((button) => button.addEventListener("click", () => copyFullToken(cachedTokens[button.dataset.copyTokenId])));
         tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));
+        tokenList.querySelectorAll("[data-enable-token]").forEach((button) => button.addEventListener("click", () => setTokenActive(button.dataset.enableToken, true)));
+        tokenList.querySelectorAll("[data-delete-token]").forEach((button) => button.addEventListener("click", () => deleteToken(button.dataset.deleteToken)));
         const selectAll = document.getElementById("selectAllTokens");
         const selections = Array.from(tokenList.querySelectorAll(".token-select"));
         const updateSelection = () => {
@@ -1317,6 +1321,20 @@
         showToast(`已禁用 ${ids.length} 个令牌`);
       } catch (error) { alert(error.message); }
     });
+
+    async function bulkTokenAction(action, label, confirmText) {
+      const ids = selectedTokenIds();
+      if (!ids.length) { alert("请先选择令牌。"); return; }
+      if (confirmText && !confirm(`${confirmText}选中的 ${ids.length} 个令牌吗？`)) return;
+      try {
+        await apiRequest("/api/tokens/bulk", { method: "POST", body: JSON.stringify({ action, ids }) });
+        await loadTokens();
+        showToast(`${label} ${ids.length} 个令牌`);
+      } catch (error) { alert(error.message); }
+    }
+
+    enableSelectedTokens.addEventListener("click", () => bulkTokenAction("enable", "已启用", "确定启用"));
+    deleteSelectedTokens.addEventListener("click", () => bulkTokenAction("delete", "已删除", "确定永久删除"));
 
     async function loadUpstreamConfig() {
       if (!canManage || !sessionToken) {
@@ -1546,7 +1564,18 @@
 
     async function disableToken(id) {
       if (!confirm("禁用后该 Key 将无法继续调用模型，确定继续吗？")) return;
-      try { await apiRequest(`/api/tokens/${id}`, { method: "DELETE" }); loadTokens(); showToast("令牌已禁用"); }
+      try { await apiRequest(`/api/tokens/${id}`, { method: "PUT", body: JSON.stringify({ active: false }) }); loadTokens(); showToast("令牌已禁用"); }
+      catch (error) { alert(error.message); }
+    }
+
+    async function setTokenActive(id, active) {
+      try { await apiRequest(`/api/tokens/${id}`, { method: "PUT", body: JSON.stringify({ active }) }); loadTokens(); showToast(active ? "令牌已启用" : "令牌已禁用"); }
+      catch (error) { alert(error.message); }
+    }
+
+    async function deleteToken(id) {
+      if (!confirm("删除后该令牌将永久失效，历史扣费记录会保留。确定删除吗？")) return;
+      try { await apiRequest(`/api/tokens/${id}`, { method: "DELETE" }); loadTokens(); showToast("令牌已删除"); }
       catch (error) { alert(error.message); }
     }
 
