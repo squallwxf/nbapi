@@ -75,6 +75,8 @@ nginx -t && systemctl reload nginx
 - 令牌创建表单支持分组、过期时间、批量数量、额度/无限额度、模型白名单和 IP/CIDR 白名单。
 - 模型白名单、IP 白名单、令牌额度和过期时间会在真实 `/v1`/`/v1beta` 调用时校验。
 - 令牌列表支持单个/批量启用、禁用和删除；删除令牌前会解除账单关联，但历史扣费记录保留。
+- 新增“操练场”页面：使用当前浏览器中缓存的用户令牌调用 `/v1/chat/completions`，支持模型、Temperature、Top P、Frequency Penalty、Presence Penalty 和 Max Tokens。
+- 操练场调用走真实上游代理，会执行令牌限制、余额检查和模型计费；没有可复制的完整 Key 时不能发起测试。
 
 ## 重要提醒
 

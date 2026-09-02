@@ -111,16 +111,39 @@
     .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
     #models, #models + .workspace > .table-card { display: none; }
     .workspace:has(> .table-card) { grid-template-columns: 1fr; }
-    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #login, .content > #signup { display: none; }
+    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #login, .content > #signup { display: none; }
     body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
     body.route-square .content > #square { display: grid; }
+    body.route-playground .content > #playground { display: block; }
     body.route-tokens .content > .workspace, body.route-docs .content > .workspace, body.route-channels .content > .workspace, body.route-users .content > .workspace { display: block; }
     body.route-tokens .workspace #tokens, body.route-docs .workspace #docs, body.route-channels .workspace #channels, body.route-users .workspace #users { display: block; }
     body.route-tokens .workspace #docs, body.route-tokens .workspace #channels, body.route-tokens .workspace #users, body.route-docs .workspace #tokens, body.route-docs .workspace #channels, body.route-docs .workspace #users, body.route-channels .workspace #tokens, body.route-channels .workspace #docs, body.route-channels .workspace #users, body.route-users .workspace #tokens, body.route-users .workspace #docs, body.route-users .workspace #channels { display: none; }
     body.route-logs .content > #logs, body.route-wallet .content > #wallet, body.route-settings .content > #settings { display: block; }
     body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
-    body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #signup { display: none; }
-    body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #login { display: none; }
+    body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #signup { display: none; }
+    body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #login { display: none; }
+    .playground-shell { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .playground-panel { padding: 16px; }
+    .playground-panel h3 { margin: 0 0 12px; }
+    .playground-controls { display: grid; gap: 14px; }
+    .playground-control { display: grid; gap: 6px; }
+    .playground-control label { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .playground-control input, .playground-control select, .playground-control textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text); padding: 9px 10px; outline: 0; }
+    .playground-control input[type="range"] { padding: 0; accent-color: var(--blue); }
+    .playground-value { color: var(--blue); font-weight: 700; }
+    .playground-chat { min-height: 620px; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; }
+    .playground-chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .playground-chat-head h2 { margin: 0; font-size: 20px; }
+    .playground-messages { min-height: 360px; max-height: 58vh; overflow: auto; display: grid; align-content: start; gap: 12px; padding: 4px; }
+    .playground-message { max-width: 86%; padding: 11px 13px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .playground-message.user { justify-self: end; background: var(--blue); color: #fff; }
+    .playground-message.assistant { justify-self: start; background: var(--surface-2); border: 1px solid var(--line); }
+    .playground-message.system { justify-self: stretch; background: #fff8eb; border: 1px solid #fed7aa; color: #9a3412; font-size: 12px; }
+    body.dark .playground-message.system { background: #2a2115; color: #fed7aa; border-color: #714f23; }
+    .playground-composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+    .playground-composer textarea { min-height: 92px; resize: vertical; }
+    .playground-status { color: var(--muted); font-size: 12px; }
+    @media (max-width: 960px) { .playground-shell { grid-template-columns: 1fr; } .playground-chat { min-height: 520px; } }
     .auth-shell {
       display: grid;
       grid-template-columns: minmax(0, 1.08fr) 360px;
@@ -616,6 +639,7 @@
         <div class="nav-title">控制台</div>
         <a class="nav-item active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
         <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
+        <a class="nav-item" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
         <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
         <a class="nav-item admin-only" href="#channels" title="仅管理员可用"><span class="icon i-channel"></span><span>渠道管理</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
@@ -637,9 +661,9 @@
     </aside>
 
     <main class="main">
-      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
+      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
       <header class="topbar">
-        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
+        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#playground">操练场</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
           <span class="pill">余额 <strong class="account-balance" id="balanceDisplay">$ 100.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
@@ -844,6 +868,26 @@
               </div>
             </div>
           </aside>
+        </section>
+
+        <section class="playground-shell" id="playground">
+          <aside class="panel playground-panel">
+            <h3>模型配置</h3>
+            <div class="playground-controls">
+              <div class="playground-control"><label for="playgroundToken">调用令牌</label><select id="playgroundToken"><option value="">请先在令牌管理创建并复制 Key</option></select></div>
+              <div class="playground-control"><label for="playgroundModel">模型</label><select id="playgroundModel"></select></div>
+              <div class="playground-control"><label for="playgroundTemperature">Temperature <span class="playground-value" id="temperatureValue">0.9</span></label><input id="playgroundTemperature" type="range" min="0" max="2" step="0.1" value="0.9" /></div>
+              <div class="playground-control"><label for="playgroundTopP">Top P <span class="playground-value" id="topPValue">1.0</span></label><input id="playgroundTopP" type="range" min="0" max="1" step="0.1" value="1" /></div>
+              <div class="playground-control"><label for="playgroundFrequencyPenalty">Frequency Penalty <span class="playground-value" id="frequencyValue">0.0</span></label><input id="playgroundFrequencyPenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
+              <div class="playground-control"><label for="playgroundPresencePenalty">Presence Penalty <span class="playground-value" id="presenceValue">0.0</span></label><input id="playgroundPresencePenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
+              <div class="playground-control"><label for="playgroundMaxTokens">Max Tokens</label><input id="playgroundMaxTokens" type="number" min="1" max="32768" value="1024" /></div>
+            </div>
+          </aside>
+          <section class="panel playground-panel playground-chat">
+            <div class="playground-chat-head"><div><h2>AI 对话</h2><span class="playground-status" id="playgroundStatus">选择令牌和模型后即可开始真实测试。</span></div><button class="btn" id="clearPlayground" type="button">清空对话</button></div>
+            <div class="playground-messages" id="playgroundMessages"><div class="playground-message assistant">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div></div>
+            <div class="playground-composer"><textarea class="auth-input" id="playgroundPrompt" placeholder="请输入你的问题..." maxlength="20000"></textarea><button class="btn primary" id="sendPlayground" type="button">发送</button></div>
+          </section>
         </section>
 
         <section class="plaza-shell" id="square">
@@ -1091,6 +1135,18 @@
     const tokenSelectionInfo = document.getElementById("tokenSelectionInfo");
     const tokenList = document.getElementById("tokenList");
     const tokenAuthHint = document.getElementById("tokenAuthHint");
+    const playgroundToken = document.getElementById("playgroundToken");
+    const playgroundModel = document.getElementById("playgroundModel");
+    const playgroundTemperature = document.getElementById("playgroundTemperature");
+    const playgroundTopP = document.getElementById("playgroundTopP");
+    const playgroundFrequencyPenalty = document.getElementById("playgroundFrequencyPenalty");
+    const playgroundPresencePenalty = document.getElementById("playgroundPresencePenalty");
+    const playgroundMaxTokens = document.getElementById("playgroundMaxTokens");
+    const playgroundPrompt = document.getElementById("playgroundPrompt");
+    const playgroundMessages = document.getElementById("playgroundMessages");
+    const playgroundStatus = document.getElementById("playgroundStatus");
+    const sendPlayground = document.getElementById("sendPlayground");
+    const clearPlayground = document.getElementById("clearPlayground");
     const loginUsername = document.getElementById("loginUsername");
     const loginPassword = document.getElementById("loginPassword");
     const loginSubmit = document.getElementById("loginSubmit");
@@ -1240,6 +1296,8 @@
       try {
         const data = await apiRequest("/api/tokens");
         const cachedTokens = readTokenCache();
+        const playgroundTokenOptions = data.items.filter((item) => item.active && cachedTokens[item.id]).map((item) => `<option value="${escapeHtml(cachedTokens[item.id])}">${escapeHtml(item.name)} · ${escapeHtml(item.hint)}</option>`);
+        playgroundToken.innerHTML = playgroundTokenOptions.length ? playgroundTokenOptions.join("") : "<option value=\"\">当前浏览器没有可用完整 Key</option>";
         tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
         tokenList.innerHTML = data.items.length ? `
           <table class="token-table">
@@ -1623,7 +1681,7 @@
     let usersPageSize = 8;
     let usersTotalPages = 1;
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "tokens", "docs", "users", "channels", "logs", "wallet", "settings", "login", "signup"];
+    const routes = ["console", "square", "playground", "tokens", "docs", "users", "channels", "logs", "wallet", "settings", "login", "signup"];
 
     function applyRoute() {
       let route = (location.hash || "#console").slice(1) || "console";
@@ -1661,6 +1719,61 @@
       amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5,
       unit: kind === "对话模型" ? "per_token" : "per_task"
     }]));
+
+    let playgroundConversation = [];
+
+    function populatePlaygroundModels() {
+      const models = documentedModels.filter((model) => model[3] === "对话模型");
+      playgroundModel.innerHTML = models.map(([name, providerLabel]) => `<option value="${escapeHtml(name)}">${escapeHtml(name)} · ${escapeHtml(providerLabel)}</option>`).join("");
+    }
+
+    function appendPlaygroundMessage(role, content) {
+      const message = document.createElement("div");
+      message.className = `playground-message ${role}`;
+      message.textContent = content;
+      playgroundMessages.appendChild(message);
+      playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
+    }
+
+    function playgroundResponseText(data) {
+      const content = data?.choices?.[0]?.message?.content;
+      if (Array.isArray(content)) return content.map((part) => part?.text || "").join("");
+      if (typeof content === "string") return content;
+      return JSON.stringify(data, null, 2);
+    }
+
+    async function runPlayground() {
+      const prompt = playgroundPrompt.value.trim();
+      const apiKey = playgroundToken.value || activeApiKey;
+      if (!sessionToken) { alert("请先登录后使用操练场。"); return; }
+      if (!apiKey) { alert("请先在令牌管理中创建一个令牌，并在当前浏览器中保留完整 Key。"); location.hash = "tokens"; return; }
+      if (!prompt) { alert("请输入要发送的问题。"); playgroundPrompt.focus(); return; }
+      const model = playgroundModel.value;
+      const userMessage = { role: "user", content: prompt };
+      playgroundConversation.push(userMessage);
+      appendPlaygroundMessage("user", prompt);
+      playgroundPrompt.value = "";
+      sendPlayground.disabled = true;
+      playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
+      try {
+        const response = await fetch(`${API_BASE}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-NBAPI-Key": apiKey },
+          body: JSON.stringify({ model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value) })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
+        const text = playgroundResponseText(data);
+        playgroundConversation.push({ role: "assistant", content: text });
+        appendPlaygroundMessage("assistant", text);
+        const usage = data.usage ? `，使用 ${data.usage.total_tokens || data.usage.totalTokens || 0} tokens` : "";
+        playgroundStatus.textContent = `调用成功${usage}。费用会按模型价格从账户余额扣除。`;
+      } catch (error) {
+        playgroundConversation.pop();
+        appendPlaygroundMessage("system", error.message);
+        playgroundStatus.textContent = "调用失败，请检查令牌、上游 Key、模型名称和余额。";
+      } finally { sendPlayground.disabled = false; }
+    }
 
     function getModelPricing(name, kind) {
       return modelPricing[name] || defaultModelPricing[name] || { amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5, unit: kind === "对话模型" ? "per_token" : "per_task" };
@@ -2042,6 +2155,18 @@
       compactPlaza = !compactPlaza;
       plazaModeToggle.textContent = compactPlaza ? "标准视图" : "紧凑视图";
       renderModelSquare();
+    });
+    populatePlaygroundModels();
+    [[playgroundTemperature, "temperatureValue"], [playgroundTopP, "topPValue"], [playgroundFrequencyPenalty, "frequencyValue"], [playgroundPresencePenalty, "presenceValue"]].forEach(([input, outputId]) => {
+      input.addEventListener("input", () => { document.getElementById(outputId).textContent = Number(input.value).toFixed(1); });
+    });
+    playgroundToken.addEventListener("change", () => { activeApiKey = playgroundToken.value; });
+    sendPlayground.addEventListener("click", runPlayground);
+    playgroundPrompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); runPlayground(); } });
+    clearPlayground.addEventListener("click", () => {
+      playgroundConversation = [];
+      playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div>";
+      playgroundStatus.textContent = "选择令牌和模型后即可开始真实测试。";
     });
 
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
