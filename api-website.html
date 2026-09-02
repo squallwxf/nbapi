@@ -201,6 +201,19 @@
     }
     .auth-form h2 { margin: 0 0 4px; font-size: 20px; }
     .auth-form p { margin: 0; color: var(--muted); }
+    #signup.auth-shell { grid-template-columns: 1fr; gap: 16px; max-width: 980px; margin: 0 auto; width: 100%; }
+    #signup .auth-hero { min-height: 0; padding: 22px 28px; }
+    #signup .auth-copy { text-align: center; }
+    #signup .auth-copy p { margin-left: auto; margin-right: auto; }
+    #signup .auth-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #signup .auth-form { width: min(560px, 100%); margin: 0 auto; padding: 28px 32px; gap: 16px; }
+    #signup .auth-form > div:first-child { text-align: center; }
+    #signup .auth-form h2 { font-size: 24px; }
+    #signup .auth-form .auth-input { height: 44px; }
+    #signup .auth-form .auth-actions { justify-content: center; }
+    #signup .auth-form .auth-actions .btn.primary { min-width: 150px; }
+    #signup .auth-form .auth-links { justify-content: center; }
+    #signup .auth-form .auth-note { text-align: center; }
     .auth-field { display: grid; gap: 6px; }
     .auth-field label { color: var(--muted); font-size: 12px; font-weight: 700; }
     .auth-input {
@@ -623,6 +636,7 @@
       .plaza-filter { display: none; }
       .plaza-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .auth-list, .token-summary, .channel-grid, .management-fields { grid-template-columns: 1fr; }
+      #signup .auth-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 720px) {
@@ -633,6 +647,8 @@
       .top-nav { order: -1; }
       .top-actions { justify-content: space-between; overflow-x: auto; }
       .content { padding: 16px; }
+      #signup .auth-hero, #signup .auth-form { padding-left: 18px; padding-right: 18px; }
+      #signup .auth-list { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr; }
       .table-tools, .section-head { flex-direction: column; align-items: flex-start; }
       th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { display: none; }
