@@ -168,11 +168,11 @@ def init_db() -> None:
               output_tokens INTEGER NOT NULL DEFAULT 0,
               status TEXT NOT NULL CHECK(status IN ('charged', 'refunded')),
               created_at INTEGER NOT NULL,
-              UNIQUE(user_id, idempotency_key),
               client_ip TEXT NOT NULL DEFAULT '',
               latency_ms INTEGER NOT NULL DEFAULT 0,
               request_path TEXT NOT NULL DEFAULT '',
-              request_id TEXT NOT NULL DEFAULT ''
+              request_id TEXT NOT NULL DEFAULT '',
+              UNIQUE(user_id, idempotency_key)
             );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
