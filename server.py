@@ -984,7 +984,7 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         cursor = db.execute(
                             "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'user', 1, ?, ?)",
-                            (username, email, hash_password(password), 100 * MICROS_PER_DOLLAR, timestamp),
+                            (username, email, hash_password(password), 0, timestamp),
                         )
                         user_id = cursor.lastrowid
                         token = secrets.token_urlsafe(32)

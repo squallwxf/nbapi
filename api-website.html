@@ -696,7 +696,7 @@
       <header class="topbar">
         <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#playground">操练场</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
-          <span class="pill">余额 <strong class="account-balance" id="balanceDisplay">$ 100.00</strong></span>
+          <span class="pill" id="balancePill" style="display:none;">余额 <strong class="account-balance" id="balanceDisplay">$ 0.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
           <span class="pill" id="adminState">访客</span>
           <a class="btn guest-only" id="authLogin" href="#login">登录</a>
@@ -758,12 +758,12 @@
             </div>
             <div class="auth-copy">
               <h1>创建账号后进入控制台。</h1>
-              <p>注册信息会写入后端数据库，新用户默认是普通用户，管理员可在用户管理里调整额度和权限。</p>
+              <p>注册信息会写入后端数据库，新用户默认是普通用户且余额为 0，充值或赠送额度由管理员控制。</p>
             </div>
             <div class="auth-list">
               <div class="auth-mini"><strong>账号体系</strong><small>用户名、邮箱、角色和余额都会保存到后端</small></div>
               <div class="auth-mini"><strong>安全策略</strong><small>密码使用哈希存储，后台不保存明文密码</small></div>
-              <div class="auth-mini"><strong>默认额度</strong><small>新用户和测试账号都能先跑通模型调用</small></div>
+              <div class="auth-mini"><strong>余额安全</strong><small>新用户不会自动获得余额，必须充值或由管理员分配额度</small></div>
               <div class="auth-mini"><strong>后续扩展</strong><small>可继续接入工单、充值和订阅方案</small></div>
             </div>
           </div>
@@ -796,7 +796,7 @@
               <span>已有账户？</span>
               <a href="#login">直接登录</a>
             </div>
-            <div class="auth-note">注册成功后会自动登录。管理员可在“用户管理”里查看新账号并调整额度或权限。</div>
+            <div class="auth-note">注册成功后会自动登录。新账号初始余额为 $0.000000，管理员可在“用户管理”里充值或调整额度。</div>
           </div>
         </section>
 
@@ -1144,6 +1144,7 @@
     const plazaModeToggle = document.getElementById("plazaModeToggle");
     const copyToast = document.getElementById("copyToast");
     const balanceDisplay = document.getElementById("balanceDisplay");
+    const balancePill = document.getElementById("balancePill");
     const createToken = document.getElementById("createToken");
     const tokenModal = document.getElementById("tokenModal");
     const closeTokenModal = document.getElementById("closeTokenModal");
@@ -1755,7 +1756,7 @@
     ];
 
     let prices = JSON.parse(localStorage.getItem(storageKeys.prices) || "{}");
-    let accountBalance = Number(localStorage.getItem("nbapi-balance") || "100");
+    let accountBalance = Number(localStorage.getItem("nbapi-balance") || "0");
     let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
     let showPlazaPrices = true;
     let compactPlaza = false;
@@ -1932,7 +1933,8 @@
 
     function updateBalance() {
       balanceDisplay.textContent = `$ ${accountBalance.toFixed(2)}`;
-      localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
+      balancePill.style.display = currentUser ? "inline-flex" : "none";
+      if (currentUser) localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
     }
 
     async function refreshAccountBalance() {
