@@ -1734,6 +1734,39 @@
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
+    function appendPlaygroundImage(url) {
+      const message = document.createElement("div");
+      message.className = "playground-message assistant";
+      const label = document.createElement("div");
+      label.textContent = "图片生成成功";
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt = "模型生成的图片";
+      image.loading = "lazy";
+      image.style.cssText = "display:block;max-width:min(620px,100%);margin-top:8px;border-radius:8px;";
+      message.append(label, image);
+      playgroundMessages.appendChild(message);
+      playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
+    }
+
+    const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+    async function pollImageTask(apiKey, taskId) {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await wait(attempt === 0 ? 800 : 3000);
+        const response = await fetch(`${API_BASE}/v1/images/tasks/${encodeURIComponent(taskId)}`, { headers: { "X-NBAPI-Key": apiKey } });
+        const task = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(task.error?.message || task.error || `查询图片任务失败（${response.status}）`);
+        const status = String(task.status || "").toLowerCase();
+        const progress = task.progress == null ? "" : ` ${task.progress}%`;
+        playgroundStatus.textContent = `图片任务 ${status || "processing"}${progress}，请稍候...`;
+        const url = task.data?.[0]?.url || task.result?.data?.[0]?.url || task.url;
+        if ((status === "succeeded" || status === "completed" || status === "success") && url) return url;
+        if (status === "failed" || status === "error") throw new Error(task.error?.message || "图片生成失败");
+      }
+      throw new Error("图片任务查询超时，请稍后到使用日志查看任务状态");
+    }
+
     function playgroundResponseText(data) {
       const content = data?.choices?.[0]?.message?.content;
       if (Array.isArray(content)) return content.map((part) => part?.text || "").join("");
@@ -1774,6 +1807,15 @@
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
+        const imageTaskId = (modelMeta.kind === "图片生成" || modelMeta.endpoint.includes("generateContent")) ? (data.task_id || data.taskId || data.id) : "";
+        if (imageTaskId) {
+          appendPlaygroundMessage("assistant", `图片任务已提交，任务编号：${imageTaskId}`);
+          playgroundStatus.textContent = "图片任务已进入队列，正在等待生成...";
+          const imageUrl = await pollImageTask(apiKey, imageTaskId);
+          appendPlaygroundImage(imageUrl);
+          playgroundStatus.textContent = "图片生成成功，费用已按模型价格扣除。";
+          return;
+        }
         const text = playgroundResponseText(data);
         playgroundConversation.push({ role: "assistant", content: text });
         appendPlaygroundMessage("assistant", text);
