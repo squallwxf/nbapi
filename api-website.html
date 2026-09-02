@@ -1159,6 +1159,10 @@
       return timestamp ? new Date(timestamp * 1000).toLocaleString("zh-CN", { hour12: false }) : "从未使用";
     }
 
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+
     async function loadTokens() {
       if (!sessionToken) {
         tokenAuthHint.textContent = "新用户默认没有令牌，请先登录后手动添加。";
@@ -1170,9 +1174,9 @@
         tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
         tokenList.innerHTML = data.items.length ? data.items.map((item) => `
           <div class="token-row">
-            <div class="token-row-top"><strong>${item.name}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
-            <code>${item.hint}</code>
-            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" data-copy-token="${item.token || ""}" ${item.canCopyFullToken ? "" : "disabled"}>${item.canCopyFullToken ? "复制完整 Key" : "旧令牌不可复制完整值"}</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
+            <div class="token-row-top"><strong>${escapeHtml(item.name)}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
+            <code>${escapeHtml(item.hint)}</code>
+            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" disabled>仅创建时显示完整 Key</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
           </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
         tokenList.querySelectorAll("[data-copy-token]").forEach((button) => button.addEventListener("click", () => copyFullToken(button.dataset.copyToken)));
         tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));

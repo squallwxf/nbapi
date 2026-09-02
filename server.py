@@ -215,6 +215,8 @@ def init_db() -> None:
         token_columns = {row[1] for row in db.execute("PRAGMA table_info(api_tokens)")}
         if "token_secret" not in token_columns:
             db.execute("ALTER TABLE api_tokens ADD COLUMN token_secret TEXT NOT NULL DEFAULT ''")
+        # Keep token hashes usable while removing legacy plaintext copies at rest.
+        db.execute("UPDATE api_tokens SET token_secret='' WHERE token_secret<>''")
         timestamp = now()
         super_admin_row = db.execute(
             "SELECT id, username FROM users WHERE role='super_admin' ORDER BY id LIMIT 1"
@@ -669,7 +671,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, X-NBAPI-Key, Content-Type, Idempotency-Key")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
         self.end_headers()
 
@@ -770,12 +772,12 @@ class Handler(BaseHTTPRequestHandler):
             if user:
                 with sqlite3.connect(DB_PATH) as db:
                     rows = db.execute(
-                        "SELECT id, name, token_hint, token_secret, active, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id=? ORDER BY id DESC",
+                        "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id=? ORDER BY id DESC",
                         (user[0],),
                     ).fetchall()
                 self.send_json(200, {"items": [{
-                    "id": r[0], "name": r[1], "hint": r[2], "token": r[3] or None, "canCopyFullToken": bool(r[3]), "active": bool(r[4]),
-                    "createdAt": r[5], "lastUsedAt": r[6], "expiresAt": r[7]
+                    "id": r[0], "name": r[1], "hint": r[2], "token": None, "canCopyFullToken": False, "active": bool(r[3]),
+                    "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6]
                 } for r in rows]})
             return
         if path == "/" or path == "/index.html":
@@ -882,7 +884,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not user:
                     return
                 name = str(payload.get("name", "")).strip() or "未命名令牌"
-                if len(name) > 64:
+                if len(name) > 64 or any(ord(char) < 32 for char in name):
                     self.send_json(400, {"error": "token_name_too_long"})
                     return
                 raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
@@ -890,8 +892,8 @@ class Handler(BaseHTTPRequestHandler):
                 token_hint = f"{raw_token[:12]}********{raw_token[-4:]}"
                 with sqlite3.connect(DB_PATH) as db:
                     cursor = db.execute(
-                        "INSERT INTO api_tokens(user_id, name, token_hash, token_secret, token_hint, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
-                        (user[0], name, token_hash, raw_token, token_hint, now()),
+                        "INSERT INTO api_tokens(user_id, name, token_hash, token_secret, token_hint, active, created_at) VALUES (?, ?, ?, '', ?, 1, ?)",
+                        (user[0], name, token_hash, token_hint, now()),
                     )
                     token_id = cursor.lastrowid
                 self.send_json(201, {"id": token_id, "name": name, "token": raw_token, "hint": token_hint, "active": True})
