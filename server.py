@@ -364,6 +364,8 @@ def get_upstream_route(db):
     ).fetchone()
     if row:
         base_url = str(row[2] or "").strip() or UPSTREAM
+        if base_url.lower().endswith("/v1") or base_url.lower().endswith("/v1beta"):
+            base_url = base_url.rsplit("/", 1)[0]
         api_key = str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")
         return {
             "channel_id": row[0],
