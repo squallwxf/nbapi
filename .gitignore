@@ -1,4 +1,6 @@
 nbapi.sqlite3
+nbapi.sqlite3-wal
+nbapi.sqlite3-shm
 __pycache__/
 *.py[cod]
 .env

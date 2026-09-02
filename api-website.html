@@ -51,6 +51,8 @@
     body.dark .nav-item { color: #b9c7da; }
     body.dark .nav-item:hover { background: #1b2a42; color: #f4f8ff; }
     body.dark .nav-item.active { background: #e8f1ff; color: #125bd6; }
+    body:not(.can-manage) .admin-only { display: none !important; }
+    body.logged-in .guest-only { display: none !important; }
     .icon { width: 18px; height: 18px; border-radius: 5px; background: currentColor; opacity: .82; flex: 0 0 auto; }
     .i-token { border-radius: 50%; }
     .i-channel { background: linear-gradient(90deg, currentColor 0 28%, transparent 28% 36%, currentColor 36% 64%, transparent 64% 72%, currentColor 72%); }
@@ -78,6 +80,7 @@
     .btn.success { background: var(--green); color: white; border-color: var(--green); }
 
     .content { padding: 24px; display: grid; gap: 18px; }
+    .content > #login, .content > #signup { display: none; }
     .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) 360px; gap: 18px; }
     .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
     .welcome { padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 18px; overflow: hidden; position: relative; }
@@ -108,13 +111,102 @@
     .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
     #models, #models + .workspace > .table-card { display: none; }
     .workspace:has(> .table-card) { grid-template-columns: 1fr; }
-    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings { display: none; }
+    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #login, .content > #signup { display: none; }
     body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
     body.route-square .content > #square { display: grid; }
-    body.route-tokens .content > .workspace, body.route-docs .content > .workspace, body.route-channels .content > .workspace { display: block; }
-    body.route-tokens .workspace #tokens, body.route-docs .workspace #docs, body.route-channels .workspace #channels { display: block; }
-    body.route-tokens .workspace #docs, body.route-tokens .workspace #channels, body.route-docs .workspace #tokens, body.route-docs .workspace #channels, body.route-channels .workspace #tokens, body.route-channels .workspace #docs { display: none; }
+    body.route-tokens .content > .workspace, body.route-docs .content > .workspace, body.route-channels .content > .workspace, body.route-users .content > .workspace { display: block; }
+    body.route-tokens .workspace #tokens, body.route-docs .workspace #docs, body.route-channels .workspace #channels, body.route-users .workspace #users { display: block; }
+    body.route-tokens .workspace #docs, body.route-tokens .workspace #channels, body.route-tokens .workspace #users, body.route-docs .workspace #tokens, body.route-docs .workspace #channels, body.route-docs .workspace #users, body.route-channels .workspace #tokens, body.route-channels .workspace #docs, body.route-channels .workspace #users, body.route-users .workspace #tokens, body.route-users .workspace #docs, body.route-users .workspace #channels { display: none; }
     body.route-logs .content > #logs, body.route-wallet .content > #wallet, body.route-settings .content > #settings { display: block; }
+    body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
+    body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #signup { display: none; }
+    body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #login { display: none; }
+    .auth-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) 360px;
+      gap: 18px;
+      align-items: start;
+    }
+    .auth-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .auth-hero {
+      padding: 24px;
+      min-height: 480px;
+      display: grid;
+      gap: 18px;
+      align-content: space-between;
+      overflow: hidden;
+      position: relative;
+    }
+    .auth-hero::after {
+      content: "Kr API";
+      position: absolute;
+      right: 18px;
+      bottom: -16px;
+      font-size: 92px;
+      font-weight: 900;
+      color: rgba(29, 111, 255, 0.05);
+      pointer-events: none;
+      letter-spacing: 0;
+    }
+    .auth-brand { display: flex; align-items: center; gap: 12px; }
+    .auth-brand .logo { width: 46px; height: 46px; border-radius: 12px; }
+    .auth-brand strong { display: block; font-size: 18px; }
+    .auth-brand span { color: var(--muted); font-size: 12px; }
+    .auth-copy h1 { margin: 0 0 10px; font-size: 29px; line-height: 1.18; letter-spacing: 0; }
+    .auth-copy p { margin: 0; color: var(--muted); max-width: 60ch; }
+    .auth-list {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .auth-mini {
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+    }
+    .auth-mini strong { display: block; margin-bottom: 4px; }
+    .auth-form {
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+    }
+    .auth-form h2 { margin: 0 0 4px; font-size: 20px; }
+    .auth-form p { margin: 0; color: var(--muted); }
+    .auth-field { display: grid; gap: 6px; }
+    .auth-field label { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .auth-input {
+      height: 40px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      outline: 0;
+    }
+    .auth-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .auth-links { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+    .auth-links a { color: var(--blue); }
+    .auth-side {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .auth-note {
+      border-radius: var(--radius);
+      border: 1px dashed #b8c7dd;
+      background: #f7fbff;
+      color: #344054;
+      padding: 12px;
+      font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+    body.dark .auth-note { background: #162238; color: #d9e4f5; border-color: #3c4d68; }
     .square-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -198,6 +290,12 @@
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
+    }
+    .console-subnav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
     }
     .console-shell {
       display: grid;
@@ -297,6 +395,13 @@
     }
     .mini-item strong { display: block; }
     .mini-item small { color: var(--muted); }
+    .token-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .token-summary .mini-item { min-height: 78px; }
 
     .table-card { overflow: hidden; }
     .table-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
@@ -348,9 +453,8 @@
       font-size: 12px;
       font-weight: 700;
     }
-    body.admin .admin-hint { display: block; }
-    body:not(.admin) #channels { display: none; }
-    body:not(.admin) .admin-only { opacity: .72; }
+    body.can-manage .admin-hint { display: block; }
+    body:not(.can-manage) #channels, body:not(.can-manage) #users { display: none; }
 
     .detail { display: grid; gap: 14px; align-content: start; }
     .detail-card { padding: 16px; }
@@ -372,6 +476,76 @@
     .endpoint { border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius); padding: 10px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .endpoint code { color: #344054; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     body.dark .endpoint code { color: #d9e4f5; }
+    .channel-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .channel-card {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      display: grid;
+      gap: 8px;
+    }
+    .channel-card .row { padding-top: 0; border-top: 0; }
+    .management-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .management-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .management-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+    .management-fields {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .management-fields .auth-field {
+      margin: 0 !important;
+    }
+    .log-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .log-list {
+      display: grid;
+      gap: 10px;
+    }
+    .log-item {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      display: grid;
+      gap: 8px;
+    }
+    .log-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .log-code {
+      font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
     .muted { color: var(--muted); }
     .code { margin: 0; background: #101828; color: #e4ecf7; border-radius: var(--radius); padding: 14px; overflow: auto; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
     .mobile-nav { display: none; }
@@ -382,11 +556,13 @@
       .sidebar { padding: 16px 10px; align-items: center; }
       .brand { padding: 0 0 14px; }
       .hero, .workspace { grid-template-columns: 1fr; }
+      .auth-shell, .console-shell { grid-template-columns: 1fr; }
       .welcome { grid-template-columns: 1fr; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .plaza-shell { grid-template-columns: 1fr; }
       .plaza-filter { display: none; }
       .plaza-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .auth-list, .token-summary, .channel-grid, .management-fields { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 720px) {
@@ -418,6 +594,7 @@
         <div class="nav-title">控制台</div>
         <a class="nav-item active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
         <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
+        <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
         <a class="nav-item admin-only" href="#channels" title="仅管理员可用"><span class="icon i-channel"></span><span>渠道管理</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
         <a class="nav-item" href="#wallet"><span class="icon i-money"></span><span>充值订阅</span></a>
@@ -427,6 +604,8 @@
       <div class="nav-section">
         <div class="nav-title">入口</div>
         <a class="nav-item" href="#square"><span class="icon i-model"></span><span>模型广场</span></a>
+        <a class="nav-item guest-only" href="#login"><span class="icon i-token"></span><span>登录</span></a>
+        <a class="nav-item guest-only" href="#signup"><span class="icon i-doc"></span><span>注册</span></a>
       </div>
       <div class="side-card">
         <strong>NB 专属网关</strong>
@@ -436,20 +615,114 @@
     </aside>
 
     <main class="main">
-      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#square">模型广场</a></div>
+      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
       <header class="topbar">
-        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#square">模型广场</a></nav>
+        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
           <span class="pill">余额 <strong class="account-balance" id="balanceDisplay">$ 100.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
           <span class="pill" id="adminState">访客</span>
-          <button class="btn" id="userLogin" type="button">用户登录</button>
-          <button class="btn" id="adminLogin" type="button">管理员登录</button>
-          <a class="btn primary" href="#signup">注册</a>
+          <a class="btn guest-only" id="authLogin" href="#login">登录</a>
+          <a class="btn primary guest-only" id="authSignup" href="#signup">注册</a>
+          <span class="pill" id="authUser" style="display:none;"></span>
+          <button class="btn" id="authLogout" type="button" style="display:none;">退出登录</button>
         </div>
       </header>
 
       <section class="content">
+        <section class="auth-shell" id="login">
+          <div class="auth-card auth-hero">
+            <div class="auth-brand">
+              <div class="logo">NB</div>
+              <div><strong>NBAPI</strong><span>AI 模型聚合网关</span></div>
+            </div>
+            <div class="auth-copy">
+              <h1>统一登录后进入控制台。</h1>
+              <p>对齐 krapi 的登录页结构，先把入口、登录态和品牌感立起来，再逐步补齐控制台、令牌和渠道管理。</p>
+            </div>
+            <div class="auth-list">
+              <div class="auth-mini"><strong>控制台</strong><small>总览、渠道、日志、系统设置统一入口</small></div>
+              <div class="auth-mini"><strong>模型广场</strong><small>可切换卡片和紧凑视图，直接查看计费信息</small></div>
+              <div class="auth-mini"><strong>令牌管理</strong><small>为每个调用方单独创建和停用 API Key</small></div>
+              <div class="auth-mini"><strong>兼容接口</strong><small>OpenAI / Claude / Gemini / 视频接口统一接入</small></div>
+            </div>
+          </div>
+          <div class="auth-card auth-form">
+            <div>
+              <h2>登录</h2>
+              <p>使用现有账号进入 NBAPI 控制台。</p>
+            </div>
+            <div class="auth-field">
+              <label for="loginUsername">用户名或邮箱</label>
+              <input class="auth-input" id="loginUsername" placeholder="请输入您的用户名或邮箱地址" />
+            </div>
+            <div class="auth-field">
+              <label for="loginPassword">密码</label>
+              <input class="auth-input" id="loginPassword" type="password" placeholder="请输入您的密码" />
+            </div>
+            <div class="auth-actions">
+              <button class="btn primary" id="loginSubmit" type="button">继续</button>
+              <button class="btn" id="loginDemo" type="button">演示账号</button>
+              <a class="btn" href="#signup">注册</a>
+            </div>
+            <div class="auth-links">
+              <span>没有账户？</span>
+              <a href="#signup">去注册</a>
+            </div>
+            <div class="auth-note">演示账号：<br />用户名 `demo`<br />密码 `demo123`<br />管理员账号：`admin` / `admin123`</div>
+          </div>
+        </section>
+
+        <section class="auth-shell" id="signup">
+          <div class="auth-card auth-hero">
+            <div class="auth-brand">
+              <div class="logo">NB</div>
+              <div><strong>NBAPI</strong><span>注册入口</span></div>
+            </div>
+            <div class="auth-copy">
+              <h1>创建账号后进入控制台。</h1>
+              <p>注册信息会写入后端数据库，新用户默认是普通用户，管理员可在用户管理里调整额度和权限。</p>
+            </div>
+            <div class="auth-list">
+              <div class="auth-mini"><strong>账号体系</strong><small>用户名、邮箱、角色和余额都会保存到后端</small></div>
+              <div class="auth-mini"><strong>安全策略</strong><small>密码使用哈希存储，后台不保存明文密码</small></div>
+              <div class="auth-mini"><strong>默认额度</strong><small>新用户和测试账号都能先跑通模型调用</small></div>
+              <div class="auth-mini"><strong>后续扩展</strong><small>可继续接入工单、充值和订阅方案</small></div>
+            </div>
+          </div>
+          <div class="auth-card auth-form">
+            <div>
+              <h2>注册</h2>
+              <p>填写信息后会自动创建普通用户账号。</p>
+            </div>
+            <div class="auth-field">
+              <label for="signupUsername">用户名</label>
+              <input class="auth-input" id="signupUsername" placeholder="请输入用户名" />
+            </div>
+            <div class="auth-field">
+              <label for="signupEmail">邮箱</label>
+              <input class="auth-input" id="signupEmail" placeholder="请输入邮箱地址" />
+            </div>
+            <div class="auth-field">
+              <label for="signupPassword">密码</label>
+              <input class="auth-input" id="signupPassword" type="password" placeholder="请输入密码" />
+            </div>
+            <div class="auth-field">
+              <label for="signupConfirm">确认密码</label>
+              <input class="auth-input" id="signupConfirm" type="password" placeholder="再次输入密码" />
+            </div>
+            <div class="auth-actions">
+              <button class="btn primary" id="signupSubmit" type="button">注册</button>
+              <a class="btn" href="#login">返回登录</a>
+            </div>
+            <div class="auth-links">
+              <span>已有账户？</span>
+              <a href="#login">直接登录</a>
+            </div>
+            <div class="auth-note">注册成功后会自动登录。管理员可在“用户管理”里查看新账号并调整额度或权限。</div>
+          </div>
+        </section>
+
         <div class="hero">
           <section class="panel welcome">
             <div>
@@ -496,7 +769,15 @@
                 <div class="console-metric"><div class="k">今日调用</div><div class="v">84,291</div><div class="s">增长 18.6%</div></div>
                 <div class="console-metric"><div class="k">账户余额</div><div class="v">$ 926</div><div class="s">管理员可调价</div></div>
               </div>
-              <div class="console-toolbar" style="margin-top:16px;">
+              <div class="console-subnav">
+                <span class="chip active">总览</span>
+                <a class="chip" href="#tokens">令牌管理</a>
+                <a class="chip admin-only" href="#users">用户管理</a>
+                <a class="chip admin-only" href="#channels">渠道管理</a>
+                <a class="chip" href="#logs">使用日志</a>
+                <a class="chip" href="#docs">接口文档</a>
+              </div>
+              <div class="console-toolbar">
                 <div class="filters">
                   <span class="chip active">全部</span>
                   <span class="chip">OpenAI</span>
@@ -505,7 +786,7 @@
                   <span class="chip">图片</span>
                   <span class="chip">视频</span>
                 </div>
-                <span class="pill">接口基址： https://ai.krapi.cn/v1</span>
+                <span class="pill">接口基址： https://nbapi.win/v1</span>
               </div>
               <div class="table-wrap">
                 <table class="console-table">
@@ -533,10 +814,11 @@
               <span class="tag blue">Console</span>
             </div>
             <div class="console-body">
-              <div class="mini-list">
+              <div class="mini-list compact">
                 <div class="mini-item"><div><strong>管理员开关</strong><small>登录后可修改价格</small></div><span class="tag green">已支持</span></div>
                 <div class="mini-item"><div><strong>深浅色主题</strong><small>自动记住浏览器设置</small></div><span class="tag blue">已支持</span></div>
                 <div class="mini-item"><div><strong>调用文档</strong><small>兼容 OpenAI / Gemini / 视频接口</small></div><span class="tag orange">v1</span></div>
+                <div class="mini-item"><div><strong>登录入口</strong><small>支持 demo / admin 两套示例账号</small></div><span class="tag gray">入口</span></div>
               </div>
             </div>
           </aside>
@@ -545,6 +827,7 @@
         <section class="plaza-shell" id="square">
           <aside class="plaza-filter">
             <h3>筛选</h3>
+            <button class="btn" id="resetPlazaFilters" type="button" style="width:100%;margin-bottom:12px;">重置</button>
             <div class="filter-group">
               <h4>供应商</h4>
               <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="provider" data-filter="all">全部供应商 <b>32</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Google">Google <b>2</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="OpenAI">OpenAI <b>4</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Grok">Grok <b>4</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Omni">Omni <b>9</b></button><button class="filter-button" type="button" data-filter-group="provider" data-filter="Sora / Veo">Sora / Veo <b>13</b></button></div>
@@ -556,6 +839,14 @@
             <div class="filter-group">
               <h4>模型能力</h4>
               <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="kind" data-filter="all">全部能力</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="对话模型">对话模型</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="图片生成">图片生成</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="视频生成">视频生成</button><button class="filter-button" type="button" data-filter-group="kind" data-filter="视频编辑">视频编辑</button></div>
+            </div>
+            <div class="filter-group">
+              <h4>标签</h4>
+              <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="tag" data-filter="all">全部标签 <b>32</b></button><button class="filter-button" type="button" data-filter-group="tag" data-filter="720p">720p</button><button class="filter-button" type="button" data-filter-group="tag" data-filter="速度快">速度快</button><button class="filter-button" type="button" data-filter-group="tag" data-filter="支持真人">支持真人</button><button class="filter-button" type="button" data-filter-group="tag" data-filter="稳定">稳定</button></div>
+            </div>
+            <div class="filter-group">
+              <h4>端点类型</h4>
+              <div class="filter-buttons"><button class="filter-button active" type="button" data-filter-group="endpoint" data-filter="all">全部端点 <b>32</b></button><button class="filter-button" type="button" data-filter-group="endpoint" data-filter="openai">openai</button><button class="filter-button" type="button" data-filter-group="endpoint" data-filter="gemini">gemini</button><button class="filter-button" type="button" data-filter-group="endpoint" data-filter="anthropic">anthropic</button></div>
             </div>
           </aside>
           <div class="plaza-main">
@@ -570,7 +861,7 @@
 
         <div class="section-head" id="models">
           <div><h2>模型价格与渠道</h2><p>参考站点的模型类型已覆盖到这里，适合直接替换成你的真实倍率。</p></div>
-          <a class="btn primary" href="#channels">新增渠道</a>
+          <a class="btn primary admin-only" href="#channels">渠道管理</a>
         </div>
 
         <section class="workspace">
@@ -597,6 +888,11 @@
             <article class="panel detail-card" id="tokens">
               <div class="token-head"><h3>令牌管理</h3><button class="btn primary" id="createToken" type="button">添加令牌</button></div>
               <p class="muted" id="tokenAuthHint">新用户默认没有令牌，请登录后手动添加。</p>
+              <div class="token-summary">
+                <div class="mini-item"><div><strong>可用令牌</strong><small>独立 Key 管理</small></div><span class="tag green">安全</span></div>
+                <div class="mini-item"><div><strong>最近使用</strong><small>记录最后调用时间</small></div><span class="tag blue">追踪</span></div>
+                <div class="mini-item"><div><strong>停用控制</strong><small>可随时禁用泄露 Key</small></div><span class="tag orange">防护</span></div>
+              </div>
               <div class="token-list" id="tokenList"></div>
             </article>
             <article class="panel detail-card" id="docs">
@@ -608,28 +904,74 @@
                 <div class="endpoint"><code>https://ai.krapi.cn/v1/images/generations</code><span class="tag blue">Image</span></div>
               </div>
             </article>
+            <article class="panel detail-card" id="users">
+              <div class="management-top">
+                <h3 style="margin:0;">用户管理</h3>
+                <button class="btn" id="refreshUsers" type="button">刷新用户</button>
+              </div>
+              <p class="muted">调整用户剩余额度、权限、状态和密码，并支持搜索与分页。</p>
+              <div class="plaza-toolbar" style="padding-top:0;">
+                <label class="plaza-search" style="max-width:100%;"><span>⌕</span><input id="userSearch" placeholder="搜索用户名、邮箱或角色" /></label>
+                <div class="plaza-tools">
+                  <button class="btn" id="clearUserSearch" type="button">清空</button>
+                </div>
+              </div>
+              <div class="management-grid" id="userManagementList"></div>
+              <div class="auth-actions" style="justify-content:space-between;">
+                <button class="btn" id="prevUsersPage" type="button">上一页</button>
+                <span class="pill" id="usersPageInfo">第 1 页</span>
+                <button class="btn" id="nextUsersPage" type="button">下一页</button>
+              </div>
+            </article>
             <article class="panel detail-card" id="channels">
-              <h3>渠道健康度</h3>
-              <div class="row"><strong>OpenAI 主渠道</strong><span class="tag green">99.98%</span></div>
-              <div class="progress"><span style="width: 96%"></span></div>
-              <div class="row" style="margin-top:12px;"><strong>Claude 备用渠道</strong><span class="tag blue">98.70%</span></div>
-              <div class="progress"><span style="width: 82%"></span></div>
+              <div class="management-top">
+                <h3 style="margin:0;">渠道管理</h3>
+                <button class="btn" id="refreshChannels" type="button">刷新渠道</button>
+              </div>
+              <p class="muted">配置模型渠道、上游接入网址和 API Key。</p>
+              <div class="management-card">
+                <strong>新增渠道</strong>
+                <div class="management-fields">
+                  <div class="auth-field"><label for="newChannelName">渠道名称</label><input class="auth-input" id="newChannelName" placeholder="例如：主站渠道" /></div>
+                  <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" placeholder="https://ai.krapi.cn" /></div>
+                  <div class="auth-field"><label for="newChannelKey">上游 API Key</label><input class="auth-input" id="newChannelKey" type="password" placeholder="可选" /></div>
+                  <div class="auth-field"><label for="newChannelPriority">优先级</label><input class="auth-input" id="newChannelPriority" type="number" value="100" /></div>
+                </div>
+                <div class="auth-field">
+                  <label for="newChannelNote">备注</label>
+                  <input class="auth-input" id="newChannelNote" placeholder="渠道说明" />
+                </div>
+                <div class="auth-actions">
+                  <button class="btn primary" id="createChannel" type="button">创建渠道</button>
+                </div>
+              </div>
+              <div class="management-grid" id="channelList"></div>
             </article>
           </aside>
         </section>
 
         <section class="panel detail-card" id="logs">
-          <h3>快速调用示例</h3>
-          <pre class="code">POST https://ai.krapi.cn/v1/chat/completions
-Authorization: Bearer nb_sk_live_xxxxxx
-Content-Type: application/json
-
-{
-  "model": "gpt-4o-mini",
-  "messages": [
-    { "role": "user", "content": "用一句话介绍 NBAPI" }
-  ]
-}</pre>
+          <div class="log-toolbar">
+            <div>
+              <h3>使用日志</h3>
+              <p class="muted">查看近期调用、计费、登录和渠道变化。</p>
+            </div>
+            <div class="filters"><span class="chip active">全部</span><span class="chip">调用</span><span class="chip">计费</span><span class="chip">登录</span><span class="chip">渠道</span></div>
+          </div>
+          <div class="log-list">
+            <div class="log-item">
+              <div class="log-head"><strong>POST /v1/chat/completions</strong><span class="tag green">成功</span></div>
+              <div class="log-code">2026-09-02 10:18:42  model=gpt-5.5  token=nb_sk_***7f2a  usage=1,024 tokens  charged=$0.000000</div>
+            </div>
+            <div class="log-item">
+              <div class="log-head"><strong>POST /api/tokens</strong><span class="tag blue">创建</span></div>
+              <div class="log-code">2026-09-02 09:52:11  user=demo  name=测试令牌  result=created  hint=nb_sk_***9bd1</div>
+            </div>
+            <div class="log-item">
+              <div class="log-head"><strong>GET /api/models</strong><span class="tag gray">读取</span></div>
+              <div class="log-code">2026-09-02 09:30:25  models=32  source=pricing cache=hit  latency=18ms</div>
+            </div>
+          </div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="wallet">
@@ -640,8 +982,31 @@ Content-Type: application/json
 
         <section class="panel detail-card route-placeholder" id="settings">
           <h2>系统设置</h2>
-          <p class="muted">管理账户偏好、通知设置和安全选项。</p>
-          <div class="key-box">系统设置模块已预留，后续将接入服务器端配置。</div>
+          <p class="muted">管理账户偏好、通知设置和上游接入密钥。</p>
+          <div class="detail-grid" style="display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start;">
+            <div class="panel" style="padding:16px;box-shadow:none;">
+              <div class="token-head" style="margin-bottom:12px;">
+                <strong>上游接入</strong>
+                <span class="tag blue">管理员</span>
+              </div>
+              <div class="auth-field" style="margin-bottom:12px;">
+                <label for="upstreamBaseUrl">上游地址</label>
+                <input class="auth-input" id="upstreamBaseUrl" readonly />
+              </div>
+              <div class="auth-field" style="margin-bottom:12px;">
+                <label for="upstreamApiKey">上游 API Key</label>
+                <input class="auth-input" id="upstreamApiKey" type="password" placeholder="留空表示不修改，填写后会保存到服务器" />
+              </div>
+              <div class="auth-actions">
+                <button class="btn primary" id="saveUpstreamApiKey" type="button">保存上游 Key</button>
+                <button class="btn" id="clearUpstreamApiKey" type="button">清空上游 Key</button>
+              </div>
+            </div>
+            <div class="panel" style="padding:16px;box-shadow:none;">
+              <strong style="display:block;margin-bottom:10px;">当前状态</strong>
+              <div class="key-box" id="upstreamConfigStatus">尚未加载配置。</div>
+            </div>
+          </div>
         </section>
       </section>
     </main>
@@ -650,13 +1015,15 @@ Content-Type: application/json
   <script>
     const storageKeys = {
       theme: "nbapi-theme",
-      admin: "nbapi-admin",
       prices: "nbapi-prices"
     };
 
     const themeToggle = document.getElementById("themeToggle");
-    const adminLogin = document.getElementById("adminLogin");
     const adminState = document.getElementById("adminState");
+    const authLogin = document.getElementById("authLogin");
+    const authSignup = document.getElementById("authSignup");
+    const authUser = document.getElementById("authUser");
+    const authLogout = document.getElementById("authLogout");
     const priceCells = Array.from(document.querySelectorAll("[data-price-id]"));
     const modelGrid = document.getElementById("modelGrid");
     const modelSearch = document.getElementById("modelSearch");
@@ -665,13 +1032,44 @@ Content-Type: application/json
     const plazaModeToggle = document.getElementById("plazaModeToggle");
     const copyToast = document.getElementById("copyToast");
     const balanceDisplay = document.getElementById("balanceDisplay");
-    const userLogin = document.getElementById("userLogin");
     const createToken = document.getElementById("createToken");
     const tokenList = document.getElementById("tokenList");
     const tokenAuthHint = document.getElementById("tokenAuthHint");
-    const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
+    const loginUsername = document.getElementById("loginUsername");
+    const loginPassword = document.getElementById("loginPassword");
+    const loginSubmit = document.getElementById("loginSubmit");
+    const loginDemo = document.getElementById("loginDemo");
+    const signupSubmit = document.getElementById("signupSubmit");
+    const signupUsername = document.getElementById("signupUsername");
+    const signupEmail = document.getElementById("signupEmail");
+    const signupPassword = document.getElementById("signupPassword");
+    const signupConfirm = document.getElementById("signupConfirm");
+    const resetPlazaFilters = document.getElementById("resetPlazaFilters");
+    const upstreamBaseUrl = document.getElementById("upstreamBaseUrl");
+    const upstreamApiKey = document.getElementById("upstreamApiKey");
+    const saveUpstreamApiKey = document.getElementById("saveUpstreamApiKey");
+    const clearUpstreamApiKey = document.getElementById("clearUpstreamApiKey");
+    const upstreamConfigStatus = document.getElementById("upstreamConfigStatus");
+    const refreshUsers = document.getElementById("refreshUsers");
+    const refreshChannels = document.getElementById("refreshChannels");
+    const userManagementList = document.getElementById("userManagementList");
+    const userSearch = document.getElementById("userSearch");
+    const clearUserSearch = document.getElementById("clearUserSearch");
+    const prevUsersPage = document.getElementById("prevUsersPage");
+    const nextUsersPage = document.getElementById("nextUsersPage");
+    const usersPageInfo = document.getElementById("usersPageInfo");
+    const channelList = document.getElementById("channelList");
+    const createChannelButton = document.getElementById("createChannel");
+    const newChannelName = document.getElementById("newChannelName");
+    const newChannelUrl = document.getElementById("newChannelUrl");
+    const newChannelKey = document.getElementById("newChannelKey");
+    const newChannelPriority = document.getElementById("newChannelPriority");
+    const newChannelNote = document.getElementById("newChannelNote");
+    const API_BASE = location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
     let sessionToken = localStorage.getItem("nbapi-session-token") || "";
     let currentUser = null;
+    let canManage = false;
+    let isSuperAdmin = false;
     let activeApiKey = localStorage.getItem("nbapi-active-api-key") || "";
 
     async function apiRequest(path, options = {}) {
@@ -681,6 +1079,80 @@ Content-Type: application/json
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
       return data;
+    }
+
+    function roleLabel(role) {
+      return role === "super_admin" ? "主管理员" : role === "admin" ? "管理员" : "用户";
+    }
+
+    function syncAuthState() {
+      canManage = Boolean(currentUser && currentUser.role !== "user");
+      isSuperAdmin = Boolean(currentUser && currentUser.role === "super_admin");
+      document.body.classList.toggle("logged-in", Boolean(currentUser));
+      document.body.classList.toggle("can-manage", canManage);
+      adminState.textContent = currentUser ? roleLabel(currentUser.role) : "访客";
+      authUser.textContent = currentUser ? `${currentUser.username} · ${roleLabel(currentUser.role)}` : "";
+      authUser.style.display = currentUser ? "inline-flex" : "none";
+      authLogout.style.display = currentUser ? "inline-flex" : "none";
+      authLogin.style.display = currentUser ? "none" : "inline-flex";
+      authSignup.style.display = currentUser ? "none" : "inline-flex";
+    }
+
+    function clearSessionState() {
+      sessionToken = "";
+      currentUser = null;
+      canManage = false;
+      isSuperAdmin = false;
+      activeApiKey = "";
+      localStorage.removeItem("nbapi-session-token");
+      localStorage.removeItem("nbapi-active-api-key");
+    }
+
+    function applyUserSession(user, token) {
+      sessionToken = token;
+      currentUser = user;
+      localStorage.setItem("nbapi-session-token", token);
+      activeApiKey = "";
+      localStorage.removeItem("nbapi-active-api-key");
+      accountBalance = Number(user.balance || 0);
+      updateBalance();
+      syncAuthState();
+      renderPrices();
+    }
+
+    async function performUserLogin(username, password, source = "登录") {
+      const data = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      }).then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "登录失败");
+        return result;
+      });
+      applyUserSession(data.user, data.token);
+      await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+      location.hash = "console";
+      applyRoute();
+      showToast(`${source}成功`);
+      return data;
+    }
+
+    async function loadCurrentSession() {
+      if (!sessionToken) {
+        syncAuthState();
+        return;
+      }
+      try {
+        const me = await apiRequest("/api/me");
+        applyUserSession(me, sessionToken);
+        await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+      } catch {
+        clearSessionState();
+        syncAuthState();
+        setUpstreamUiState();
+        loadTokens();
+      }
     }
 
     function formatTokenDate(timestamp) {
@@ -695,17 +1167,260 @@ Content-Type: application/json
       }
       try {
         const data = await apiRequest("/api/tokens");
-        tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。原始 Key 只在创建时显示一次。` : "令牌已安全存储在服务端。";
+        tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
         tokenList.innerHTML = data.items.length ? data.items.map((item) => `
           <div class="token-row">
             <div class="token-row-top"><strong>${item.name}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
             <code>${item.hint}</code>
-            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" data-copy-token="${item.hint}">复制脱敏 Key</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
+            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions"><button class="btn" type="button" data-copy-token="${item.token || ""}" ${item.canCopyFullToken ? "" : "disabled"}>${item.canCopyFullToken ? "复制完整 Key" : "旧令牌不可复制完整值"}</button>${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
           </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
-        tokenList.querySelectorAll("[data-copy-token]").forEach((button) => button.addEventListener("click", () => copyModelName(button.dataset.copyToken)));
+        tokenList.querySelectorAll("[data-copy-token]").forEach((button) => button.addEventListener("click", () => copyFullToken(button.dataset.copyToken)));
         tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));
       } catch (error) {
         tokenList.innerHTML = `<small>${error.message}</small>`;
+      }
+    }
+
+    function setUpstreamUiState(config = null) {
+      const adminMode = Boolean(canManage && sessionToken);
+      upstreamBaseUrl.value = config?.upstreamBaseUrl || "https://ai.krapi.cn";
+      upstreamApiKey.disabled = !adminMode;
+      saveUpstreamApiKey.disabled = !adminMode;
+      clearUpstreamApiKey.disabled = !adminMode;
+      if (!adminMode) {
+        upstreamApiKey.value = "";
+        upstreamConfigStatus.textContent = "管理员登录后可查看和修改上游 API Key。";
+        return;
+      }
+      upstreamApiKey.value = "";
+      upstreamConfigStatus.textContent = config?.upstreamApiKeySet
+        ? `已保存上游 Key，当前脱敏显示为 ${config.upstreamApiKeyHint || "******"}.`
+        : "当前尚未保存上游 API Key。";
+    }
+
+    async function loadUpstreamConfig() {
+      if (!canManage || !sessionToken) {
+        setUpstreamUiState();
+        return;
+      }
+      try {
+        const config = await apiRequest("/api/admin/config");
+        setUpstreamUiState(config);
+      } catch (error) {
+        upstreamConfigStatus.textContent = error.message;
+      }
+    }
+
+    async function saveUpstreamKey(value) {
+      if (!canManage || !sessionToken) {
+        alert("请先登录管理员账号。");
+        return;
+      }
+      try {
+        const config = await apiRequest("/api/admin/config", {
+          method: "PUT",
+          body: JSON.stringify({ upstreamApiKey: value })
+        });
+        setUpstreamUiState(config);
+        showToast(config.upstreamApiKeySet ? "上游 Key 已保存" : "上游 Key 已清空");
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function renderUserCard(user) {
+      const roleOptions = isSuperAdmin
+        ? `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option><option value="super_admin" ${user.role === "super_admin" ? "selected" : ""}>主管理员</option>`
+        : `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>`;
+      return `
+        <div class="management-card" data-user-id="${user.id}" data-user-active="${user.active ? "1" : "0"}">
+          <div class="management-top">
+            <strong>${user.username}</strong>
+            <span class="tag ${user.role === "super_admin" ? "purple" : user.role === "admin" ? "blue" : "gray"}">${roleLabel(user.role)}</span>
+          </div>
+          <div class="management-fields">
+            <div class="auth-field"><label>权限</label><select class="auth-input" data-user-role>${roleOptions}</select></div>
+            <div class="auth-field"><label>剩余额度</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>
+            <div class="auth-field"><label>邮箱</label><input class="auth-input" value="${(user.email || "").replace(/"/g, "&quot;")}" readonly /></div>
+            <div class="auth-field"><label>状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div>
+          </div>
+          <small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small>
+          <div class="auth-actions">
+            <button class="btn primary" type="button" data-save-user>保存修改</button>
+            <button class="btn" type="button" data-reset-user-password>重置密码</button>
+            <button class="btn" type="button" data-toggle-user-active>${user.active ? "禁用用户" : "启用用户"}</button>
+          </div>
+        </div>`;
+    }
+
+    async function loadAdminUsers() {
+      if (!canManage || !sessionToken || !userManagementList) {
+        if (userManagementList) userManagementList.innerHTML = "<small>管理员登录后可查看用户列表。</small>";
+        return;
+      }
+      try {
+        const query = userSearch?.value?.trim() || "";
+        const data = await apiRequest(`/api/admin/users?q=${encodeURIComponent(query)}&page=${usersPage}&pageSize=${usersPageSize}`);
+        usersTotalPages = data.totalPages || 1;
+        if (usersPage > usersTotalPages) {
+          usersPage = usersTotalPages;
+          await loadAdminUsers();
+          return;
+        }
+        usersPageInfo.textContent = `第 ${data.page} / ${data.totalPages} 页，共 ${data.total} 个用户`;
+        prevUsersPage.disabled = data.page <= 1;
+        nextUsersPage.disabled = data.page >= data.totalPages;
+        userManagementList.innerHTML = data.items.length ? data.items.map(renderUserCard).join("") : "<small>暂无用户。</small>";
+        userManagementList.querySelectorAll("[data-save-user]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-user-id]");
+            const userId = card.dataset.userId;
+            const role = card.querySelector("[data-user-role]").value;
+            const balance = card.querySelector("[data-user-balance]").value;
+            try {
+              await apiRequest(`/api/admin/users/${userId}`, {
+                method: "PUT",
+                body: JSON.stringify({ role, balance })
+              });
+              showToast("用户信息已保存");
+              await loadAdminUsers();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
+        userManagementList.querySelectorAll("[data-reset-user-password]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-user-id]");
+            const userId = card.dataset.userId;
+            const password = prompt("请输入新的登录密码", "abc12345");
+            if (!password) return;
+            if (password.length < 6) {
+              alert("密码至少 6 位。");
+              return;
+            }
+            try {
+              await apiRequest(`/api/admin/users/${userId}`, {
+                method: "PUT",
+                body: JSON.stringify({ password })
+              });
+              showToast("密码已重置");
+              await loadAdminUsers();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
+        userManagementList.querySelectorAll("[data-toggle-user-active]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-user-id]");
+            const userId = card.dataset.userId;
+            const active = card.dataset.userActive !== "1";
+            try {
+              await apiRequest(`/api/admin/users/${userId}`, {
+                method: "PUT",
+                body: JSON.stringify({ active })
+              });
+              showToast(active ? "用户已启用" : "用户已禁用");
+              await loadAdminUsers();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
+      } catch (error) {
+        userManagementList.innerHTML = `<small>${error.message}</small>`;
+      }
+    }
+
+    function renderChannelCard(channel) {
+      return `
+        <div class="management-card" data-channel-id="${channel.id}">
+          <div class="management-top">
+            <strong>${channel.name}</strong>
+            <span class="tag ${channel.active ? "green" : "gray"}">${channel.active ? "启用" : "停用"}</span>
+          </div>
+          <div class="management-fields">
+            <div class="auth-field"><label>渠道名称</label><input class="auth-input" value="${channel.name.replace(/"/g, "&quot;")}" data-channel-name /></div>
+            <div class="auth-field"><label>上游地址</label><input class="auth-input" value="${channel.upstreamBaseUrl.replace(/"/g, "&quot;")}" data-channel-url /></div>
+            <div class="auth-field"><label>上游 API Key</label><input class="auth-input" type="password" placeholder="${channel.upstreamApiKeySet ? channel.upstreamApiKeyHint : "未设置"}" data-channel-key /></div>
+            <div class="auth-field"><label>优先级</label><input class="auth-input" type="number" value="${channel.priority}" data-channel-priority /></div>
+          </div>
+          <div class="auth-field">
+            <label>备注</label>
+            <input class="auth-input" value="${channel.note.replace(/"/g, "&quot;")}" data-channel-note />
+          </div>
+          <div class="auth-actions">
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" ${channel.active ? "checked" : ""} data-channel-active /> 启用渠道</label>
+            <button class="btn primary" type="button" data-save-channel>保存修改</button>
+          </div>
+        </div>`;
+    }
+
+    async function loadAdminChannels() {
+      if (!canManage || !sessionToken || !channelList) {
+        if (channelList) channelList.innerHTML = "<small>管理员登录后可查看渠道列表。</small>";
+        return;
+      }
+      try {
+        const data = await apiRequest("/api/admin/channels");
+        channelList.innerHTML = data.items.length ? data.items.map(renderChannelCard).join("") : "<small>暂无渠道。</small>";
+        channelList.querySelectorAll("[data-save-channel]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-channel-id]");
+            const channelId = card.dataset.channelId;
+            const payload = {
+              name: card.querySelector("[data-channel-name]").value.trim(),
+              upstreamBaseUrl: card.querySelector("[data-channel-url]").value.trim(),
+              priority: card.querySelector("[data-channel-priority]").value,
+              note: card.querySelector("[data-channel-note]").value.trim(),
+              active: card.querySelector("[data-channel-active]").checked
+            };
+            const keyValue = card.querySelector("[data-channel-key]").value;
+            if (keyValue) payload.upstreamApiKey = keyValue;
+            try {
+              await apiRequest(`/api/admin/channels/${channelId}`, {
+                method: "PATCH",
+                body: JSON.stringify(payload)
+              });
+              showToast("渠道信息已保存");
+              await loadAdminChannels();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
+      } catch (error) {
+        channelList.innerHTML = `<small>${error.message}</small>`;
+      }
+    }
+
+    async function createChannel() {
+      if (!canManage || !sessionToken) {
+        alert("请先登录管理员账号。");
+        return;
+      }
+      try {
+        await apiRequest("/api/admin/channels", {
+          method: "POST",
+          body: JSON.stringify({
+            name: newChannelName.value.trim(),
+            upstreamBaseUrl: newChannelUrl.value.trim(),
+            upstreamApiKey: newChannelKey.value,
+            priority: newChannelPriority.value,
+            note: newChannelNote.value.trim(),
+            active: true
+          })
+        });
+        newChannelName.value = "";
+        newChannelUrl.value = "";
+        newChannelKey.value = "";
+        newChannelPriority.value = "100";
+        newChannelNote.value = "";
+        showToast("渠道已创建");
+        await loadAdminChannels();
+      } catch (error) {
+        alert(error.message);
       }
     }
 
@@ -751,20 +1466,26 @@ Content-Type: application/json
     ];
 
     let prices = JSON.parse(localStorage.getItem(storageKeys.prices) || "{}");
-    let isAdmin = localStorage.getItem(storageKeys.admin) === "true";
     let accountBalance = Number(localStorage.getItem("nbapi-balance") || "100");
     let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
     let showPlazaPrices = true;
     let compactPlaza = false;
-    const selectedFilters = { provider: "all", billing: "all", kind: "all" };
-    const routes = ["console", "square", "tokens", "docs", "channels", "logs", "wallet", "settings"];
+    let usersPage = 1;
+    let usersPageSize = 8;
+    let usersTotalPages = 1;
+    const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
+    const routes = ["console", "square", "tokens", "docs", "users", "channels", "logs", "wallet", "settings", "login", "signup"];
 
     function applyRoute() {
       let route = (location.hash || "#console").slice(1) || "console";
       if (route === "models") route = "square";
       if (!routes.includes(route)) route = "console";
-      if (route === "channels" && !isAdmin) {
-        alert("渠道管理仅管理员可用，请先登录管理员账号。");
+      if (currentUser && (route === "login" || route === "signup")) {
+        route = "console";
+        history.replaceState(null, "", "#console");
+      }
+      if ((route === "channels" || route === "users") && !canManage) {
+        alert("该页面仅管理员可用，请先登录管理员账号。");
         route = "console";
         history.replaceState(null, "", "#console");
       }
@@ -775,6 +1496,17 @@ Content-Type: application/json
       });
     }
     window.addEventListener("hashchange", applyRoute);
+
+    function getModelMeta(model) {
+      const [name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode] = model;
+      const tags = [];
+      if (name.includes("720p")) tags.push("720p");
+      if (/(fast|speed)/i.test(name)) tags.push("速度快");
+      if (/(pro|quality)/i.test(name)) tags.push("稳定");
+      if (/(edit|components)/i.test(name) || kind.includes("视频")) tags.push("支持真人");
+      const endpointType = endpoint.includes("generateContent") ? "gemini" : endpoint.includes("messages") ? "anthropic" : "openai";
+      return { name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode, tags, endpointType };
+    }
 
     const defaultModelPricing = Object.fromEntries(documentedModels.map(([name, providerLabel, provider, kind]) => [name, {
       amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5,
@@ -819,29 +1551,31 @@ Content-Type: application/json
 
     function renderModelSquare() {
       const query = (modelSearch?.value || "").trim().toLowerCase();
-      const visibleModels = documentedModels.filter(([name, providerLabel, provider, kind]) =>
-        `${name} ${providerLabel} ${provider} ${kind}`.toLowerCase().includes(query) &&
-        (selectedFilters.provider === "all" || provider === selectedFilters.provider) &&
-        (selectedFilters.kind === "all" || kind === selectedFilters.kind) &&
-        (selectedFilters.billing === "all" || getModelPricing(name, kind).unit === selectedFilters.billing)
+      const visibleModels = documentedModels.map(getModelMeta).filter((model) =>
+        `${model.name} ${model.providerLabel} ${model.provider} ${model.kind} ${model.tags.join(" ")} ${model.endpointType}`.toLowerCase().includes(query) &&
+        (selectedFilters.provider === "all" || model.provider === selectedFilters.provider) &&
+        (selectedFilters.kind === "all" || model.kind === selectedFilters.kind) &&
+        (selectedFilters.billing === "all" || getModelPricing(model.name, model.kind).unit === selectedFilters.billing) &&
+        (selectedFilters.tag === "all" || model.tags.includes(selectedFilters.tag)) &&
+        (selectedFilters.endpoint === "all" || model.endpointType === selectedFilters.endpoint)
       );
       modelGrid.classList.toggle("compact-plaza", compactPlaza);
       document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${documentedModels.length} 个模型`;
-      modelGrid.innerHTML = visibleModels.map(([name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode]) => {
-        const pricing = getModelPricing(name, kind);
-        const priceMarkup = isAdmin
-          ? `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${name}" /><select class="billing-select" data-unit-model="${name}"><option value="per_task" ${pricing.unit === "per_task" ? "selected" : ""}>按次</option><option value="per_token" ${pricing.unit === "per_token" ? "selected" : ""}>按1K Token</option></select></div>`
+      modelGrid.innerHTML = visibleModels.map((model) => {
+        const pricing = getModelPricing(model.name, model.kind);
+        const priceMarkup = canManage
+          ? `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${model.name}" /><select class="billing-select" data-unit-model="${model.name}"><option value="per_task" ${pricing.unit === "per_task" ? "selected" : ""}>按次</option><option value="per_token" ${pricing.unit === "per_token" ? "selected" : ""}>按1K Token</option></select></div>`
           : `<strong>${formatModelPrice(pricing)}</strong>`;
         return `
         <article class="plaza-card">
           <div class="plaza-card-top">
-            <div class="avatar ${avatarClass}">${initial}</div>
-            <div class="plaza-card-name"><strong>${name}</strong><small>${providerLabel}</small></div>
-            <button class="copy-model" type="button" data-copy-model="${name.replace(/"/g, "&quot;")}" title="复制模型名称" aria-label="复制 ${name}"><span class="copy-icon"></span></button>
+            <div class="avatar ${model.avatarClass}">${model.initial}</div>
+            <div class="plaza-card-name"><strong>${model.name}</strong><small>${model.providerLabel}</small></div>
+            <button class="copy-model" type="button" data-copy-model="${model.name.replace(/"/g, "&quot;")}" title="复制模型名称" aria-label="复制 ${model.name}"><span class="copy-icon"></span></button>
           </div>
           ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1K Token" : "按次"}</span></div>` : ""}
-          <p class="plaza-description">${kind}，提交任务后通过对应查询接口获取结果。</p>
-          <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${kind}</span><span class="tag blue">${mode}</span><code>${endpoint}</code><button class="call-model" type="button" data-call-model="${name}">调用并扣费</button></div>
+          <p class="plaza-description">${model.kind}，提交任务后通过对应查询接口获取结果。</p>
+          <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${model.kind}</span><span class="tag blue">${model.mode}</span><code>${model.endpoint}</code><button class="call-model" type="button" data-call-model="${model.name}">调用并扣费</button></div>
         </article>
       `;
       }).join("");
@@ -921,15 +1655,23 @@ Content-Type: application/json
       copyToast.timer = window.setTimeout(() => copyToast.classList.remove("show"), 1600);
     }
 
+    async function copyFullToken(token) {
+      if (!token) {
+        alert("这个令牌创建于旧版本，后端没有保存完整 Key，请重新创建一个新令牌。");
+        return;
+      }
+      await copyModelName(token);
+      activeApiKey = token;
+      localStorage.setItem("nbapi-active-api-key", activeApiKey);
+      showToast("完整 API Key 已复制");
+    }
+
     function renderPrices() {
-      document.body.classList.toggle("admin", isAdmin);
-      adminState.textContent = isAdmin ? "管理员" : "访客";
-      adminLogin.textContent = isAdmin ? "退出管理" : "管理员登录";
-      adminLogin.classList.toggle("success", isAdmin);
+      syncAuthState();
 
       priceCells.forEach((cell) => {
         const value = getPrice(cell);
-        if (isAdmin) {
+        if (canManage) {
           cell.innerHTML = `<input class="price-input" aria-label="修改价格" value="${value.replace(/"/g, "&quot;")}" />`;
           const input = cell.querySelector("input");
           input.addEventListener("change", () => savePrice(cell.dataset.priceId, input.value));
@@ -948,70 +1690,92 @@ Content-Type: application/json
       setTheme(document.body.classList.contains("dark") ? "light" : "dark");
     });
 
-    adminLogin.addEventListener("click", async () => {
-      if (isAdmin) {
-        isAdmin = false;
-        sessionToken = "";
-        currentUser = null;
-        localStorage.setItem(storageKeys.admin, "false");
-        localStorage.removeItem("nbapi-session-token");
-        renderPrices();
+    authLogin.addEventListener("click", () => {
+      location.hash = "login";
+      loginUsername?.focus();
+    });
+
+    authSignup.addEventListener("click", () => {
+      location.hash = "signup";
+      signupUsername?.focus();
+    });
+
+    authLogout.addEventListener("click", async () => {
+      clearSessionState();
+      syncAuthState();
+      renderPrices();
+      setUpstreamUiState();
+      loadTokens();
+      await Promise.all([loadAdminUsers(), loadAdminChannels()]);
+      location.hash = "console";
+      showToast("已退出登录");
+    });
+
+    loginSubmit.addEventListener("click", async () => {
+      if (!loginUsername.value.trim() || !loginPassword.value) {
+        alert("请先填写用户名和密码。");
         return;
       }
-
-      const username = prompt("请输入管理员用户名");
-      if (username === null) return;
-      const password = prompt("请输入管理员密码");
-      if (password === null) return;
       try {
-        const data = await fetch(`${API_BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async (response) => {
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "登录失败");
-          return result;
-        });
-        if (data.user.role !== "admin") throw new Error("admin_required");
-        sessionToken = data.token;
-        currentUser = data.user;
-        isAdmin = true;
-        localStorage.setItem(storageKeys.admin, "true");
-        localStorage.setItem("nbapi-session-token", sessionToken);
-        accountBalance = Number(data.user.balance);
-        updateBalance();
-        renderPrices();
-        showToast("管理员登录成功");
+        await performUserLogin(loginUsername.value.trim(), loginPassword.value, "登录");
       } catch (error) {
-        alert(error.message === "admin_required" ? "该账号不是管理员" : "管理员登录失败");
+        alert(error.message);
       }
     });
 
-    userLogin.addEventListener("click", async () => {
-      if (sessionToken) {
-        sessionToken = "";
-        currentUser = null;
-        localStorage.removeItem("nbapi-session-token");
-        userLogin.textContent = "用户登录";
-        loadTokens();
+    loginDemo.addEventListener("click", async () => {
+      loginUsername.value = "demo";
+      loginPassword.value = "demo123";
+      try {
+        await performUserLogin("demo", "demo123", "演示账号");
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+
+    signupSubmit.addEventListener("click", async () => {
+      const username = signupUsername?.value?.trim() || "";
+      const email = signupEmail?.value?.trim() || "";
+      const password = signupPassword?.value || "";
+      const confirm = signupConfirm?.value || "";
+      if (!username || !email || !password) {
+        alert("请先把注册信息填完整。");
         return;
       }
-      const username = prompt("用户名（演示账号：demo）");
-      if (username === null) return;
-      const password = prompt("密码（演示密码：demo123）");
-      if (password === null) return;
+      if (password !== confirm) {
+        alert("两次密码不一致。");
+        return;
+      }
       try {
-        const data = await fetch(`${API_BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async (response) => {
+        const data = await fetch(`${API_BASE}/api/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, email, password })
+        }).then(async (response) => {
           const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "登录失败");
+          if (!response.ok) throw new Error(result.error || "注册失败");
           return result;
         });
-        sessionToken = data.token;
-        currentUser = data.user;
-        localStorage.setItem("nbapi-session-token", sessionToken);
-        userLogin.textContent = `退出 ${currentUser.username}`;
-        accountBalance = Number(currentUser.balance);
-        updateBalance();
-        loadTokens();
-        showToast("登录成功");
-      } catch (error) { alert(error.message); }
+        applyUserSession(data.user, data.token);
+        signupUsername.value = "";
+        signupEmail.value = "";
+        signupPassword.value = "";
+        signupConfirm.value = "";
+        await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+        location.hash = "console";
+        applyRoute();
+        showToast("注册成功");
+      } catch (error) {
+        const messages = {
+          username_length_invalid: "用户名长度需要 3-32 位。",
+          username_format_invalid: "用户名只能包含字母、数字、下划线或短横线。",
+          email_invalid: "请输入有效邮箱。",
+          password_too_short: "密码至少 6 位。",
+          email_already_exists: "这个邮箱已经注册。",
+          username_already_exists: "这个用户名已经注册。"
+        };
+        alert(messages[error.message] || error.message);
+      }
     });
 
     createToken.addEventListener("click", async () => {
@@ -1029,9 +1793,9 @@ Content-Type: application/json
 
     document.querySelectorAll(".admin-only").forEach((item) => {
       item.addEventListener("click", (event) => {
-        if (!isAdmin) {
+        if (!canManage) {
           event.preventDefault();
-          alert("渠道管理仅管理员可用，请先登录管理员账号。");
+          alert("该页面仅管理员可用，请先登录管理员账号。");
         }
       });
     });
@@ -1039,8 +1803,41 @@ Content-Type: application/json
     modelSearch.addEventListener("input", renderModelSquare);
     copyVisibleModels.addEventListener("click", () => {
       const query = (modelSearch.value || "").trim().toLowerCase();
-      const names = documentedModels.filter(([name, providerLabel, provider, kind]) => `${name} ${providerLabel} ${provider} ${kind}`.toLowerCase().includes(query)).map(([name]) => name);
+      const names = documentedModels.map(getModelMeta).filter((model) => `${model.name} ${model.providerLabel} ${model.provider} ${model.kind} ${model.tags.join(" ")} ${model.endpointType}`.toLowerCase().includes(query)).map((model) => model.name);
       copyModelName(names.join("\n"));
+    });
+
+    saveUpstreamApiKey.addEventListener("click", async () => {
+      await saveUpstreamKey(upstreamApiKey.value);
+    });
+
+    clearUpstreamApiKey.addEventListener("click", async () => {
+      if (!confirm("确定要清空服务器里保存的上游 API Key 吗？")) return;
+      await saveUpstreamKey("");
+    });
+    refreshUsers.addEventListener("click", loadAdminUsers);
+    refreshChannels.addEventListener("click", loadAdminChannels);
+    createChannelButton.addEventListener("click", createChannel);
+    userSearch.addEventListener("input", () => {
+      usersPage = 1;
+      loadAdminUsers();
+    });
+    clearUserSearch.addEventListener("click", () => {
+      userSearch.value = "";
+      usersPage = 1;
+      loadAdminUsers();
+    });
+    prevUsersPage.addEventListener("click", () => {
+      if (usersPage > 1) {
+        usersPage -= 1;
+        loadAdminUsers();
+      }
+    });
+    nextUsersPage.addEventListener("click", () => {
+      if (usersPage < usersTotalPages) {
+        usersPage += 1;
+        loadAdminUsers();
+      }
     });
     document.querySelectorAll("[data-filter-group]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1049,6 +1846,12 @@ Content-Type: application/json
         document.querySelectorAll(`[data-filter-group="${group}"]`).forEach((item) => item.classList.toggle("active", item === button));
         renderModelSquare();
       });
+    });
+    resetPlazaFilters.addEventListener("click", () => {
+      modelSearch.value = "";
+      Object.assign(selectedFilters, { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" });
+      document.querySelectorAll("[data-filter-group]").forEach((item) => item.classList.toggle("active", item.dataset.filter === "all"));
+      renderModelSquare();
     });
     plazaPriceToggle.addEventListener("click", () => {
       showPlazaPrices = !showPlazaPrices;
@@ -1063,10 +1866,9 @@ Content-Type: application/json
 
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
     updateBalance();
-    renderModelSquare();
     renderPrices();
-    loadTokens();
     applyRoute();
+    loadCurrentSession().then(applyRoute);
   </script>
 </body>
 </html>
