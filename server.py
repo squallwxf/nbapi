@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
@@ -138,7 +139,13 @@ def init_db() -> None:
               active INTEGER NOT NULL DEFAULT 1,
               created_at INTEGER NOT NULL,
               last_used_at INTEGER,
-              expires_at INTEGER
+              expires_at INTEGER,
+              token_group TEXT NOT NULL DEFAULT 'default',
+              quota_micros INTEGER NOT NULL DEFAULT 0,
+              quota_unlimited INTEGER NOT NULL DEFAULT 1,
+              used_micros INTEGER NOT NULL DEFAULT 0,
+              allowed_models TEXT NOT NULL DEFAULT '',
+              ip_allowlist TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS models (
               name TEXT PRIMARY KEY,
@@ -215,6 +222,16 @@ def init_db() -> None:
         token_columns = {row[1] for row in db.execute("PRAGMA table_info(api_tokens)")}
         if "token_secret" not in token_columns:
             db.execute("ALTER TABLE api_tokens ADD COLUMN token_secret TEXT NOT NULL DEFAULT ''")
+        for column, definition in (
+            ("token_group", "TEXT NOT NULL DEFAULT 'default'"),
+            ("quota_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("quota_unlimited", "INTEGER NOT NULL DEFAULT 1"),
+            ("used_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("allowed_models", "TEXT NOT NULL DEFAULT ''"),
+            ("ip_allowlist", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in token_columns:
+                db.execute(f"ALTER TABLE api_tokens ADD COLUMN {column} {definition}")
         # Keep token hashes usable while removing legacy plaintext copies at rest.
         db.execute("UPDATE api_tokens SET token_secret='' WHERE token_secret<>''")
         timestamp = now()
@@ -369,6 +386,33 @@ def fetch_model_row(db, model_name: str):
     ).fetchone()
 
 
+def split_lines(value: str) -> list[str]:
+    return [line.strip() for line in str(value or "").replace(",", "\n").splitlines() if line.strip()]
+
+
+def token_allows_model(allowed_models: str, model_name: str) -> bool:
+    models = split_lines(allowed_models)
+    return not models or model_name in models
+
+
+def token_allows_ip(ip_allowlist: str, client_ip: str) -> bool:
+    entries = split_lines(ip_allowlist)
+    if not entries:
+        return True
+    try:
+        address = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    for entry in entries:
+        try:
+            if address in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            if entry == client_ip:
+                return True
+    return False
+
+
 def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0):
     existing = db.execute(
         "SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?",
@@ -385,7 +429,13 @@ def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_ke
     balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
     if balance < amount_micros:
         raise ValueError("insufficient_balance")
+    token_row = db.execute("SELECT quota_micros, quota_unlimited, used_micros FROM api_tokens WHERE id=? AND user_id=? AND active=1", (token_id, user_id)).fetchone()
+    if not token_row:
+        raise ValueError("invalid_or_inactive_api_key")
+    if not token_row[1] and token_row[2] + amount_micros > token_row[0]:
+        raise ValueError("token_quota_exceeded")
     db.execute("UPDATE users SET balance_micros=balance_micros-? WHERE id=?", (amount_micros, user_id))
+    db.execute("UPDATE api_tokens SET used_micros=used_micros+? WHERE id=?", (amount_micros, token_id))
     db.execute(
         """INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit,
                               input_tokens, output_tokens, status, created_at, token_id)
@@ -528,6 +578,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not model_row or not model_row[6]:
                     self.send_json(400, {"error": "model_not_available"})
                     return True
+                if not token_allows_model(api_user[9], model_name):
+                    self.send_json(403, {"error": "model_not_allowed_for_token"})
+                    return True
                 if model_row[4] == "per_task":
                     balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (api_user[1],)).fetchone()[0]
                     if balance < model_row[5]:
@@ -607,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")
-                    self.send_json(402 if str(exc) == "insufficient_balance" else 400, {"error": str(exc)})
+                    self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
                     return True
                 except sqlite3.IntegrityError:
                     db.execute("ROLLBACK")
@@ -654,7 +707,9 @@ class Handler(BaseHTTPRequestHandler):
         token_hash = hashlib.sha256(header.encode("utf-8")).hexdigest()
         with sqlite3.connect(DB_PATH) as db:
             row = db.execute(
-                """SELECT t.id, t.user_id, u.username, u.role, u.balance_micros
+                """SELECT t.id, t.user_id, u.username, u.role, u.balance_micros,
+                          t.token_group, t.quota_micros, t.quota_unlimited, t.used_micros,
+                          t.allowed_models, t.ip_allowlist
                    FROM api_tokens t JOIN users u ON u.id=t.user_id
                    WHERE t.token_hash=? AND t.active=1
                      AND u.active=1
@@ -665,6 +720,10 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute("UPDATE api_tokens SET last_used_at=? WHERE id=?", (now(), row[0]))
         if not row:
             self.send_json(401, {"error": "invalid_or_inactive_api_key"})
+            return None
+        client_ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
+        if not token_allows_ip(row[10], client_ip):
+            self.send_json(403, {"error": "ip_not_allowed"})
             return None
         return row
 
@@ -772,12 +831,14 @@ class Handler(BaseHTTPRequestHandler):
             if user:
                 with sqlite3.connect(DB_PATH) as db:
                     rows = db.execute(
-                        "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id=? ORDER BY id DESC",
+                        "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist FROM api_tokens WHERE user_id=? ORDER BY id DESC",
                         (user[0],),
                     ).fetchall()
                 self.send_json(200, {"items": [{
                     "id": r[0], "name": r[1], "hint": r[2], "token": None, "canCopyFullToken": False, "active": bool(r[3]),
-                    "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6]
+                    "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6], "group": r[7],
+                    "quota": micros_to_dollars(r[8]), "unlimitedQuota": bool(r[9]), "usedQuota": micros_to_dollars(r[10]),
+                    "allowedModels": split_lines(r[11]), "ipAllowlist": split_lines(r[12])
                 } for r in rows]})
             return
         if path == "/" or path == "/index.html":
@@ -887,16 +948,48 @@ class Handler(BaseHTTPRequestHandler):
                 if len(name) > 64 or any(ord(char) < 32 for char in name):
                     self.send_json(400, {"error": "token_name_too_long"})
                     return
-                raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
-                token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-                token_hint = f"{raw_token[:12]}********{raw_token[-4:]}"
+                group_name = str(payload.get("group", "default")).strip() or "default"
+                if len(group_name) > 64:
+                    self.send_json(400, {"error": "token_group_too_long"})
+                    return
+                try:
+                    count = max(1, min(50, int(payload.get("count", 1))))
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid_token_count"})
+                    return
+                unlimited = bool(payload.get("unlimitedQuota", True))
+                try:
+                    quota_micros = dollars_to_micros(payload.get("quota", 0)) if not unlimited else 0
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                try:
+                    expires_at = payload.get("expiresAt")
+                    expires_at = int(expires_at) if expires_at not in (None, "", 0, "0") else None
+                    if expires_at is not None and expires_at <= now():
+                        raise ValueError("token_expiry_must_be_future")
+                except (TypeError, ValueError) as exc:
+                    self.send_json(400, {"error": str(exc) or "invalid_token_expiry"})
+                    return
+                allowed_models = split_lines(payload.get("allowedModels", ""))
+                ip_allowlist = split_lines(payload.get("ipAllowlist", ""))
+                if len(allowed_models) > 200 or len(ip_allowlist) > 100:
+                    self.send_json(400, {"error": "token_restriction_list_too_large"})
+                    return
+                created_items = []
                 with sqlite3.connect(DB_PATH) as db:
-                    cursor = db.execute(
-                        "INSERT INTO api_tokens(user_id, name, token_hash, token_secret, token_hint, active, created_at) VALUES (?, ?, ?, '', ?, 1, ?)",
-                        (user[0], name, token_hash, token_hint, now()),
-                    )
-                    token_id = cursor.lastrowid
-                self.send_json(201, {"id": token_id, "name": name, "token": raw_token, "hint": token_hint, "active": True})
+                    for index in range(count):
+                        raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+                        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                        token_hint = f"{raw_token[:12]}********{raw_token[-4:]}"
+                        item_name = name if count == 1 else f"{name}-{index + 1}"
+                        cursor = db.execute(
+                            """INSERT INTO api_tokens(user_id, name, token_hash, token_secret, token_hint, active, created_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist)
+                               VALUES (?, ?, ?, '', ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)""",
+                            (user[0], item_name, token_hash, token_hint, now(), expires_at, group_name, quota_micros, 1 if unlimited else 0, "\n".join(allowed_models), "\n".join(ip_allowlist)),
+                        )
+                        created_items.append({"id": cursor.lastrowid, "name": item_name, "token": raw_token, "hint": token_hint, "active": True, "expiresAt": expires_at})
+                self.send_json(201, {"items": created_items, **(created_items[0] if count == 1 else {})})
                 return
 
             if path == "/api/billing/call":
@@ -912,6 +1005,9 @@ class Handler(BaseHTTPRequestHandler):
                 output_tokens = max(0, int(usage.get("outputTokens", 0) or 0))
                 if not model_name or not key or len(key) > 128:
                     self.send_json(400, {"error": "model_and_idempotency_key_required"})
+                    return
+                if not token_allows_model(api_user[9], model_name):
+                    self.send_json(403, {"error": "model_not_allowed_for_token"})
                     return
                 with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                     try:
@@ -932,7 +1028,7 @@ class Handler(BaseHTTPRequestHandler):
                         db.execute("COMMIT")
                     except ValueError as exc:
                         db.execute("ROLLBACK")
-                        self.send_json(402 if str(exc) == "insufficient_balance" else 400, {"error": str(exc)})
+                        self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
                         return
                     except sqlite3.IntegrityError:
                         db.execute("ROLLBACK")

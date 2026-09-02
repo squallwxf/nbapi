@@ -468,6 +468,16 @@
     .token-row-meta { color: var(--muted); font-size: 11px; }
     .token-actions { display: flex; gap: 6px; }
     .token-actions .btn { height: 28px; padding: 0 8px; font-size: 12px; }
+    .token-modal { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(3, 8, 20, .72); }
+    .token-modal.show { display: flex; }
+    .token-modal-panel { width: min(720px, 100%); max-height: min(92vh, 820px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,.35); padding: 18px; }
+    .token-modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .token-modal-head h3 { margin: 0; }
+    .token-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .token-form-grid .full { grid-column: 1 / -1; }
+    .token-form-help { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .token-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    @media (max-width: 680px) { .token-form-grid { grid-template-columns: 1fr; } .token-form-grid .full { grid-column: auto; } }
     .key-box { border: 1px dashed #b8c7dd; background: #f7fbff; border-radius: var(--radius); padding: 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #344054; overflow-wrap: anywhere; }
     body.dark .key-box { background: #162238; color: #d9e4f5; border-color: #3c4d68; }
     .progress { height: 8px; background: #edf2f7; border-radius: 999px; overflow: hidden; margin-top: 8px; }
@@ -1012,6 +1022,22 @@
     </main>
   </div>
   <div class="copy-toast" id="copyToast">模型名称已复制</div>
+  <div class="token-modal" id="tokenModal" aria-hidden="true">
+    <div class="token-modal-panel" role="dialog" aria-modal="true" aria-labelledby="tokenModalTitle">
+      <div class="token-modal-head"><div><span class="tag green">新建</span><h3 id="tokenModalTitle" style="display:inline;margin-left:8px;">创建新令牌</h3></div><button class="btn" id="closeTokenModal" type="button">关闭</button></div>
+      <div class="token-form-grid">
+        <div class="auth-field full"><label for="tokenNameInput">名称 *</label><input class="auth-input" id="tokenNameInput" placeholder="请输入令牌名称" maxlength="64" /></div>
+        <div class="auth-field"><label for="tokenGroupInput">令牌分组</label><input class="auth-input" id="tokenGroupInput" value="default" maxlength="64" placeholder="default" /></div>
+        <div class="auth-field"><label for="tokenCountInput">新建数量 *</label><input class="auth-input" id="tokenCountInput" type="number" min="1" max="50" value="1" /></div>
+        <div class="auth-field"><label for="tokenExpiryInput">过期时间</label><input class="auth-input" id="tokenExpiryInput" type="datetime-local" /></div>
+        <div class="auth-field"><label for="tokenQuotaInput">额度（美元）</label><input class="auth-input" id="tokenQuotaInput" type="number" min="0" step="0.000001" value="0" disabled /></div>
+        <div class="auth-field" style="align-content:end;"><label><input id="tokenUnlimitedInput" type="checkbox" checked /> 无限额度</label></div>
+        <div class="auth-field full"><label for="tokenModelsInput">模型限制列表</label><textarea class="auth-input" id="tokenModelsInput" rows="3" placeholder="每行一个模型；留空表示支持全部模型"></textarea><span class="token-form-help">例如：gpt-5.5、gpt-5.6-sol。填写后，令牌只能调用这些模型。</span></div>
+        <div class="auth-field full"><label for="tokenIpInput">IP 白名单（支持 CIDR）</label><textarea class="auth-input" id="tokenIpInput" rows="3" placeholder="每行一个 IP 或网段；留空表示不限制"></textarea><span class="token-form-help">例如：203.0.113.10 或 203.0.113.0/24。</span></div>
+      </div>
+      <div class="token-modal-actions"><button class="btn" id="cancelTokenModal" type="button">取消</button><button class="btn primary" id="submitTokenModal" type="button">提交</button></div>
+    </div>
+  </div>
   <script>
     const storageKeys = {
       theme: "nbapi-theme",
@@ -1033,6 +1059,18 @@
     const copyToast = document.getElementById("copyToast");
     const balanceDisplay = document.getElementById("balanceDisplay");
     const createToken = document.getElementById("createToken");
+    const tokenModal = document.getElementById("tokenModal");
+    const closeTokenModal = document.getElementById("closeTokenModal");
+    const cancelTokenModal = document.getElementById("cancelTokenModal");
+    const submitTokenModal = document.getElementById("submitTokenModal");
+    const tokenNameInput = document.getElementById("tokenNameInput");
+    const tokenGroupInput = document.getElementById("tokenGroupInput");
+    const tokenCountInput = document.getElementById("tokenCountInput");
+    const tokenExpiryInput = document.getElementById("tokenExpiryInput");
+    const tokenQuotaInput = document.getElementById("tokenQuotaInput");
+    const tokenUnlimitedInput = document.getElementById("tokenUnlimitedInput");
+    const tokenModelsInput = document.getElementById("tokenModelsInput");
+    const tokenIpInput = document.getElementById("tokenIpInput");
     const tokenList = document.getElementById("tokenList");
     const tokenAuthHint = document.getElementById("tokenAuthHint");
     const loginUsername = document.getElementById("loginUsername");
@@ -1189,6 +1227,7 @@
           <div class="token-row">
             <div class="token-row-top"><strong>${escapeHtml(item.name)}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
             <code>${escapeHtml(item.hint)}</code>
+            <small>分组：${escapeHtml(item.group || "default")}　额度：${item.unlimitedQuota ? "无限" : ("$" + item.usedQuota + " / $" + item.quota)}　模型：${item.allowedModels?.length ? escapeHtml(item.allowedModels.join(", ")) : "全部"}　IP：${item.ipAllowlist?.length ? escapeHtml(item.ipAllowlist.join(", ")) : "不限制"}　过期：${item.expiresAt ? formatTokenDate(item.expiresAt) : "永不过期"}</small>
             <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建 Key</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
           </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
         tokenList.querySelectorAll("[data-copy-token-id]").forEach((button) => button.addEventListener("click", () => copyFullToken(cachedTokens[button.dataset.copyTokenId])));
@@ -1796,20 +1835,48 @@
       }
     });
 
-    createToken.addEventListener("click", async () => {
+    function closeTokenCreator() {
+      tokenModal.classList.remove("show");
+      tokenModal.setAttribute("aria-hidden", "true");
+    }
+
+    createToken.addEventListener("click", () => {
       if (!sessionToken) { alert("请先登录用户账号，再创建令牌。"); return; }
-      const name = prompt("请输入令牌名称", "我的令牌");
-      if (name === null) return;
+      tokenModal.classList.add("show");
+      tokenModal.setAttribute("aria-hidden", "false");
+      tokenNameInput.focus();
+    });
+    closeTokenModal.addEventListener("click", closeTokenCreator);
+    cancelTokenModal.addEventListener("click", closeTokenCreator);
+    tokenModal.addEventListener("click", (event) => { if (event.target === tokenModal) closeTokenCreator(); });
+    tokenUnlimitedInput.addEventListener("change", () => { tokenQuotaInput.disabled = tokenUnlimitedInput.checked; });
+    submitTokenModal.addEventListener("click", async () => {
+      const name = tokenNameInput.value.trim();
+      if (!name) { alert("请填写令牌名称。"); tokenNameInput.focus(); return; }
+      const expiresAt = tokenExpiryInput.value ? Math.floor(new Date(tokenExpiryInput.value).getTime() / 1000) : null;
+      const payload = {
+        name,
+        group: tokenGroupInput.value.trim() || "default",
+        count: Number(tokenCountInput.value || 1),
+        expiresAt,
+        quota: tokenQuotaInput.value || "0",
+        unlimitedQuota: tokenUnlimitedInput.checked,
+        allowedModels: tokenModelsInput.value,
+        ipAllowlist: tokenIpInput.value
+      };
+      submitTokenModal.disabled = true;
       try {
-        const data = await apiRequest("/api/tokens", { method: "POST", body: JSON.stringify({ name }) });
-        activeApiKey = data.token;
-        localStorage.setItem("nbapi-active-api-key", activeApiKey);
+        const data = await apiRequest("/api/tokens", { method: "POST", body: JSON.stringify(payload) });
+        const items = data.items || [data];
         const cachedTokens = readTokenCache();
-        cachedTokens[data.id] = data.token;
+        items.forEach((item) => { if (item.id && item.token) cachedTokens[item.id] = item.token; });
         writeTokenCache(cachedTokens);
-        alert(`令牌创建成功，请立即保存这串完整 Key：\n\n${data.token}\n\n之后可在当前浏览器的令牌列表中直接复制。更换设备或清理浏览器数据后，需要重新创建令牌。`);
+        activeApiKey = items[0].token || "";
+        localStorage.setItem("nbapi-active-api-key", activeApiKey);
+        closeTokenCreator();
+        alert(`成功创建 ${items.length} 个令牌。完整 Key 仅在本次创建结果中显示，并已支持在当前浏览器列表中复制。\n\n${items.map((item) => `${item.name}: ${item.token}`).join("\n")}`);
         loadTokens();
-      } catch (error) { alert(error.message); }
+      } catch (error) { alert(error.message); } finally { submitTokenModal.disabled = false; }
     });
 
     document.querySelectorAll(".admin-only").forEach((item) => {
