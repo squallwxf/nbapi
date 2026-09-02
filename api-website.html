@@ -461,7 +461,17 @@
     .detail-card h3 { margin: 0 0 12px; font-size: 16px; }
     .token-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .token-head h3 { margin: 0; }
-    .token-list { display: grid; gap: 8px; margin-top: 12px; }
+    .token-list { margin-top: 12px; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+    .token-table { width: 100%; min-width: 1320px; border-collapse: collapse; font-size: 12px; }
+    .token-table th { padding: 11px 10px; text-align: left; white-space: nowrap; color: var(--muted); font-weight: 700; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .token-table td { padding: 12px 10px; vertical-align: middle; color: var(--text); border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .token-table tbody tr:last-child td { border-bottom: 0; }
+    .token-table tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 65%, transparent); }
+    .token-table .token-name { font-weight: 700; }
+    .token-table code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+    .token-table .wrap { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .token-table .token-actions { justify-content: flex-end; }
+    .token-table small { color: var(--muted); }
     .token-row { display: grid; gap: 5px; padding: 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
     .token-row-top, .token-row-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .token-row code { color: var(--text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
@@ -1223,13 +1233,24 @@
         const data = await apiRequest("/api/tokens");
         const cachedTokens = readTokenCache();
         tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
-        tokenList.innerHTML = data.items.length ? data.items.map((item) => `
-          <div class="token-row">
-            <div class="token-row-top"><strong>${escapeHtml(item.name)}</strong><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></div>
-            <code>${escapeHtml(item.hint)}</code>
-            <small>分组：${escapeHtml(item.group || "default")}　额度：${item.unlimitedQuota ? "无限" : ("$" + item.usedQuota + " / $" + item.quota)}　模型：${item.allowedModels?.length ? escapeHtml(item.allowedModels.join(", ")) : "全部"}　IP：${item.ipAllowlist?.length ? escapeHtml(item.ipAllowlist.join(", ")) : "不限制"}　过期：${item.expiresAt ? formatTokenDate(item.expiresAt) : "永不过期"}</small>
-            <div class="token-row-meta"><span>最后使用：${formatTokenDate(item.lastUsedAt)}</span><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建 Key</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></div>
-          </div>`).join("") : "<small>暂无令牌，请点击“添加令牌”。</small>";
+        tokenList.innerHTML = data.items.length ? `
+          <table class="token-table">
+            <thead><tr><th>名称</th><th>状态</th><th>剩余额度/总额度</th><th>分组</th><th>密钥</th><th>可用模型</th><th>IP 限制</th><th>创建时间</th><th>最后使用时间</th><th>过期时间</th><th>操作</th></tr></thead>
+            <tbody>${data.items.map((item) => `
+              <tr>
+                <td class="token-name">${escapeHtml(item.name)}</td>
+                <td><span class="tag ${item.active ? "green" : "gray"}">${item.active ? "已启用" : "已禁用"}</span></td>
+                <td>${item.unlimitedQuota ? "无限额度" : ("$" + Math.max(0, Number(item.quota || 0) - Number(item.usedQuota || 0)).toFixed(6) + " / $" + item.quota)}</td>
+                <td>${escapeHtml(item.group || "default")}</td>
+                <td><code>${escapeHtml(item.hint)}</code></td>
+                <td class="wrap" title="${escapeHtml(item.allowedModels?.length ? item.allowedModels.join(", ") : "全部模型")}">${escapeHtml(item.allowedModels?.length ? item.allowedModels.join(", ") : "全部模型")}</td>
+                <td class="wrap" title="${escapeHtml(item.ipAllowlist?.length ? item.ipAllowlist.join(", ") : "不限制")}">${escapeHtml(item.ipAllowlist?.length ? item.ipAllowlist.join(", ") : "不限制")}</td>
+                <td>${formatTokenDate(item.createdAt)}</td>
+                <td>${formatTokenDate(item.lastUsedAt)}</td>
+                <td>${item.expiresAt ? formatTokenDate(item.expiresAt) : "永不过期"}</td>
+                <td><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : ""}</div></td>
+              </tr>`).join("")}</tbody>
+          </table>` : "<small>暂无令牌，请点击“添加令牌”。</small>";
         tokenList.querySelectorAll("[data-copy-token-id]").forEach((button) => button.addEventListener("click", () => copyFullToken(cachedTokens[button.dataset.copyTokenId])));
         tokenList.querySelectorAll("[data-disable-token]").forEach((button) => button.addEventListener("click", () => disableToken(button.dataset.disableToken)));
       } catch (error) {
