@@ -1807,20 +1807,24 @@
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
+        const charged = response.headers.get("X-NBAPI-Charged");
+        const latestBalance = response.headers.get("X-NBAPI-Balance");
         const imageTaskId = (modelMeta.kind === "图片生成" || modelMeta.endpoint.includes("generateContent")) ? (data.task_id || data.taskId || data.id) : "";
         if (imageTaskId) {
           appendPlaygroundMessage("assistant", `图片任务已提交，任务编号：${imageTaskId}`);
           playgroundStatus.textContent = "图片任务已进入队列，正在等待生成...";
           const imageUrl = await pollImageTask(apiKey, imageTaskId);
           appendPlaygroundImage(imageUrl);
-          playgroundStatus.textContent = "图片生成成功，费用已按模型价格扣除。";
+          await refreshAccountBalance();
+          playgroundStatus.textContent = `图片生成成功，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
           return;
         }
         const text = playgroundResponseText(data);
         playgroundConversation.push({ role: "assistant", content: text });
         appendPlaygroundMessage("assistant", text);
         const usage = data.usage ? `，使用 ${data.usage.total_tokens || data.usage.totalTokens || 0} tokens` : "";
-        playgroundStatus.textContent = `调用成功${usage}。费用会按模型价格从账户余额扣除。`;
+        await refreshAccountBalance();
+        playgroundStatus.textContent = `调用成功${usage}，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
       } catch (error) {
         playgroundConversation.pop();
         appendPlaygroundMessage("system", error.message);
@@ -1846,6 +1850,15 @@
     function updateBalance() {
       balanceDisplay.textContent = `$ ${accountBalance.toFixed(2)}`;
       localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
+    }
+
+    async function refreshAccountBalance() {
+      if (!sessionToken) return null;
+      const me = await apiRequest("/api/me");
+      if (currentUser) currentUser.balance = me.balance;
+      accountBalance = Number(me.balance || 0);
+      updateBalance();
+      return me;
     }
 
     function setTheme(theme) {

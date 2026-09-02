@@ -670,6 +670,8 @@ class Handler(BaseHTTPRequestHandler):
                     return True
             if charge_result["idempotent"]:
                 resp_headers["X-NBAPI-Idempotent"] = "1"
+            resp_headers["X-NBAPI-Charged"] = micros_to_dollars(charge_result["amount_micros"])
+            resp_headers["X-NBAPI-Balance"] = micros_to_dollars(charge_result["balance_micros"])
 
         self._send_raw_response(resp_status, resp_headers, resp_body)
         return True
