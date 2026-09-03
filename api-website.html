@@ -1023,11 +1023,11 @@
                 <div class="auth-actions"><button class="btn" id="generateUserCredentials" type="button">生成用户名和密码</button><button class="btn primary" id="createManagedUser" type="button">添加用户</button></div>
               </div>
               <div class="management-card" id="customerAssignmentPanel" style="display:none;">
-                <strong>客户归属管理</strong>
+                <div class="management-top"><strong>客户归属管理</strong><button class="btn" id="refreshManagerCustomers" type="button">刷新客户</button></div>
                 <div class="management-fields">
                   <div class="auth-field"><label for="customerManagerSelect">选择管理员</label><select class="auth-input" id="customerManagerSelect"></select></div>
                 </div>
-                <p class="muted">选择管理员后，可在客户列表中将普通用户转移给该管理员，或解除客户归属。</p>
+                <p class="muted" id="managerCustomerSummary">选择管理员后查看其当前客户。</p>
                 <div class="management-grid" id="managerCustomerList"></div>
               </div>
               <div class="plaza-toolbar" style="padding-top:0;">
@@ -1221,6 +1221,8 @@
     const createManagedUser = document.getElementById("createManagedUser");
     const customerAssignmentPanel = document.getElementById("customerAssignmentPanel");
     const customerManagerSelect = document.getElementById("customerManagerSelect");
+    const refreshManagerCustomers = document.getElementById("refreshManagerCustomers");
+    const managerCustomerSummary = document.getElementById("managerCustomerSummary");
     const managerCustomerList = document.getElementById("managerCustomerList");
     const refreshPricing = document.getElementById("refreshPricing");
     const pricingList = document.getElementById("pricingList");
@@ -1620,17 +1622,22 @@
     async function loadManagerAccounts() {
       if (!isSuperAdmin || !customerManagerSelect) return;
       const data = await apiRequest("/api/admin/managers");
+      const previousManagerId = customerManagerSelect.value;
       managerAccounts = data.items || [];
       customerManagerSelect.innerHTML = managerAccounts.map((manager) => `<option value="${manager.id}">${escapeHtml(manager.username)}（${roleLabel(manager.role)}）</option>`).join("");
+      if (managerAccounts.some((manager) => String(manager.id) === previousManagerId)) customerManagerSelect.value = previousManagerId;
       customerAssignmentPanel.style.display = managerAccounts.length ? "block" : "none";
       if (managerAccounts.length) await loadManagerCustomers();
+      else if (managerCustomerSummary) managerCustomerSummary.textContent = "暂无可管理的管理员账号。";
     }
 
     async function loadManagerCustomers() {
       if (!isSuperAdmin || !customerManagerSelect || !managerCustomerList || !customerManagerSelect.value) return;
       try {
         const data = await apiRequest(`/api/admin/manager-customers?managerId=${encodeURIComponent(customerManagerSelect.value)}`);
-        managerCustomerList.innerHTML = data.items?.length ? data.items.map((user) => `<div class="management-card"><div class="management-top"><strong>${escapeHtml(user.username)}</strong><span class="tag green">当前客户</span></div><div class="management-fields"><div class="auth-field"><label>本周充值</label><input class="auth-input" value="$${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="$${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div></div><div class="auth-actions"><button class="btn" type="button" data-unassign-customer="${user.id}">解除归属</button></div></div>`).join("") : "<small>该管理员暂无客户。</small>";
+        const manager = managerAccounts.find((item) => String(item.id) === String(customerManagerSelect.value));
+        if (managerCustomerSummary) managerCustomerSummary.textContent = `${manager ? manager.username : "当前管理员"} 名下共有 ${data.items?.length || 0} 个客户。可在下方解除归属，也可在用户列表中转移客户。`;
+        managerCustomerList.innerHTML = data.items?.length ? data.items.map((user) => `<div class="management-card"><div class="management-top"><strong>${escapeHtml(user.username)}</strong><span class="tag green">当前客户</span></div><div class="management-fields"><div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div><div class="auth-field"><label>账户余额（美元）</label><input class="auth-input" value="$${Number(user.balance || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本周充值</label><input class="auth-input" value="$${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="$${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div></div><small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small><div class="auth-actions"><button class="btn" type="button" data-unassign-customer="${user.id}">解除归属</button></div></div>`).join("") : "<small>该管理员暂无客户。</small>";
         managerCustomerList.querySelectorAll("[data-unassign-customer]").forEach((button) => button.addEventListener("click", () => updateCustomerAssignment(button.dataset.unassignCustomer, "unassign")));
       } catch (error) { managerCustomerList.innerHTML = `<small>${escapeHtml(error.message)}</small>`; }
     }
@@ -1943,6 +1950,7 @@
       });
       if (route === "logs") loadUsageLogs();
       if (route === "pricing") loadModelPricing();
+      if (route === "users" && isSuperAdmin) loadManagerAccounts();
     }
     window.addEventListener("hashchange", applyRoute);
 
@@ -2415,6 +2423,7 @@
     });
     refreshUsers.addEventListener("click", loadAdminUsers);
     customerManagerSelect?.addEventListener("change", loadManagerCustomers);
+    refreshManagerCustomers?.addEventListener("click", loadManagerCustomers);
     generateUserCredentials.addEventListener("click", generateManagedCredentials);
     createManagedUser.addEventListener("click", createManagedAccount);
     refreshPricing.addEventListener("click", loadModelPricing);
