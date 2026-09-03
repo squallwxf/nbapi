@@ -1071,8 +1071,10 @@
 
         <section class="panel detail-card route-placeholder" id="wallet">
           <h2>充值订阅</h2>
-          <p class="muted">管理账户余额、充值记录和订阅方案。</p>
-          <div class="key-box">充值功能将在支付渠道配置完成后开放。</div>
+          <p class="muted">提交充值申请后，由管理员人工审核到账。自动支付渠道将在后续接入。</p>
+          <div class="auth-actions"><input class="auth-input" id="topupAmount" type="number" min="1" step="1" placeholder="充值金额（美元，最低 $1）" style="max-width:260px" /><button class="btn primary" id="submitTopup" type="button">提交充值申请</button></div>
+          <div class="key-box" id="walletStatus">登录后可提交充值申请。</div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>订单号</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody id="walletOrders"><tr><td colspan="4" class="muted">暂无充值记录。</td></tr></tbody></table></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="settings">
@@ -1144,6 +1146,10 @@
     const copyToast = document.getElementById("copyToast");
     const balanceDisplay = document.getElementById("balanceDisplay");
     const balancePill = document.getElementById("balancePill");
+    const topupAmount = document.getElementById("topupAmount");
+    const submitTopup = document.getElementById("submitTopup");
+    const walletStatus = document.getElementById("walletStatus");
+    const walletOrders = document.getElementById("walletOrders");
     const dashboardModels = document.getElementById("dashboardModels");
     const dashboardTodayRequests = document.getElementById("dashboardTodayRequests");
     const dashboardChannels = document.getElementById("dashboardChannels");
@@ -1369,6 +1375,15 @@
         dashboardMonthAmount.textContent = "-";
         dashboardBalance.textContent = "统计加载失败";
       }
+    }
+
+    async function loadWallet() {
+      if (!currentUser) { walletStatus.textContent = "登录后可提交充值申请。"; return; }
+      try {
+        const data = await apiRequest("/api/wallet");
+        walletStatus.textContent = `当前余额：$${Number(data.balance || 0).toFixed(6)}。充值申请需管理员人工审核。`;
+        walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => `<tr><td>#${item.id}</td><td>$${Number(item.amount).toFixed(2)}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待审核"}</td><td>${formatTokenDate(item.createdAt)}</td></tr>`).join("") : '<tr><td colspan="4" class="muted">暂无充值记录。</td></tr>';
+      } catch (error) { walletStatus.textContent = `加载失败：${error.message}`; }
     }
 
     function renderUsageLogs(data) {
@@ -2352,13 +2367,22 @@
       playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div>";
       playgroundStatus.textContent = "选择令牌和模型后即可开始真实测试。";
     });
+    submitTopup.addEventListener("click", async () => {
+      if (!currentUser) { alert("请先登录。"); return; }
+      try {
+        const data = await apiRequest("/api/wallet/orders", { method: "POST", body: JSON.stringify({ amount: topupAmount.value }) });
+        topupAmount.value = "";
+        alert(`充值申请已提交，订单号：#${data.id}`);
+        loadWallet();
+      } catch (error) { alert(error.message); }
+    });
 
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
     updateBalance();
     renderPrices();
     loadDashboard();
     applyRoute();
-    loadCurrentSession().then(() => { loadDashboard(); applyRoute(); });
+    loadCurrentSession().then(() => { loadDashboard(); loadWallet(); applyRoute(); });
   </script>
 </body>
 </html>

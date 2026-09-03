@@ -212,6 +212,25 @@ def init_db() -> None:
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS wallet_orders (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              amount_micros INTEGER NOT NULL CHECK(amount_micros > 0),
+              status TEXT NOT NULL CHECK(status IN ('pending','paid','rejected')) DEFAULT 'pending',
+              payment_method TEXT NOT NULL DEFAULT 'manual',
+              note TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS balance_transactions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              amount_micros INTEGER NOT NULL,
+              type TEXT NOT NULL,
+              reference_id INTEGER,
+              note TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL
+            );
             """
         )
         user_sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").fetchone()
@@ -909,6 +928,23 @@ class Handler(BaseHTTPRequestHandler):
                     balance = 0
             self.send_json(200, {"models": model_count, "channels": channel_count, "todayRequests": today_requests, "monthAmount": micros_to_dollars(month_amount), "balance": micros_to_dollars(balance), "avgLatencyMs": round(avg_latency or 0)})
             return
+        if path == "/api/wallet":
+            user = self.require_user()
+            if not user:
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                orders = db.execute("SELECT id, amount_micros, status, payment_method, note, created_at, updated_at FROM wallet_orders WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
+                transactions = db.execute("SELECT id, amount_micros, type, reference_id, note, created_at FROM balance_transactions WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
+            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "note": r[4], "createdAt": r[5], "updatedAt": r[6]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
+            return
+        if path == "/api/admin/wallet/orders":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute("SELECT o.id, o.user_id, u.username, o.amount_micros, o.status, o.payment_method, o.note, o.created_at, o.updated_at FROM wallet_orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100").fetchall()
+            self.send_json(200, {"items": [{"id": r[0], "userId": r[1], "username": r[2], "amount": micros_to_dollars(r[3]), "status": r[4], "paymentMethod": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in rows]})
+            return
         if path == "/api/me":
             user = self.require_user()
             if user:
@@ -1009,6 +1045,35 @@ class Handler(BaseHTTPRequestHandler):
                 payload = self.read_json()
             except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"error": str(exc)})
+                return
+
+            if path.startswith("/api/admin/wallet/orders/"):
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                try:
+                    order_id = int(path.rsplit("/", 1)[1])
+                    action = str(payload.get("action", "")).strip().lower()
+                except (ValueError, TypeError):
+                    self.send_json(400, {"error": "invalid_order_id"})
+                    return
+                if action not in ("approve", "reject"):
+                    self.send_json(400, {"error": "invalid_order_action"})
+                    return
+                with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    order = db.execute("SELECT user_id, amount_micros, status FROM wallet_orders WHERE id=?", (order_id,)).fetchone()
+                    if not order:
+                        db.execute("ROLLBACK"); self.send_json(404, {"error": "order_not_found"}); return
+                    if order[2] != "pending":
+                        db.execute("ROLLBACK"); self.send_json(409, {"error": "order_already_processed"}); return
+                    status = "paid" if action == "approve" else "rejected"
+                    db.execute("UPDATE wallet_orders SET status=?, updated_at=? WHERE id=?", (status, now(), order_id))
+                    if action == "approve":
+                        db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (order[1], order[0]))
+                        db.execute("INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'topup', ?, '人工审核充值', ?)", (order[0], order[1], order_id, now()))
+                    db.execute("COMMIT")
+                self.send_json(200, {"id": order_id, "status": status})
                 return
 
             if path == "/api/auth/login":
@@ -1112,6 +1177,25 @@ class Handler(BaseHTTPRequestHandler):
                         "createdAt": row[6],
                     },
                 })
+                return
+
+            if path == "/api/wallet/orders":
+                user = self.require_user()
+                if not user:
+                    return
+                try:
+                    amount_micros = dollars_to_micros(payload.get("amount"))
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                if amount_micros < 1_000_000:
+                    self.send_json(400, {"error": "minimum_topup_is_1"})
+                    return
+                note = str(payload.get("note", "")).strip()[:200]
+                timestamp = now()
+                with sqlite3.connect(DB_PATH) as db:
+                    cursor = db.execute("INSERT INTO wallet_orders(user_id, amount_micros, status, payment_method, note, created_at, updated_at) VALUES (?, ?, 'pending', 'manual', ?, ?, ?)", (user[0], amount_micros, note, timestamp, timestamp))
+                self.send_json(201, {"id": cursor.lastrowid, "amount": micros_to_dollars(amount_micros), "status": "pending"})
                 return
 
             if path == "/api/tokens/bulk":
