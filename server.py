@@ -240,6 +240,18 @@ def init_db() -> None:
               updated_at INTEGER NOT NULL,
               UNIQUE(user_id, idempotency_key)
             );
+            CREATE TABLE IF NOT EXISTS media_tasks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              token_id INTEGER NOT NULL REFERENCES api_tokens(id),
+              task_id TEXT NOT NULL,
+              request_id TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'submitted',
+              error_message TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              UNIQUE(user_id, task_id)
+            );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL,
@@ -316,6 +328,7 @@ def init_db() -> None:
             db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_users_manager_id ON users(manager_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_billing_reservations_status ON billing_reservations(status)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_media_tasks_status ON media_tasks(status)")
         cleanup_stale_reservations(db)
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
@@ -787,6 +800,74 @@ def refund_billing(db, user_id: int, idempotency_key: str):
     return True
 
 
+def extract_task_id(payload) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("task_id", "taskId", "id"):
+        value = str(payload.get(key, "") or "").strip()
+        if value:
+            return value
+    for container_key in ("data", "result"):
+        container = payload.get(container_key)
+        if isinstance(container, dict):
+            value = extract_task_id(container)
+            if value:
+                return value
+        if isinstance(container, list):
+            for item in container:
+                value = extract_task_id(item)
+                if value:
+                    return value
+    return ""
+
+
+def extract_task_status(payload) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("status", "state"):
+        value = str(payload.get(key, "") or "").strip().lower()
+        if value:
+            return value
+    return ""
+
+
+def settle_media_task_status(db, user_id: int, token_id: int, task_id: str, payload) -> bool:
+    task = db.execute(
+        "SELECT id, request_id, status FROM media_tasks WHERE user_id=? AND token_id=? AND task_id=?",
+        (user_id, token_id, task_id),
+    ).fetchone()
+    if not task:
+        return False
+    status = extract_task_status(payload)
+    if status in ("succeeded", "completed", "success", "done"):
+        db.execute("UPDATE media_tasks SET status='completed', updated_at=? WHERE id=? AND status='submitted'", (now(), task[0]))
+        return False
+    if status not in ("failed", "error", "cancelled", "canceled", "rejected") or task[2] != "submitted":
+        return False
+    ledger = db.execute(
+        "SELECT id, amount_micros, status FROM ledger WHERE user_id=? AND request_id=?",
+        (user_id, task[1]),
+    ).fetchone()
+    if not ledger or ledger[2] != "charged":
+        db.execute("UPDATE media_tasks SET status='failed', updated_at=? WHERE id=? AND status='submitted'", (now(), task[0]))
+        return False
+    amount = ledger[1]
+    db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (amount, user_id))
+    db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (amount, token_id))
+    db.execute("UPDATE ledger SET status='refunded' WHERE id=? AND status='charged'", (ledger[0],))
+    db.execute("UPDATE media_tasks SET status='refunded', error_message=?, updated_at=? WHERE id=? AND status='submitted'", (str(payload.get("error", "task_failed"))[:500] if isinstance(payload, dict) else "task_failed", now(), task[0]))
+    return True
+
+
+def record_media_task(db, user_id: int, token_id: int, task_id: str, request_id: str):
+    if not task_id:
+        return
+    db.execute(
+        "INSERT OR IGNORE INTO media_tasks(user_id, token_id, task_id, request_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'submitted', ?, ?)",
+        (user_id, token_id, task_id, request_id, now(), now()),
+    )
+
+
 def mask_secret(value: str, prefix: int = 4, suffix: int = 4) -> str:
     value = value or ""
     if not value:
@@ -1045,8 +1126,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_raw_response(resp_status, resp_headers, resp_body)
             return True
 
+        response_payload = extract_response_payload(resp_body)
+        if method == "GET" and (path.startswith("/v1/images/tasks/") or path.startswith("/v1/videos/")):
+            task_id = unquote(path.rstrip("/").rsplit("/", 1)[-1]).strip()
+            if task_id:
+                with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    refunded = settle_media_task_status(db, api_user[1], api_user[0], task_id, response_payload)
+                    db.execute("COMMIT")
+                if refunded:
+                    resp_headers["X-NBAPI-Refunded"] = "1"
         if model_row:
-            response_payload = extract_response_payload(resp_body)
             billing_unit = model_row[4]
             price_micros = model_row[5]
             input_tokens = 0
@@ -1076,6 +1166,8 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     db.execute("BEGIN IMMEDIATE")
                     charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), path, idempotency_key, cache_read_tokens, cache_write_tokens, usage_source)
+                    if billing_unit == "per_task":
+                        record_media_task(db, api_user[1], api_user[0], extract_task_id(response_payload), idempotency_key)
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")
@@ -1347,14 +1439,14 @@ class Handler(BaseHTTPRequestHandler):
                 where = " AND ".join(filters)
                 with sqlite3.connect(DB_PATH) as db:
                     total, amount_total, input_total, output_total = db.execute(
-                        f"SELECT COUNT(*), COALESCE(SUM(l.amount_micros),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
+                        f"SELECT COUNT(*), COALESCE(SUM(CASE WHEN l.status='charged' THEN l.amount_micros ELSE 0 END),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
                     ).fetchone()
                     rows = db.execute(
                         f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
                         [*params, page_size, (page - 1) * page_size],
                     ).fetchall()
                 self.send_json(200, {"items": [{
-                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-"
+                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-"
                 } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
         if path == "/api/tokens":

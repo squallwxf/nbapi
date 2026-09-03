@@ -2016,7 +2016,10 @@
         playgroundStatus.textContent = `图片任务 ${status || "processing"}${progress}，请稍候...`;
         const url = task.data?.[0]?.url || task.result?.data?.[0]?.url || task.url;
         if ((status === "succeeded" || status === "completed" || status === "success") && url) return url;
-        if (status === "failed" || status === "error") throw new Error(task.error?.message || "图片生成失败");
+        if (status === "failed" || status === "error") {
+          const refunded = response.headers.get("X-NBAPI-Refunded") === "1";
+          throw new Error(`${task.error?.message || "图片生成失败"}${refunded ? "，本次费用已自动退回。" : ""}`);
+        }
       }
       throw new Error("图片任务查询超时，请稍后到使用日志查看任务状态");
     }
