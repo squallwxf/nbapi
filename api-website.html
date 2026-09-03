@@ -2084,15 +2084,12 @@
           </div>
           ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1M Token，按输入/输出分别计费" : "按次"}</span></div>` : ""}
           <p class="plaza-description">${model.kind}，提交任务后通过对应查询接口获取结果。</p>
-          <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${model.kind}</span><span class="tag blue">${model.mode}</span><code>${model.endpoint}</code><button class="call-model" type="button" data-call-model="${model.name}">调用并扣费</button></div>
+          <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${model.kind}</span><span class="tag blue">${model.mode}</span><code>${model.endpoint}</code></div>
         </article>
       `;
       }).join("");
       modelGrid.querySelectorAll("[data-copy-model]").forEach((button) => {
         button.addEventListener("click", () => copyModelName(button.dataset.copyModel));
-      });
-      modelGrid.querySelectorAll("[data-call-model]").forEach((button) => {
-        button.addEventListener("click", () => chargeModel(button.dataset.callModel));
       });
       modelGrid.querySelectorAll("[data-price-model], [data-input-price-model], [data-output-price-model], [data-cache-read-price-model], [data-cache-write-price-model]").forEach((control) => {
         control.addEventListener("change", () => {
