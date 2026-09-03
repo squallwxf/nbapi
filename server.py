@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -40,6 +40,13 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
 UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
+ZPAY_SUBMIT_URL = os.environ.get("NBAPI_ZPAY_SUBMIT_URL", "https://zpayz.cn/submit.php")
+ZPAY_PID = os.environ.get("NBAPI_ZPAY_PID", "").strip()
+ZPAY_KEY = os.environ.get("NBAPI_ZPAY_KEY", "").strip()
+ZPAY_NOTIFY_URL = os.environ.get("NBAPI_ZPAY_NOTIFY_URL", "https://nbapi.win/api/payment/zpay/notify").strip()
+ZPAY_RETURN_URL = os.environ.get("NBAPI_ZPAY_RETURN_URL", "https://nbapi.win/#wallet").strip()
+ZPAY_CID = os.environ.get("NBAPI_ZPAY_CID", "").strip()
+ZPAY_MIN_TOPUP = Decimal(os.environ.get("NBAPI_ZPAY_MIN_TOPUP", "1"))
 _rate_limit_lock = threading.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 HOP_BY_HOP_HEADERS = {
@@ -150,6 +157,90 @@ def dollars_to_micros(value) -> int:
 
 def micros_to_dollars(value: int) -> str:
     return f"{Decimal(value) / MICROS_PER_DOLLAR:.6f}"
+
+
+def zpay_sign(params: dict[str, object], key: str) -> str:
+    pairs = []
+    for name in sorted(params):
+        value = params[name]
+        if name in ("sign", "sign_type") or value is None or str(value) == "":
+            continue
+        pairs.append(f"{name}={value}")
+    return hashlib.md5(("&".join(pairs) + key).encode("utf-8")).hexdigest()
+
+
+def zpay_signature_valid(params: dict[str, str]) -> bool:
+    supplied = str(params.get("sign", "")).strip().lower()
+    if not supplied or str(params.get("sign_type", "MD5")).upper() != "MD5":
+        return False
+    expected = zpay_sign(params, ZPAY_KEY)
+    return secrets.compare_digest(supplied, expected)
+
+
+def zpay_configured() -> bool:
+    return bool(ZPAY_PID and ZPAY_KEY and ZPAY_NOTIFY_URL and ZPAY_RETURN_URL)
+
+
+def new_merchant_order_no() -> str:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d%H%M%S") + secrets.token_hex(5)
+
+
+def settle_zpay_order(params: dict[str, str], caller_ip: str):
+    if not zpay_configured():
+        raise ValueError("zpay_not_configured")
+    if str(params.get("pid", "")).strip() != ZPAY_PID:
+        raise ValueError("zpay_pid_mismatch")
+    if str(params.get("trade_status", "")).strip() != "TRADE_SUCCESS":
+        raise ValueError("zpay_payment_not_success")
+    if not zpay_signature_valid(params):
+        raise ValueError("zpay_signature_invalid")
+    merchant_no = str(params.get("out_trade_no", "")).strip()
+    provider_trade_no = str(params.get("trade_no", "")).strip()
+    if not merchant_no or not provider_trade_no:
+        raise ValueError("zpay_order_number_missing")
+    try:
+        notified_amount = dollars_to_micros(params.get("money"))
+    except ValueError as exc:
+        raise ValueError("zpay_amount_invalid") from exc
+    timestamp = now()
+    with sqlite3.connect(DB_PATH) as db:
+        db.execute("BEGIN IMMEDIATE")
+        order = db.execute(
+            "SELECT id, user_id, amount_micros, status, provider_trade_no FROM wallet_orders WHERE merchant_order_no=? AND payment_provider='zpay'",
+            (merchant_no,),
+        ).fetchone()
+        if not order:
+            raise LookupError("zpay_order_not_found")
+        order_id, user_id, amount_micros, status, stored_trade_no = order
+        if notified_amount != amount_micros:
+            raise ValueError("zpay_amount_mismatch")
+        if status == "paid":
+            if stored_trade_no and stored_trade_no != provider_trade_no:
+                raise ValueError("zpay_trade_number_mismatch")
+            return {"idempotent": True, "orderId": order_id, "status": "paid"}
+        if status != "pending":
+            raise ValueError("zpay_order_status_invalid")
+        reused_trade = db.execute(
+            "SELECT id FROM wallet_orders WHERE provider_trade_no=? AND id<>? LIMIT 1",
+            (provider_trade_no, order_id),
+        ).fetchone()
+        if reused_trade:
+            raise ValueError("zpay_trade_number_reused")
+        db.execute(
+            "UPDATE users SET balance_micros=balance_micros+? WHERE id=? AND active=1",
+            (amount_micros, user_id),
+        )
+        if db.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ValueError("wallet_user_not_found_or_disabled")
+        db.execute(
+            "INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'topup_zpay', ?, ?, ?)",
+            (user_id, amount_micros, order_id, f"ZPAY payment {provider_trade_no} from {caller_ip}", timestamp),
+        )
+        db.execute(
+            "UPDATE wallet_orders SET status='paid', provider_trade_no=?, paid_amount_micros=?, notify_at=?, signature_valid=1, updated_at=? WHERE id=? AND status='pending'",
+            (provider_trade_no, notified_amount, timestamp, timestamp, order_id),
+        )
+        return {"idempotent": False, "orderId": order_id, "status": "paid"}
 
 
 def init_db() -> None:
@@ -327,6 +418,19 @@ def init_db() -> None:
         if "manager_id" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_users_manager_id ON users(manager_id)")
+        wallet_columns = {row[1] for row in db.execute("PRAGMA table_info(wallet_orders)")}
+        for column, definition in (
+            ("merchant_order_no", "TEXT NOT NULL DEFAULT ''"),
+            ("provider_trade_no", "TEXT NOT NULL DEFAULT ''"),
+            ("payment_provider", "TEXT NOT NULL DEFAULT 'manual'"),
+            ("paid_amount_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("notify_at", "INTEGER"),
+            ("signature_valid", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in wallet_columns:
+                db.execute(f"ALTER TABLE wallet_orders ADD COLUMN {column} {definition}")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_orders_merchant_order_no ON wallet_orders(merchant_order_no) WHERE merchant_order_no <> ''")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_orders_provider_trade_no ON wallet_orders(provider_trade_no) WHERE provider_trade_no <> ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_billing_reservations_status ON billing_reservations(status)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_media_tasks_status ON media_tasks(status)")
         cleanup_stale_reservations(db)
@@ -800,6 +904,51 @@ def refund_billing(db, user_id: int, idempotency_key: str):
     return True
 
 
+def settle_wallet_order(order_id: int, action: str):
+    """Settle a manual top-up exactly once inside one SQLite transaction."""
+    if action not in ("approve", "reject"):
+        raise ValueError("invalid_wallet_order_action")
+    timestamp = now()
+    with sqlite3.connect(DB_PATH) as db:
+        db.execute("BEGIN IMMEDIATE")
+        order = db.execute(
+            "SELECT id, user_id, amount_micros, status, payment_method FROM wallet_orders WHERE id=?",
+            (order_id,),
+        ).fetchone()
+        if not order:
+            raise LookupError("wallet_order_not_found")
+        order_id, user_id, amount_micros, status, payment_method = order
+        if status == "paid":
+            if action == "approve":
+                return {"id": order_id, "status": status, "idempotent": True}
+            raise ValueError("wallet_order_already_paid")
+        if status == "rejected":
+            if action == "reject":
+                return {"id": order_id, "status": status, "idempotent": True}
+            raise ValueError("wallet_order_already_rejected")
+        if amount_micros <= 0:
+            raise ValueError("wallet_order_amount_invalid")
+        if action == "approve":
+            db.execute(
+                "UPDATE users SET balance_micros=balance_micros+? WHERE id=? AND active=1",
+                (amount_micros, user_id),
+            )
+            if db.execute("SELECT changes()").fetchone()[0] != 1:
+                raise ValueError("wallet_user_not_found_or_disabled")
+            db.execute(
+                "INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'topup_manual', ?, ?, ?)",
+                (user_id, amount_micros, order_id, f"manual wallet top-up via {payment_method}", timestamp),
+            )
+            new_status = "paid"
+        else:
+            new_status = "rejected"
+        db.execute(
+            "UPDATE wallet_orders SET status=?, updated_at=? WHERE id=? AND status='pending'",
+            (new_status, timestamp, order_id),
+        )
+        return {"id": order_id, "status": new_status, "idempotent": False}
+
+
 def extract_task_id(payload) -> str:
     if not isinstance(payload, dict):
         return ""
@@ -950,6 +1099,15 @@ class Handler(BaseHTTPRequestHandler):
         body = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_text(self, status: int, value: str) -> None:
+        body = value.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
         self.end_headers()
@@ -1247,6 +1405,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/payment/zpay/notify":
+            params = {key: values[-1] for key, values in parse_qs(urlparse(self.path).query, keep_blank_values=True).items()}
+            try:
+                settle_zpay_order(params, self._client_ip())
+            except (ValueError, LookupError) as exc:
+                print(f"ZPAY notify rejected: {exc}")
+                self.send_text(400, "fail")
+                return
+            self.send_text(200, "success")
+            return
         if path == "/health":
             try:
                 with sqlite3.connect(DB_PATH, timeout=2) as db:
@@ -1341,12 +1509,25 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 return
             with sqlite3.connect(DB_PATH) as db:
-                orders = db.execute("SELECT id, amount_micros, status, payment_method, note, created_at, updated_at FROM wallet_orders WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
+                orders = db.execute("SELECT id, amount_micros, status, payment_method, payment_provider, merchant_order_no, note, created_at, updated_at FROM wallet_orders WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
                 transactions = db.execute("SELECT id, amount_micros, type, reference_id, note, created_at FROM balance_transactions WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
-            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "note": r[4], "createdAt": r[5], "updatedAt": r[6]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
+            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
             return
         if path == "/api/admin/wallet/orders":
-            self.send_json(403, {"error": "permission_removed"})
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute(
+                    "SELECT o.id, u.username, o.amount_micros, o.status, o.payment_method, o.note, o.created_at, o.updated_at FROM wallet_orders o JOIN users u ON u.id=o.user_id ORDER BY CASE o.status WHEN 'pending' THEN 0 ELSE 1 END, o.id DESC LIMIT 100"
+                ).fetchall()
+            self.send_json(200, {"items": [{
+                "id": r[0], "username": r[1], "amount": micros_to_dollars(r[2]), "status": r[3],
+                "paymentMethod": r[4], "note": r[5], "createdAt": r[6], "updatedAt": r[7]
+            } for r in rows]})
             return
         if path == "/api/admin/managers":
             admin = self.require_user(admin=True)
@@ -1479,6 +1660,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             path = urlparse(self.path).path
+            if path == "/api/payment/zpay/notify":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 0 or length > MAX_REQUEST_BODY:
+                    self.send_text(413, "fail")
+                    return
+                body = self.rfile.read(length) if length else b""
+                params = {key: values[-1] for key, values in parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()}
+                try:
+                    settle_zpay_order(params, self._client_ip())
+                except (ValueError, LookupError) as exc:
+                    print(f"ZPAY notify rejected: {exc}")
+                    self.send_text(400, "fail")
+                    return
+                self.send_text(200, "success")
+                return
             try:
                 payload = self.read_json()
             except (ValueError, json.JSONDecodeError) as exc:
@@ -1486,7 +1682,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path.startswith("/api/admin/wallet/orders/"):
-                self.send_json(403, {"error": "permission_removed"})
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+                try:
+                    order_id = int(path.rsplit("/", 1)[1])
+                    action = str(payload.get("action", "")).strip().lower()
+                    result = settle_wallet_order(order_id, action)
+                except (TypeError, ValueError, LookupError) as exc:
+                    error = str(exc)
+                    status = 404 if error == "wallet_order_not_found" else 400
+                    self.send_json(status, {"error": error})
+                    return
+                self.send_json(200, result)
                 return
 
             if path == "/api/auth/login":
@@ -1675,14 +1886,40 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     self.send_json(400, {"error": str(exc)})
                     return
-                if amount_micros < 1_000_000:
-                    self.send_json(400, {"error": "minimum_topup_is_1"})
+                if amount_micros < dollars_to_micros(ZPAY_MIN_TOPUP):
+                    self.send_json(400, {"error": "minimum_topup_not_met", "minimum": str(ZPAY_MIN_TOPUP)})
                     return
-                note = str(payload.get("note", "")).strip()[:200]
+                if not zpay_configured():
+                    self.send_json(503, {"error": "zpay_not_configured"})
+                    return
+                payment_method = str(payload.get("paymentMethod", "alipay")).strip().lower()
+                if payment_method not in ("alipay", "wxpay"):
+                    self.send_json(400, {"error": "unsupported_payment_method"})
+                    return
                 timestamp = now()
                 with sqlite3.connect(DB_PATH) as db:
-                    cursor = db.execute("INSERT INTO wallet_orders(user_id, amount_micros, status, payment_method, note, created_at, updated_at) VALUES (?, ?, 'pending', 'manual', ?, ?, ?)", (user[0], amount_micros, note, timestamp, timestamp))
-                self.send_json(201, {"id": cursor.lastrowid, "amount": micros_to_dollars(amount_micros), "status": "pending"})
+                    cursor = db.execute(
+                        "INSERT INTO wallet_orders(user_id, amount_micros, status, payment_method, payment_provider, merchant_order_no, note, created_at, updated_at) VALUES (?, ?, 'pending', ?, 'zpay', ?, ?, ?, ?)",
+                        (user[0], amount_micros, payment_method, "", "", timestamp, timestamp),
+                    )
+                    order_id = cursor.lastrowid
+                    merchant_no = f"{datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d%H%M%S')}{order_id:08d}"
+                    db.execute("UPDATE wallet_orders SET merchant_order_no=? WHERE id=?", (merchant_no, order_id))
+                params = {
+                    "name": "NBAPI 账户充值",
+                    "money": micros_to_dollars(amount_micros).rstrip("0").rstrip("."),
+                    "type": payment_method,
+                    "out_trade_no": merchant_no,
+                    "notify_url": ZPAY_NOTIFY_URL,
+                    "pid": ZPAY_PID,
+                    "param": str(order_id),
+                    "return_url": ZPAY_RETURN_URL,
+                    "sign_type": "MD5",
+                }
+                if ZPAY_CID:
+                    params["cid"] = ZPAY_CID
+                params["sign"] = zpay_sign(params, ZPAY_KEY)
+                self.send_json(201, {"id": order_id, "amount": micros_to_dollars(amount_micros), "status": "pending", "paymentUrl": f"{ZPAY_SUBMIT_URL}?{urlencode(params)}", "merchantOrderNo": merchant_no})
                 return
 
             if path == "/api/tokens/bulk":

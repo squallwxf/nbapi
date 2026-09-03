@@ -87,7 +87,9 @@ nginx -t && systemctl reload nginx
 - 登录和注册接口按客户端 IP 做基础限流（每分钟最多 10 次），跨域响应只允许 `NBAPI_ALLOWED_ORIGINS` 中的来源。
 - `GET /api/dashboard` 返回实时模型数、启用渠道数，以及当前登录用户的今日调用、本月消耗、平均延迟和余额；首页统计不再使用硬编码演示数字。
 - 上游调用会按渠道优先级依次尝试最多 `NBAPI_UPSTREAM_MAX_ATTEMPTS` 个渠道（默认 2）；网络错误、超时和 5xx 会记录失败并自动尝试下一渠道，3 次连续失败的渠道会熔断 5 分钟后再试。可通过 `NBAPI_UPSTREAM_TIMEOUT` 调整单次上游超时（默认 90 秒）。渠道管理页会显示真实健康状态和最近错误。
-- 充值订阅已提供人工审核 MVP：用户可在“充值订阅”提交充值申请，`GET /api/wallet` 查看订单和余额；管理员通过 `GET /api/admin/wallet/orders` 查看申请，并对订单调用 `POST /api/admin/wallet/orders/{id}`（`{"action":"approve"}` 或 `{"action":"reject"}`）处理。审核通过会增加余额并写入 `balance_transactions`，暂未接入自动支付。
+- 2026-09-03 已接入 ZPAY 订单基础链路：`POST /api/wallet/orders` 创建 ZPAY 待支付订单并返回支付地址；`GET/POST /api/payment/zpay/notify` 接收回调，校验 `pid`、`TRADE_SUCCESS`、订单金额和 MD5 签名后才自动入账。回调入账使用 SQLite 事务和订单状态保护，重复通知不会重复充值。ZPAY 参数通过 `NBAPI_ZPAY_*` 环境变量配置，商户密钥不进入仓库。
+- ZPAY 上线前必须在服务器配置 `NBAPI_ZPAY_PID`、`NBAPI_ZPAY_KEY`，并确认 `NBAPI_ZPAY_NOTIFY_URL=https://nbapi.win/api/payment/zpay/notify` 可从公网访问；配置后重启 `nbapi` 服务。未配置商户参数时，充值接口会返回 `zpay_not_configured`。
+- ZPAY 回调还会拒绝已绑定到其他订单的 `trade_no`；数据库对非空商户订单号和上游交易号均建立唯一索引。
 - 模型价格已统一为客户价格：按 Token 的模型以每 1M Tokens 计费并区分输入、输出和缓存读写价格；按次模型以每次计费。价格初始化为参考截图价格的 2 倍，并通过 `pricing_schema_version` 防止每次启动覆盖超级管理员修改。
 - 模型价格修改权限仅限超级管理员；后端 `/api/admin/models/{name}` 会拒绝普通管理员，模型广场只为超级管理员显示编辑控件。
 - `D:\ai web\nbapi模型价格模板.xlsx` 是模型定价模板；本次已按用户修改后的有效价格更新后端，并将 `pricing_schema_version` 升级为 `4`，线上执行一次启动迁移后会持久化这些价格。
