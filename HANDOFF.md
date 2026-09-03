@@ -110,4 +110,6 @@ nginx -t && systemctl reload nginx
 - 已支持 OpenAI-compatible 的 `prompt_tokens/completion_tokens`、Gemini 的 `promptTokenCount/candidatesTokenCount`，以及流式 SSE 中最后带有 usage 的 JSON 数据。
 - OpenAI-compatible 缓存输入会从普通输入 Token 中扣除后再按缓存读取价格计费，避免重复收费；缓存相关 Token 和输入/补全 Token 会写入使用日志。
 - `/api/billing/call` 已停用。该旧接口允许客户端自行提交 usage，存在伪造低用量的风险；真实计费只允许走带用户 API Key 的 `/v1` 代理接口。
-- 当前仍建议上线后用测试账号分别验证：普通对话、流式对话、Gemini、图片/视频按次模型、余额不足、重复 `Idempotency-Key`、上游无 usage 响应和缓存 Token。当前代理是响应后结算，后续如需完全复刻 New API 的预扣/后结算生命周期，可继续增加计费预留表和失败退款机制。
+- 当前仍建议上线后用测试账号分别验证：普通对话、流式对话、Gemini、图片/视频按次模型、余额不足、重复 `Idempotency-Key`、上游无 usage 响应和缓存 Token。
+- 2026-09-03 后续加固已增加 `billing_reservations`：按次模型和 Token 模型在请求上游前先预留余额/令牌额度；上游失败或 Token 用量不可核验时退款；成功后按真实用量补扣或退回差额，并再写入 `ledger`。重复请求使用同一幂等键时不会重复建立预留或账单。
+- Token 预留使用请求体长度和 `max_tokens` 做调用前授权估算，最终账单仍只使用上游真实 usage；若实际用量超过预留，会在同一事务中补扣差额，避免上游已成功但 NBAPI 漏记账。

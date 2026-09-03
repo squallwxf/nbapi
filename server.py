@@ -223,6 +223,18 @@ def init_db() -> None:
               request_id TEXT NOT NULL DEFAULT '',
               UNIQUE(user_id, idempotency_key)
             );
+            CREATE TABLE IF NOT EXISTS billing_reservations (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              token_id INTEGER NOT NULL REFERENCES api_tokens(id),
+              model_name TEXT NOT NULL REFERENCES models(name),
+              idempotency_key TEXT NOT NULL,
+              reserved_micros INTEGER NOT NULL,
+              status TEXT NOT NULL CHECK(status IN ('reserved', 'settled', 'refunded')),
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              UNIQUE(user_id, idempotency_key)
+            );
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL,
@@ -298,6 +310,7 @@ def init_db() -> None:
         if "manager_id" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_users_manager_id ON users(manager_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_billing_reservations_status ON billing_reservations(status)")
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
             db.execute("ALTER TABLE ledger ADD COLUMN token_id INTEGER REFERENCES api_tokens(id)")
@@ -661,6 +674,96 @@ def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_ke
     }
 
 
+def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int):
+    """Atomically reserve wallet and token quota before an upstream call."""
+    existing_ledger = db.execute(
+        "SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?",
+        (user_id, idempotency_key),
+    ).fetchone()
+    if existing_ledger:
+        return {"idempotent": True, "settled": True, "amount_micros": existing_ledger[0], "status": existing_ledger[1]}
+    existing = db.execute(
+        "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
+        (user_id, idempotency_key),
+    ).fetchone()
+    if existing:
+        if existing[2] == "reserved":
+            return {"idempotent": True, "settled": False, "amount_micros": existing[1], "reservation_id": existing[0]}
+        raise ValueError("duplicate_idempotency_key")
+    amount_micros = max(0, int(amount_micros))
+    balance_row = db.execute("SELECT balance_micros FROM users WHERE id=? AND active=1", (user_id,)).fetchone()
+    if not balance_row:
+        raise ValueError("user_not_found")
+    if balance_row[0] < amount_micros:
+        raise ValueError("insufficient_balance")
+    token_row = db.execute(
+        "SELECT quota_micros, quota_unlimited, used_micros FROM api_tokens WHERE id=? AND user_id=? AND active=1",
+        (token_id, user_id),
+    ).fetchone()
+    if not token_row:
+        raise ValueError("invalid_or_inactive_api_key")
+    if not token_row[1] and token_row[2] + amount_micros > token_row[0]:
+        raise ValueError("token_quota_exceeded")
+    timestamp = now()
+    db.execute("UPDATE users SET balance_micros=balance_micros-? WHERE id=?", (amount_micros, user_id))
+    db.execute("UPDATE api_tokens SET used_micros=used_micros+? WHERE id=?", (amount_micros, token_id))
+    cursor = db.execute(
+        "INSERT INTO billing_reservations(user_id, token_id, model_name, idempotency_key, reserved_micros, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'reserved', ?, ?)",
+        (user_id, token_id, model_name, idempotency_key, amount_micros, timestamp, timestamp),
+    )
+    return {"idempotent": False, "settled": False, "amount_micros": amount_micros, "reservation_id": cursor.lastrowid}
+
+
+def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, request_path: str, request_id: str):
+    reservation = db.execute(
+        "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
+        (user_id, idempotency_key),
+    ).fetchone()
+    if not reservation:
+        return bill_ledger(db, user_id, token_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, client_ip, latency_ms, request_path, request_id)
+    if reservation[2] == "settled":
+        existing = db.execute("SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?", (user_id, idempotency_key)).fetchone()
+        balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
+        return {"idempotent": True, "amount_micros": existing[0], "balance_micros": balance, "status": existing[1]}
+    if reservation[2] == "refunded":
+        raise ValueError("billing_reservation_already_refunded")
+    actual_micros = max(0, int(actual_micros))
+    delta = actual_micros - reservation[1]
+    if delta > 0:
+        # The request was already authorized by the reservation. If actual
+        # usage is higher, settle the difference atomically. Allowing the
+        # wallet to go negative prevents an upstream-successful request from
+        # becoming an unbilled business loss.
+        db.execute("UPDATE users SET balance_micros=balance_micros-? WHERE id=?", (delta, user_id))
+        db.execute("UPDATE api_tokens SET used_micros=used_micros+? WHERE id=?", (delta, token_id))
+    elif delta < 0:
+        refund = -delta
+        db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (refund, user_id))
+        db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (refund, token_id))
+    timestamp = now()
+    db.execute(
+        "INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, request_path, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?)",
+        (user_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, timestamp, token_id, client_ip, latency_ms, request_path, request_id),
+    )
+    db.execute("UPDATE billing_reservations SET status='settled', updated_at=? WHERE id=?", (timestamp, reservation[0]))
+    balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
+    return {"idempotent": False, "amount_micros": actual_micros, "balance_micros": balance, "status": "charged"}
+
+
+def refund_billing(db, user_id: int, idempotency_key: str):
+    reservation = db.execute(
+        "SELECT id, token_id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
+        (user_id, idempotency_key),
+    ).fetchone()
+    if not reservation or reservation[3] != "reserved":
+        return False
+    refund = reservation[2]
+    db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (refund, user_id))
+    db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (refund, reservation[1]))
+    db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=?", (now(), reservation[0]))
+    return True
+
+
 def mask_secret(value: str, prefix: int = 4, suffix: int = 4) -> str:
     value = value or ""
     if not value:
@@ -823,6 +926,13 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length) if length else b""
         payload = try_parse_json_bytes(body)
         model_name = extract_model_name(path, payload)
+        idempotency_key = (
+            str(self.headers.get("Idempotency-Key", "")).strip()
+            or hashlib.sha256((method + "|" + path + "|" + body.decode("utf-8", "ignore")).encode("utf-8")).hexdigest()
+        )
+        if len(idempotency_key) > 128:
+            self.send_json(400, {"error": "idempotency_key_too_long"})
+            return True
 
         if method in ("POST", "PUT", "PATCH", "DELETE") and not model_name:
             self.send_json(400, {"error": "model_required"})
@@ -837,6 +947,7 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             model_row = None
+            reservation_created = False
             if model_name:
                 model_row = fetch_model_row(db, model_name)
                 if not model_row or not model_row[6]:
@@ -850,6 +961,31 @@ class Handler(BaseHTTPRequestHandler):
                     if balance < model_row[5]:
                         self.send_json(400, {"error": "insufficient_balance"})
                         return True
+                reserve_amount = model_row[5]
+                if model_row[4] == "per_token":
+                    estimated_input = max(1, len(json.dumps(payload or {}, ensure_ascii=False)) // 4)
+                    estimated_output = 0
+                    for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens"):
+                        try:
+                            estimated_output = max(0, int((payload or {}).get(key, 0) or 0))
+                        except (TypeError, ValueError):
+                            estimated_output = 0
+                        if estimated_output:
+                            break
+                    reserve_amount = (
+                        (model_row[7] if model_row[7] > 0 else model_row[5]) * estimated_input
+                        + (model_row[8] if model_row[8] > 0 else (model_row[7] if model_row[7] > 0 else model_row[5])) * estimated_output
+                        + 999_999
+                    ) // 1_000_000
+                try:
+                    db.execute("BEGIN IMMEDIATE")
+                    reservation = reserve_billing(db, api_user[1], api_user[0], model_name, idempotency_key, reserve_amount)
+                    db.execute("COMMIT")
+                    reservation_created = not reservation.get("idempotent")
+                except ValueError as exc:
+                    db.execute("ROLLBACK")
+                    self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
+                    return True
 
         resp_status, resp_headers, resp_body = 502, {}, b""
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
@@ -878,6 +1014,11 @@ class Handler(BaseHTTPRequestHandler):
                 continue
 
         if not (200 <= resp_status < 300):
+            if model_row and reservation_created:
+                with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    refund_billing(db, api_user[1], idempotency_key)
+                    db.execute("COMMIT")
             self._send_raw_response(resp_status, resp_headers, resp_body)
             return True
 
@@ -893,40 +1034,25 @@ class Handler(BaseHTTPRequestHandler):
                 # same here prevents both accidental overcharging and free
                 # calls caused by an unparseable response.
                 if not has_separate_usage_counts(response_payload):
+                    if reservation_created:
+                        with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
+                            db.execute("BEGIN IMMEDIATE")
+                            refund_billing(db, api_user[1], idempotency_key)
+                            db.execute("COMMIT")
                     self.send_json(502, {"error": "upstream_usage_unavailable", "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。"})
                     return True
                 amount_micros, input_tokens, output_tokens = calculate_token_charge_micros(model_row, response_payload)
             else:
                 amount_micros = price_micros
 
-            idempotency_key = (
-                str(self.headers.get("Idempotency-Key", "")).strip()
-                or str(response_payload.get("id") if isinstance(response_payload, dict) else "").strip()
-                or str(response_payload.get("task_id") if isinstance(response_payload, dict) else "").strip()
-                or hashlib.sha256((method + "|" + path + "|" + body.decode("utf-8", "ignore")).encode("utf-8")).hexdigest()
-            )
             with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                 try:
                     db.execute("BEGIN IMMEDIATE")
-                    charge_result = bill_ledger(
-                        db,
-                        api_user[1],
-                        api_user[0],
-                        model_name,
-                        idempotency_key,
-                        amount_micros,
-                        billing_unit,
-                        input_tokens,
-                        output_tokens,
-                        client_ip,
-                        round((time.perf_counter() - started_at) * 1000),
-                        path,
-                        idempotency_key,
-                    )
+                    charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), path, idempotency_key)
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")
-                    self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
+                    self.send_json(502, {"error": str(exc), "message": "上游调用已完成，但结算未完成，请保留 Request ID 供管理员对账。", "requestId": idempotency_key})
                     return True
                 except sqlite3.IntegrityError:
                     db.execute("ROLLBACK")
