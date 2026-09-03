@@ -88,6 +88,8 @@ nginx -t && systemctl reload nginx
 - `GET /api/dashboard` 返回实时模型数、启用渠道数，以及当前登录用户的今日调用、本月消耗、平均延迟和余额；首页统计不再使用硬编码演示数字。
 - 上游调用会按渠道优先级依次尝试最多 `NBAPI_UPSTREAM_MAX_ATTEMPTS` 个渠道（默认 2）；网络错误、超时和 5xx 会记录失败并自动尝试下一渠道，3 次连续失败的渠道会熔断 5 分钟后再试。可通过 `NBAPI_UPSTREAM_TIMEOUT` 调整单次上游超时（默认 90 秒）。渠道管理页会显示真实健康状态和最近错误。
 - 充值订阅已提供人工审核 MVP：用户可在“充值订阅”提交充值申请，`GET /api/wallet` 查看订单和余额；管理员通过 `GET /api/admin/wallet/orders` 查看申请，并对订单调用 `POST /api/admin/wallet/orders/{id}`（`{"action":"approve"}` 或 `{"action":"reject"}`）处理。审核通过会增加余额并写入 `balance_transactions`，暂未接入自动支付。
+- 模型价格已统一为客户价格：按 Token 的模型以每 1M Tokens 计费并区分输入、输出和缓存读写价格；按次模型以每次计费。价格初始化为参考截图价格的 2 倍，并通过 `pricing_schema_version` 防止每次启动覆盖超级管理员修改。
+- 模型价格修改权限仅限超级管理员；后端 `/api/admin/models/{name}` 会拒绝普通管理员，模型广场只为超级管理员显示编辑控件。
 
 ## 重要提醒
 

@@ -58,6 +58,14 @@ MODEL_ROWS = [
     ("gpt-5.6-sol", "GPT 5.6 Sol", "OpenAI", "对话模型", "per_token", 0),
     ("gpt-5.6-terra", "GPT 5.6 Terra", "OpenAI", "对话模型", "per_token", 0),
     ("gpt-image-2", "GPT 图片", "OpenAI", "图片生成", "per_task", 100000),
+    ("claude-fable-5", "Claude Fable 5", "Anthropic", "对话模型", "per_token", 0),
+    ("claude-opus-4-6", "Claude Opus 4.6", "Anthropic", "对话模型", "per_token", 0),
+    ("claude-opus-4-8", "Claude Opus 4.8", "Anthropic", "对话模型", "per_token", 0),
+    ("claude-sonnet-4-6", "Claude Sonnet 4.6", "Anthropic", "对话模型", "per_token", 0),
+    ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite", "Google", "对话模型", "per_token", 0),
+    ("gemini-3.1-pro-preview", "Gemini 3.1 Pro", "Google", "对话模型", "per_token", 0),
+    ("ky-fast-720p", "可灵 Fast", "Kling", "视频生成", "per_task", 0),
+    ("ky-pro-720p", "可灵 Pro", "Kling", "视频生成", "per_task", 0),
     ("grok-video-480p", "Grok 视频", "Grok", "视频生成", "per_task", 500000),
     ("grok-video-720p", "Grok 视频", "Grok", "视频生成", "per_task", 500000),
     ("grok-imagine-video-1.5-480p", "Grok 1.5 视频", "Grok", "视频生成", "per_task", 500000),
@@ -75,6 +83,9 @@ MODEL_ROWS = [
     ("sora-v3-fast-1080p", "Sora 视频", "Sora / Veo", "文生视频", "per_task", 500000),
     ("sora-v3-pro", "Sora 视频", "Sora / Veo", "视频生成", "per_task", 500000),
     ("sora-v3-pro-1080p", "Sora 视频", "Sora / Veo", "视频生成", "per_task", 500000),
+    ("sora-v4-480p", "Sora 4 视频", "Sora / Veo", "视频生成", "per_task", 0),
+    ("sora-v4-720p", "Sora 4 视频", "Sora / Veo", "视频生成", "per_task", 0),
+    ("sora-v4-1080p", "Sora 4 视频", "Sora / Veo", "视频生成", "per_task", 0),
     ("veo-3.1-lite-720", "Veo 视频", "Sora / Veo", "视频生成", "per_task", 500000),
     ("veo-3.1-lite-1080", "Veo 视频", "Sora / Veo", "视频生成", "per_task", 500000),
     ("veo-3.1-lite-4k", "Veo 视频", "Sora / Veo", "视频生成", "per_task", 500000),
@@ -85,6 +96,21 @@ MODEL_ROWS = [
     ("veo-3.1-quality-1080", "Veo 视频", "Sora / Veo", "视频生成", "per_task", 500000),
     ("veo-3.1-quality-4k", "Veo 视频", "Sora / Veo", "视频生成", "per_task", 500000),
 ]
+
+# Prices are customer-facing rates: 2x the reference rates, in USD per 1M
+# tokens for token models and USD per task for media models.
+MODEL_PRICE_OVERRIDES = {
+    "T香蕉2": ("per_task", 240000), "T香蕉pro": ("per_task", 360000), "gpt-image-2": ("per_task", 220000),
+    "gpt-5.5": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 6240000, 78000, 0),
+    "claude-fable-5": ("per_token", 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 43200000, 864000, 10800000),
+    "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 18000000, 300000, 0),
+    "ky-fast-720p": ("per_task", 6800000), "ky-pro-720p": ("per_task", 8500000),
+    "grok-video-480p": ("per_task", 1000000), "grok-video-720p": ("per_task", 1000000), "grok-imagine-video-1.5-480p": ("per_task", 1000000), "grok-imagine-video-1.5-720p": ("per_task", 1000000),
+    "omni-flash": ("per_task", 456000), "omni-flash-1080p": ("per_task", 532000), "omni-flash-4k": ("per_task", 608000), "omni-flash-components": ("per_task", 456000), "omni-flash-components-1080p": ("per_task", 532000), "omni-flash-components-4k": ("per_task", 608000), "omni-flash-edit": ("per_task", 4920000), "omni-flash-edit-1080p": ("per_task", 6720000), "omni-flash-edit-4k": ("per_task", 9280000),
+    "sora-v3-fast": ("per_task", 1000000), "sora-v3-fast-1080p": ("per_task", 1680000), "sora-v3-pro": ("per_task", 1200000), "sora-v3-pro-1080p": ("per_task", 1960000), "sora-v4-480p": ("per_task", 1310000), "sora-v4-720p": ("per_task", 1360000), "sora-v4-1080p": ("per_task", 2800000),
+    "veo-3.1-lite-720": ("per_task", 960000), "veo-3.1-lite-1080": ("per_task", 1440000), "veo-3.1-lite-4k": ("per_task", 4800000), "veo-3.1-fast-720": ("per_task", 1560000), "veo-3.1-fast-1080": ("per_task", 2160000), "veo-3.1-fast-4k": ("per_task", 5280000),
+    "veo-3.1-quality-720": ("per_task", 2000000), "veo-3.1-quality-1080": ("per_task", 2000000), "veo-3.1-quality-4k": ("per_task", 2000000),
+}
 CHANNEL_ROWS = [
     ("默认主渠道", "https://ai.krapi.cn", "", 1, 100, "主站默认模型渠道"),
     ("备用渠道", "https://ai.krapi.cn", "", 1, 200, "备用或灰度渠道"),
@@ -171,7 +197,11 @@ def init_db() -> None:
               billing_unit TEXT NOT NULL CHECK(billing_unit IN ('per_task', 'per_token')),
               price_micros INTEGER NOT NULL,
               active INTEGER NOT NULL DEFAULT 1,
-              updated_at INTEGER NOT NULL
+              updated_at INTEGER NOT NULL,
+              input_price_micros INTEGER NOT NULL DEFAULT 0,
+              output_price_micros INTEGER NOT NULL DEFAULT 0,
+              cache_read_price_micros INTEGER NOT NULL DEFAULT 0,
+              cache_write_price_micros INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS ledger (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +302,15 @@ def init_db() -> None:
         ):
             if column not in columns:
                 db.execute(f"ALTER TABLE ledger ADD COLUMN {column} {definition}")
+        model_columns = {row[1] for row in db.execute("PRAGMA table_info(models)")}
+        for column, definition in (
+            ("input_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("output_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("cache_read_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("cache_write_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in model_columns:
+                db.execute(f"ALTER TABLE models ADD COLUMN {column} {definition}")
         token_columns = {row[1] for row in db.execute("PRAGMA table_info(api_tokens)")}
         if "token_secret" not in token_columns:
             db.execute("ALTER TABLE api_tokens ADD COLUMN token_secret TEXT NOT NULL DEFAULT ''")
@@ -326,6 +365,12 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (name, provider_label, provider, kind, billing_unit, price_micros, timestamp),
             )
+        if not get_setting(db, "pricing_schema_version"):
+            for name, pricing in MODEL_PRICE_OVERRIDES.items():
+                unit, price, *token_prices = pricing
+                input_price, output_price, cache_read, cache_write = (token_prices + [0, 0, 0, 0])[:4]
+                db.execute("UPDATE models SET billing_unit=?, price_micros=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (unit, price, input_price, output_price, cache_read, cache_write, timestamp, name))
+            set_setting(db, "pricing_schema_version", "2")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
@@ -401,6 +446,20 @@ def extract_usage_counts(payload) -> tuple[int, int]:
     return input_tokens or 0, output_tokens or 0
 
 
+def extract_cache_usage(payload) -> tuple[int, int]:
+    if not isinstance(payload, dict):
+        return 0, 0
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    input_details = usage.get("input_tokens_details") if isinstance(usage.get("input_tokens_details"), dict) else {}
+    cache_read = details.get("cached_tokens", details.get("cache_read_input_tokens", input_details.get("cached_tokens", 0))) or 0
+    cache_write = usage.get("cache_creation_input_tokens", usage.get("cache_write_input_tokens", 0)) or 0
+    try:
+        return max(0, int(cache_read)), max(0, int(cache_write))
+    except (TypeError, ValueError):
+        return 0, 0
+
+
 def get_upstream_routes(db):
     rows = db.execute(
         "SELECT id, name, upstream_base_url, upstream_api_key FROM channels WHERE active=1 AND (consecutive_failures<3 OR last_failure_at<?) ORDER BY priority ASC, id ASC",
@@ -440,7 +499,7 @@ def update_channel_health(channel_id: int | None, success: bool, error: str = ""
 
 def fetch_model_row(db, model_name: str):
     return db.execute(
-        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active FROM models WHERE name=?",
+        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models WHERE name=?",
         (model_name,),
     ).fetchone()
 
@@ -720,12 +779,18 @@ class Handler(BaseHTTPRequestHandler):
             price_micros = model_row[5]
             input_tokens = 0
             output_tokens = 0
+            cache_read_tokens = 0
+            cache_write_tokens = 0
             if billing_unit == "per_token":
                 input_tokens, output_tokens = extract_usage_counts(response_payload)
+                cache_read_tokens, cache_write_tokens = extract_cache_usage(response_payload)
                 quantity = input_tokens + output_tokens
                 if quantity <= 0:
                     quantity = self._estimate_token_quantity(payload)
-                amount_micros = (price_micros * quantity + 999) // 1000
+                    input_tokens = quantity
+                input_price = model_row[7] or price_micros
+                output_price = model_row[8] or input_price
+                amount_micros = (input_price * input_tokens + output_price * output_tokens + model_row[9] * cache_read_tokens + model_row[10] * cache_write_tokens + 999_999) // 1_000_000
             else:
                 amount_micros = price_micros
 
@@ -902,9 +967,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/models":
             with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute("SELECT name, provider_label, provider, kind, billing_unit, price_micros, active FROM models ORDER BY rowid").fetchall()
+                rows = db.execute("SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models ORDER BY rowid").fetchall()
             self.send_json(200, {"models": [
-                {"name": r[0], "providerLabel": r[1], "provider": r[2], "kind": r[3], "billingUnit": r[4], "price": micros_to_dollars(r[5]), "active": bool(r[6])}
+                {"name": r[0], "providerLabel": r[1], "provider": r[2], "kind": r[3], "billingUnit": r[4], "price": micros_to_dollars(r[5]), "inputPrice": micros_to_dollars(r[7] or r[5]), "outputPrice": micros_to_dollars(r[8] or r[5]), "cacheReadPrice": micros_to_dollars(r[9]), "cacheWritePrice": micros_to_dollars(r[10]), "active": bool(r[6])}
                 for r in rows
             ]})
             return
@@ -1307,7 +1372,7 @@ class Handler(BaseHTTPRequestHandler):
                             quantity = input_tokens + output_tokens
                             if quantity <= 0:
                                 raise ValueError("token_usage_required")
-                            amount = (price_micros * quantity + 999) // 1000
+                            amount = (model[7] * input_tokens + model[8] * output_tokens + 999_999) // 1_000_000
                         else:
                             amount = price_micros
                         client_ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
@@ -1478,22 +1543,29 @@ class Handler(BaseHTTPRequestHandler):
         admin = self.require_user(admin=True)
         if not admin:
             return
+        if admin[2] != "super_admin":
+            self.send_json(403, {"error": "super_admin_only"})
+            return
         name = path[len(prefix):]
         try:
             payload = self.read_json()
-            price_micros = dollars_to_micros(payload.get("price"))
             billing_unit = payload.get("billingUnit")
             if billing_unit not in ("per_task", "per_token"):
                 raise ValueError("billingUnit must be per_task or per_token")
+            price_micros = dollars_to_micros(payload.get("price"))
+            input_price = dollars_to_micros(payload.get("inputPrice", payload.get("price")))
+            output_price = dollars_to_micros(payload.get("outputPrice", payload.get("price")))
+            cache_read_price = dollars_to_micros(payload.get("cacheReadPrice", 0))
+            cache_write_price = dollars_to_micros(payload.get("cacheWritePrice", 0))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send_json(400, {"error": str(exc)})
             return
         with sqlite3.connect(DB_PATH) as db:
-            cursor = db.execute("UPDATE models SET price_micros=?, billing_unit=?, updated_at=? WHERE name=?", (price_micros, billing_unit, now(), name))
+            cursor = db.execute("UPDATE models SET price_micros=?, billing_unit=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (price_micros, billing_unit, input_price, output_price, cache_read_price, cache_write_price, now(), name))
             if cursor.rowcount != 1:
                 self.send_json(404, {"error": "model_not_found"})
                 return
-        self.send_json(200, {"model": name, "price": micros_to_dollars(price_micros), "billingUnit": billing_unit})
+        self.send_json(200, {"model": name, "price": micros_to_dollars(price_micros), "inputPrice": micros_to_dollars(input_price), "outputPrice": micros_to_dollars(output_price), "cacheReadPrice": micros_to_dollars(cache_read_price), "cacheWritePrice": micros_to_dollars(cache_write_price), "billingUnit": billing_unit})
 
     def do_PATCH(self):
         path = urlparse(self.path).path

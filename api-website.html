@@ -504,7 +504,7 @@
       font-size: 12px;
       font-weight: 700;
     }
-    body.can-manage .admin-hint { display: block; }
+    body.is-super-admin .admin-hint { display: block; }
     body:not(.can-manage) #channels, body:not(.can-manage) #users { display: none; }
 
     .detail { display: grid; gap: 14px; align-content: start; }
@@ -977,7 +977,7 @@
                 <tr><td><div class="model"><div class="avatar a-blue">Q</div><div><strong>通义千问 / 文心 / 星火 / 混元</strong><small>国产模型集合</small></div></div></td><td><span class="tag blue">中文优化</span></td><td class="price-cell" data-price-id="cn-models" data-default-price="0.50x"></td><td><span class="tag green">可用</span></td><td>OpenAI</td></tr>
               </tbody>
             </table>
-            <div class="admin-hint" style="padding: 0 16px 14px;">管理员模式已开启：价格修改会自动保存到本地。</div>
+            <div class="admin-hint" style="padding: 0 16px 14px;">超级管理员模式已开启：模型价格修改会保存到服务器并用于真实计费。</div>
           </div>
 
           <aside class="detail">
@@ -1282,6 +1282,7 @@
       isSuperAdmin = Boolean(currentUser && currentUser.role === "super_admin");
       document.body.classList.toggle("logged-in", Boolean(currentUser));
       document.body.classList.toggle("can-manage", canManage);
+      document.body.classList.toggle("is-super-admin", isSuperAdmin);
       adminState.textContent = currentUser ? roleLabel(currentUser.role) : "访客";
       authUser.textContent = currentUser ? `${currentUser.username} · ${roleLabel(currentUser.role)}` : "";
       authUser.style.display = currentUser ? "inline-flex" : "none";
@@ -1826,6 +1827,7 @@
     let prices = JSON.parse(localStorage.getItem(storageKeys.prices) || "{}");
     let accountBalance = Number(localStorage.getItem("nbapi-balance") || "0");
     let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
+    let serverModelPricing = {};
     let showPlazaPrices = true;
     let compactPlaza = false;
     let usersPage = 1;
@@ -1869,7 +1871,11 @@
 
     const defaultModelPricing = Object.fromEntries(documentedModels.map(([name, providerLabel, provider, kind]) => [name, {
       amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5,
-      unit: kind === "对话模型" ? "per_token" : "per_task"
+      unit: kind === "对话模型" ? "per_token" : "per_task",
+      inputPrice: kind === "对话模型" ? 0 : undefined,
+      outputPrice: kind === "对话模型" ? 0 : undefined,
+      cacheReadPrice: 0,
+      cacheWritePrice: 0
     }]));
 
     let playgroundConversation = [];
@@ -1984,14 +1990,23 @@
       } finally { sendPlayground.disabled = false; }
     }
 
+    async function loadModelCatalog() {
+      try {
+        const data = await fetch(`${API_BASE}/api/models`).then((response) => response.json());
+        serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
+        renderModelSquare();
+      } catch { /* The local defaults keep the plaza usable during startup. */ }
+    }
+
     function getModelPricing(name, kind) {
-      return modelPricing[name] || defaultModelPricing[name] || { amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5, unit: kind === "对话模型" ? "per_token" : "per_task" };
+      return serverModelPricing[name] || modelPricing[name] || defaultModelPricing[name] || { amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5, unit: kind === "对话模型" ? "per_token" : "per_task" };
     }
 
     function formatModelPrice(pricing) {
-      const amount = Number(pricing.amount || 0).toFixed(4);
-      if (pricing.unit === "per_token" && Number(pricing.amount || 0) === 0) return "价格待管理员配置 / 1K Tokens";
-      return pricing.unit === "per_token" ? `$${amount} / 1K Tokens` : `$${amount} / 次`;
+      if (pricing.unit === "per_token") {
+        return `输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>输出 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens`;
+      }
+      return `$${Number(pricing.amount || 0).toFixed(4)} / 次`;
     }
 
     function saveModelPricing(name, amount, unit) {
@@ -2044,8 +2059,10 @@
       document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${documentedModels.length} 个模型`;
       modelGrid.innerHTML = visibleModels.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
-        const priceMarkup = canManage
-          ? `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${model.name}" /><select class="billing-select" data-unit-model="${model.name}"><option value="per_task" ${pricing.unit === "per_task" ? "selected" : ""}>按次</option><option value="per_token" ${pricing.unit === "per_token" ? "selected" : ""}>按1K Token</option></select></div>`
+        const priceMarkup = isSuperAdmin
+          ? pricing.unit === "per_token"
+            ? `<div class="billing-controls"><input class="billing-input" title="输入价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.inputPrice ?? pricing.amount}" data-input-price-model="${model.name}" /><input class="billing-input" title="输出价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.outputPrice ?? pricing.amount}" data-output-price-model="${model.name}" /><input class="billing-input" title="缓存读取价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.cacheReadPrice ?? 0}" data-cache-read-price-model="${model.name}" /><input class="billing-input" title="缓存写入价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.cacheWritePrice ?? 0}" data-cache-write-price-model="${model.name}" /><span class="muted">/ 1M</span></div>`
+            : `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${model.name}" /><span class="muted">/ 次</span></div>`
           : `<strong>${formatModelPrice(pricing)}</strong>`;
         return `
         <article class="plaza-card">
@@ -2054,7 +2071,7 @@
             <div class="plaza-card-name"><strong>${model.name}</strong><small>${model.providerLabel}</small></div>
             <button class="copy-model" type="button" data-copy-model="${model.name.replace(/"/g, "&quot;")}" title="复制模型名称" aria-label="复制 ${model.name}"><span class="copy-icon"></span></button>
           </div>
-          ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1K Token" : "按次"}</span></div>` : ""}
+          ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1M Token，按输入/输出分别计费" : "按次"}</span></div>` : ""}
           <p class="plaza-description">${model.kind}，提交任务后通过对应查询接口获取结果。</p>
           <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${model.kind}</span><span class="tag blue">${model.mode}</span><code>${model.endpoint}</code><button class="call-model" type="button" data-call-model="${model.name}">调用并扣费</button></div>
         </article>
@@ -2066,15 +2083,17 @@
       modelGrid.querySelectorAll("[data-call-model]").forEach((button) => {
         button.addEventListener("click", () => chargeModel(button.dataset.callModel));
       });
-      modelGrid.querySelectorAll("[data-price-model], [data-unit-model]").forEach((control) => {
+      modelGrid.querySelectorAll("[data-price-model], [data-input-price-model], [data-output-price-model], [data-cache-read-price-model], [data-cache-write-price-model]").forEach((control) => {
         control.addEventListener("change", () => {
-          const name = control.dataset.priceModel || control.dataset.unitModel;
+          const name = control.dataset.priceModel || control.dataset.inputPriceModel || control.dataset.outputPriceModel;
           const card = control.closest(".plaza-card");
-          const amount = card.querySelector("[data-price-model]").value;
-          const unit = card.querySelector("[data-unit-model]").value;
-          saveModelPricing(name, amount, unit);
-          renderModelSquare();
-          showToast(`${name} 价格已保存`);
+          const amountInput = card.querySelector("[data-price-model]");
+          const inputInput = card.querySelector("[data-input-price-model]");
+          const outputInput = card.querySelector("[data-output-price-model]");
+          const cacheReadInput = card.querySelector("[data-cache-read-price-model]");
+          const cacheWriteInput = card.querySelector("[data-cache-write-price-model]");
+          const payload = amountInput ? { price: amountInput.value, billingUnit: "per_task" } : { price: inputInput.value, inputPrice: inputInput.value, outputPrice: outputInput.value, cacheReadPrice: cacheReadInput.value, cacheWritePrice: cacheWriteInput.value, billingUnit: "per_token" };
+          apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(payload) }).then((data) => { serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice || data.price), outputPrice: Number(data.outputPrice || data.price), cacheReadPrice: Number(data.cacheReadPrice || 0), cacheWritePrice: Number(data.cacheWritePrice || 0) }; renderModelSquare(); showToast(`${name} 价格已保存`); }).catch((error) => alert(error.message));
         });
       });
     }
@@ -2152,7 +2171,7 @@
 
       priceCells.forEach((cell) => {
         const value = getPrice(cell);
-        if (canManage) {
+        if (isSuperAdmin) {
           cell.innerHTML = `<input class="price-input" aria-label="修改价格" value="${value.replace(/"/g, "&quot;")}" />`;
           const input = cell.querySelector("input");
           input.addEventListener("change", () => savePrice(cell.dataset.priceId, input.value));
@@ -2397,6 +2416,7 @@
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
     updateBalance();
     renderPrices();
+    loadModelCatalog();
     loadDashboard();
     applyRoute();
     loadCurrentSession().then(() => { loadDashboard(); loadWallet(); loadAdminWalletOrders(); applyRoute(); });
