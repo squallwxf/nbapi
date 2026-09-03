@@ -7,12 +7,14 @@ import sqlite3
 import threading
 import time
 import traceback
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent
@@ -164,7 +166,8 @@ def init_db() -> None:
               role TEXT NOT NULL CHECK(role IN ('user', 'admin', 'super_admin')),
               active INTEGER NOT NULL DEFAULT 1,
               balance_micros INTEGER NOT NULL DEFAULT 0,
-              created_at INTEGER NOT NULL
+              created_at INTEGER NOT NULL,
+              manager_id INTEGER REFERENCES users(id)
             );
             CREATE TABLE IF NOT EXISTS sessions (
               token TEXT PRIMARY KEY,
@@ -276,7 +279,8 @@ def init_db() -> None:
                   role TEXT NOT NULL CHECK(role IN ('user', 'admin', 'super_admin')),
                   active INTEGER NOT NULL DEFAULT 1,
                   balance_micros INTEGER NOT NULL DEFAULT 0,
-                  created_at INTEGER NOT NULL
+                  created_at INTEGER NOT NULL,
+                  manager_id INTEGER REFERENCES users(id)
                 )
                 """
             )
@@ -291,6 +295,9 @@ def init_db() -> None:
             db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
         if "active" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+        if "manager_id" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_users_manager_id ON users(manager_id)")
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
             db.execute("ALTER TABLE ledger ADD COLUMN token_id INTEGER REFERENCES api_tokens(id)")
@@ -593,7 +600,7 @@ def set_setting(db, key: str, value: str) -> None:
 
 
 def serialize_user(row):
-    return {
+    result = {
         "id": row[0],
         "username": row[1],
         "email": row[2],
@@ -602,6 +609,22 @@ def serialize_user(row):
         "balance": micros_to_dollars(row[5]),
         "createdAt": row[6],
     }
+    if len(row) > 7:
+        result.update({
+            "managerId": row[7],
+            "managerUsername": row[8] or "",
+            "weekRecharge": micros_to_dollars(row[9] or 0) if len(row) > 9 else "0.000000",
+            "monthRecharge": micros_to_dollars(row[10] or 0) if len(row) > 10 else "0.000000",
+        })
+    return result
+
+
+def beijing_period_starts(timestamp=None):
+    current = datetime.fromtimestamp(timestamp or now(), ZoneInfo("Asia/Shanghai"))
+    today = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    return int(week_start.timestamp()), int(month_start.timestamp())
 
 
 def serialize_channel(row):
@@ -925,17 +948,27 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 page_size = 10
             offset = (page - 1) * page_size
+            week_start, month_start = beijing_period_starts()
             with sqlite3.connect(DB_PATH) as db:
                 params = []
-                where = ""
+                filters = []
+                if admin[2] == "admin":
+                    filters.append("u.manager_id=?")
+                    params.append(admin[0])
                 if search:
-                    where = "WHERE lower(username) LIKE ? OR lower(email) LIKE ? OR lower(role) LIKE ?"
+                    filters.append("(lower(u.username) LIKE ? OR lower(u.email) LIKE ? OR lower(u.role) LIKE ? OR lower(COALESCE(m.username,'')) LIKE ?)")
                     like = f"%{search}%"
-                    params = [like, like, like]
-                total = db.execute(f"SELECT COUNT(*) FROM users {where}", params).fetchone()[0]
+                    params.extend([like, like, like, like])
+                where = f"WHERE {' AND '.join(filters)}" if filters else ""
+                total = db.execute(f"SELECT COUNT(*) FROM users u LEFT JOIN users m ON m.id=u.manager_id {where}", params).fetchone()[0]
                 rows = db.execute(
-                    f"SELECT id, username, email, role, active, balance_micros, created_at FROM users {where} ORDER BY id DESC LIMIT ? OFFSET ?",
-                    [*params, page_size, offset],
+                    f"""SELECT u.id, u.username, u.email, u.role, u.active, u.balance_micros, u.created_at,
+                              u.manager_id, COALESCE(m.username,''),
+                              (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?),
+                              (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?)
+                       FROM users u LEFT JOIN users m ON m.id=u.manager_id {where}
+                       ORDER BY u.id DESC LIMIT ? OFFSET ?""",
+                    [week_start, month_start, *params, page_size, offset],
                 ).fetchall()
             self.send_json(200, {
                 "items": [serialize_user(row) for row in rows],
@@ -987,6 +1020,41 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/admin/wallet/orders":
             self.send_json(403, {"error": "permission_removed"})
+            return
+        if path == "/api/admin/managers":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute("SELECT id, username, role FROM users WHERE role IN ('admin','super_admin') AND active=1 ORDER BY role DESC, username COLLATE NOCASE").fetchall()
+            self.send_json(200, {"items": [{"id": r[0], "username": r[1], "role": r[2]} for r in rows]})
+            return
+        if path == "/api/admin/manager-customers":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                manager_id = int(query.get("managerId", ["0"])[0])
+            except ValueError:
+                manager_id = 0
+            if not manager_id:
+                self.send_json(400, {"error": "manager_id_required"})
+                return
+            week_start, month_start = beijing_period_starts()
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute("""SELECT u.id, u.username, u.email, u.role, u.active, u.balance_micros, u.created_at,
+                    u.manager_id, COALESCE(m.username,''),
+                    (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?),
+                    (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?)
+                    FROM users u LEFT JOIN users m ON m.id=u.manager_id WHERE u.manager_id=? ORDER BY u.id DESC""", (week_start, month_start, manager_id)).fetchall()
+            self.send_json(200, {"items": [serialize_user(row) for row in rows]})
             return
         if path == "/api/me":
             user = self.require_user()
@@ -1153,6 +1221,7 @@ class Handler(BaseHTTPRequestHandler):
                 username = str(payload.get("username", "")).strip()
                 email = str(payload.get("email", "")).strip().lower()
                 password = str(payload.get("password", ""))
+                designated_admin = str(payload.get("designatedAdmin", "")).strip()
                 if not (3 <= len(username) <= 32):
                     self.send_json(400, {"error": "username_length_invalid"})
                     return
@@ -1172,9 +1241,15 @@ class Handler(BaseHTTPRequestHandler):
                         if existing_email:
                             self.send_json(409, {"error": "email_already_exists"})
                             return
+                        manager_id = None
+                        manager_username = ""
+                        if designated_admin:
+                            manager = db.execute("SELECT id, username FROM users WHERE lower(username)=lower(?) AND role IN ('admin','super_admin') AND active=1", (designated_admin,)).fetchone()
+                            if manager:
+                                manager_id, manager_username = manager
                         cursor = db.execute(
-                            "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'user', 1, ?, ?)",
-                            (username, email, hash_password(password), 0, timestamp),
+                            "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at, manager_id) VALUES (?, ?, ?, 'user', 1, ?, ?, ?)",
+                            (username, email, hash_password(password), 0, timestamp, manager_id),
                         )
                         user_id = cursor.lastrowid
                         token = secrets.token_urlsafe(32)
@@ -1193,7 +1268,11 @@ class Handler(BaseHTTPRequestHandler):
                         "active": bool(row[4]),
                         "balance": micros_to_dollars(row[5]),
                         "createdAt": row[6],
+                        "managerId": manager_id,
+                        "managerUsername": manager_username,
                     },
+                    "managerMatched": bool(manager_id),
+                    "managerUsername": manager_username,
                 })
                 return
 
@@ -1215,14 +1294,49 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     with sqlite3.connect(DB_PATH) as db:
                         cursor = db.execute(
-                            "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, '', ?, 'user', 1, 0, ?)",
-                            (username, hash_password(password), now()),
+                            "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at, manager_id) VALUES (?, '', ?, 'user', 1, 0, ?, ?)",
+                            (username, hash_password(password), now(), admin[0] if admin[2] == "admin" else None),
                         )
                         row = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (cursor.lastrowid,)).fetchone()
                 except sqlite3.IntegrityError:
                     self.send_json(409, {"error": "username_already_exists"})
                     return
                 self.send_json(201, {"user": serialize_user(row)})
+                return
+
+            if path == "/api/admin/manager-customers":
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+                try:
+                    user_id = int(payload.get("userId"))
+                    manager_id = payload.get("managerId")
+                    manager_id = int(manager_id) if manager_id not in (None, "", 0, "0") else None
+                    action = str(payload.get("action", "assign")).strip().lower()
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid_assignment"})
+                    return
+                if action not in ("assign", "unassign"):
+                    self.send_json(400, {"error": "invalid_assignment_action"})
+                    return
+                if action == "unassign":
+                    manager_id = None
+                with sqlite3.connect(DB_PATH) as db:
+                    user = db.execute("SELECT id, role FROM users WHERE id=?", (user_id,)).fetchone()
+                    if not user or user[1] != "user":
+                        self.send_json(404, {"error": "customer_user_not_found"})
+                        return
+                    if manager_id is not None:
+                        manager = db.execute("SELECT id FROM users WHERE id=? AND role IN ('admin','super_admin') AND active=1", (manager_id,)).fetchone()
+                        if not manager:
+                            self.send_json(400, {"error": "manager_not_found"})
+                            return
+                    db.execute("UPDATE users SET manager_id=? WHERE id=?", (manager_id, user_id))
+                    updated = db.execute("SELECT id, username, email, role, active, balance_micros, created_at, manager_id, COALESCE((SELECT username FROM users m WHERE m.id=users.manager_id),'') FROM users WHERE id=?", (user_id,)).fetchone()
+                self.send_json(200, {"user": serialize_user(updated)})
                 return
 
             if path == "/api/wallet/orders":
