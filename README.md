@@ -38,6 +38,7 @@ ZPAY 参数只放在服务器环境变量中，不要写入代码或 GitHub：
 - `NBAPI_ZPAY_NOTIFY_URL`：默认 `https://nbapi.win/api/payment/zpay/notify`
 - `NBAPI_ZPAY_RETURN_URL`：默认 `https://nbapi.win/#wallet`
 - `NBAPI_ZPAY_CID`：可选渠道 ID，留空由 ZPAY 自动选择
+- 当前充值页面仅启用支付宝；如需启用微信，需要先确认 ZPAY 商户已开通微信渠道，再单独调整代码和配置。
 - `NBAPI_ZPAY_MIN_TOPUP`：最低充值金额，默认 `1`
 
 未配置 `NBAPI_ZPAY_PID` 或 `NBAPI_ZPAY_KEY` 时，充值接口会拒绝创建订单，不会产生无法核对的待支付订单。

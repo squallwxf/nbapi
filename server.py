@@ -1513,22 +1513,6 @@ class Handler(BaseHTTPRequestHandler):
                 transactions = db.execute("SELECT id, amount_micros, type, reference_id, note, created_at FROM balance_transactions WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
             self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
             return
-        if path == "/api/admin/wallet/orders":
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            if admin[2] != "super_admin":
-                self.send_json(403, {"error": "super_admin_only"})
-                return
-            with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute(
-                    "SELECT o.id, u.username, o.amount_micros, o.status, o.payment_method, o.note, o.created_at, o.updated_at FROM wallet_orders o JOIN users u ON u.id=o.user_id ORDER BY CASE o.status WHEN 'pending' THEN 0 ELSE 1 END, o.id DESC LIMIT 100"
-                ).fetchall()
-            self.send_json(200, {"items": [{
-                "id": r[0], "username": r[1], "amount": micros_to_dollars(r[2]), "status": r[3],
-                "paymentMethod": r[4], "note": r[5], "createdAt": r[6], "updatedAt": r[7]
-            } for r in rows]})
-            return
         if path == "/api/admin/managers":
             admin = self.require_user(admin=True)
             if not admin:
@@ -1681,24 +1665,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
                 return
 
-            if path.startswith("/api/admin/wallet/orders/"):
-                admin = self.require_user(admin=True)
-                if not admin:
-                    return
-                if admin[2] != "super_admin":
-                    self.send_json(403, {"error": "super_admin_only"})
-                    return
-                try:
-                    order_id = int(path.rsplit("/", 1)[1])
-                    action = str(payload.get("action", "")).strip().lower()
-                    result = settle_wallet_order(order_id, action)
-                except (TypeError, ValueError, LookupError) as exc:
-                    error = str(exc)
-                    status = 404 if error == "wallet_order_not_found" else 400
-                    self.send_json(status, {"error": error})
-                    return
-                self.send_json(200, result)
-                return
 
             if path == "/api/auth/login":
                 if self._rate_limited("login"):
@@ -1893,8 +1859,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(503, {"error": "zpay_not_configured"})
                     return
                 payment_method = str(payload.get("paymentMethod", "alipay")).strip().lower()
-                if payment_method not in ("alipay", "wxpay"):
-                    self.send_json(400, {"error": "unsupported_payment_method"})
+                if payment_method != "alipay":
+                    self.send_json(400, {"error": "payment_method_not_enabled", "message": "当前仅开通支付宝支付"})
                     return
                 timestamp = now()
                 with sqlite3.connect(DB_PATH) as db:
