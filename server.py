@@ -101,9 +101,9 @@ MODEL_ROWS = [
 # tokens for token models and USD per task for media models.
 MODEL_PRICE_OVERRIDES = {
     "T香蕉2": ("per_task", 240000), "T香蕉pro": ("per_task", 360000), "gpt-image-2": ("per_task", 220000),
-    "gpt-5.5": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 6240000, 78000, 0),
-    "claude-fable-5": ("per_token", 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 43200000, 864000, 10800000),
-    "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 18000000, 300000, 0),
+    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
+    "claude-fable-5": ("per_token", 28800000, 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 8640000, 43200000, 864000, 10800000),
+    "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 3000000, 18000000, 300000, 0),
     "ky-fast-720p": ("per_task", 5100000), "ky-pro-720p": ("per_task", 5950000),
     "grok-video-480p": ("per_task", 800000), "grok-video-720p": ("per_task", 1000000), "grok-imagine-video-1.5-480p": ("per_task", 800000), "grok-imagine-video-1.5-720p": ("per_task", 1000000),
     "omni-flash": ("per_task", 456000), "omni-flash-1080p": ("per_task", 532000), "omni-flash-4k": ("per_task", 608000), "omni-flash-components": ("per_task", 456000), "omni-flash-components-1080p": ("per_task", 532000), "omni-flash-components-4k": ("per_task", 608000), "omni-flash-edit": ("per_task", 4920000), "omni-flash-edit-1080p": ("per_task", 6720000), "omni-flash-edit-4k": ("per_task", 9280000),
@@ -365,12 +365,12 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (name, provider_label, provider, kind, billing_unit, price_micros, timestamp),
             )
-        if get_setting(db, "pricing_schema_version") != "3":
+        if get_setting(db, "pricing_schema_version") != "4":
             for name, pricing in MODEL_PRICE_OVERRIDES.items():
                 unit, price, *token_prices = pricing
                 input_price, output_price, cache_read, cache_write = (token_prices + [0, 0, 0, 0])[:4]
                 db.execute("UPDATE models SET billing_unit=?, price_micros=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (unit, price, input_price, output_price, cache_read, cache_write, timestamp, name))
-            set_setting(db, "pricing_schema_version", "3")
+            set_setting(db, "pricing_schema_version", "4")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
