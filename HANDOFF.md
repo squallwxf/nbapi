@@ -63,7 +63,7 @@ nginx -t && systemctl reload nginx
 - 服务器首次配置 Git 时，需要先在 `/opt/nbapi` 克隆仓库；以后直接使用 `git pull`。
 - 不要把本地 `nbapi.sqlite3` 推送后覆盖线上数据库。
 - 线上数据库包含用户、余额、API Key、扣费记录和渠道密钥，更新前应先备份。
-- 上游 API Key 和服务器密码不要写入代码或提交到 GitHub。
+- 上游 API Key、管理员密码和服务器密码不要写入代码或提交到 GitHub；线上应通过环境变量或后台安全配置管理。
 
 ## 令牌安全规则
 
@@ -82,6 +82,9 @@ nginx -t && systemctl reload nginx
 - 操练场调用完成后会读取服务器 `/api/me` 刷新余额，并读取 `X-NBAPI-Charged`/`X-NBAPI-Balance` 显示本次实际扣费和最新余额。
 - 使用日志已改为真实账单页：按时间、令牌、模型、分组、Request ID、计费类型筛选，显示令牌归属、IP、耗时、输入/输出 Token、花费，并支持统计、详情展开、分页和每页数量。
 - `ledger` 会自动增加 `client_ip`、`latency_ms`、`request_path`、`request_id` 字段；旧线上数据库启动时会自动迁移，旧记录的新增字段为空是正常现象。
+- 生产环境建议设置 `NBAPI_SUPER_ADMIN_PASSWORD`（仅首次初始化新数据库时使用）和 `NBAPI_ALLOWED_ORIGINS`；已有超级管理员密码不会在每次启动时被重置。
+- `GET /health` 可用于 Nginx、systemd 或监控探针；登录用户可通过 `POST /api/auth/password` 修改自己的密码，新密码至少 12 位。
+- 登录和注册接口按客户端 IP 做基础限流（每分钟最多 10 次），跨域响应只允许 `NBAPI_ALLOWED_ORIGINS` 中的来源。
 
 ## 重要提醒
 

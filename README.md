@@ -27,11 +27,9 @@ NBAPI 是一个面向 AI 模型聚合分发的站点，目标是对齐 `https://
 - 启动静态页：`python -m http.server 8000 --bind 127.0.0.1`
 - 打开：`http://127.0.0.1:8000/api-website.html`
 
-## 默认账号
+## 初始管理员
 
-- 超级管理员：`squallwxf` / `Aa19860120`
-- 管理员：`admin` / `admin123`
-- 普通用户：`demo` / `demo123`
+首次初始化数据库时请通过环境变量设置 `NBAPI_SUPER_ADMIN_PASSWORD`，不要使用仓库或网页中公开的默认密码。线上部署后应立即修改初始密码并删除不需要的演示账号。
 
 ## 数据位置
 

@@ -739,14 +739,13 @@
             </div>
             <div class="auth-actions">
               <button class="btn primary" id="loginSubmit" type="button">继续</button>
-              <button class="btn" id="loginDemo" type="button">演示账号</button>
               <a class="btn" href="#signup">注册</a>
             </div>
             <div class="auth-links">
               <span>没有账户？</span>
               <a href="#signup">去注册</a>
             </div>
-            <div class="auth-note">演示账号：<br />普通用户：`demo` / `demo123`<br />管理员：`admin` / `admin123`<br />超级管理员：`squallwxf` / `Aa19860120`</div>
+            <div class="auth-note">请使用管理员分配或自行注册的账号登录。</div>
           </div>
         </section>
 
@@ -817,7 +816,7 @@
             <h2>系统公告</h2>
             <div class="row"><div><strong>模型价格同步完成</strong><small>GPT、Claude、Gemini、DeepSeek 已更新</small></div><span class="tag green">正常</span></div>
             <div class="row"><div><strong>渠道监控开启</strong><small>异常渠道会自动降权并重试</small></div><span class="tag blue">实时</span></div>
-            <div class="row"><div><strong>新用户注册送额度</strong><small>用于测试聊天、图片和视频模型</small></div><span class="tag orange">活动</span></div>
+            <div class="row"><div><strong>新用户注册</strong><small>新账号初始余额为 $0，额度由管理员分配</small></div><span class="tag blue">开放</span></div>
           </aside>
         </div>
 
@@ -1180,7 +1179,6 @@
     const loginUsername = document.getElementById("loginUsername");
     const loginPassword = document.getElementById("loginPassword");
     const loginSubmit = document.getElementById("loginSubmit");
-    const loginDemo = document.getElementById("loginDemo");
     const signupSubmit = document.getElementById("signupSubmit");
     const signupUsername = document.getElementById("signupUsername");
     const signupEmail = document.getElementById("signupEmail");
@@ -2131,16 +2129,6 @@
       }
       try {
         await performUserLogin(loginUsername.value.trim(), loginPassword.value, "登录");
-      } catch (error) {
-        alert(error.message);
-      }
-    });
-
-    loginDemo.addEventListener("click", async () => {
-      loginUsername.value = "demo";
-      loginPassword.value = "demo123";
-      try {
-        await performUserLogin("demo", "demo123", "演示账号");
       } catch (error) {
         alert(error.message);
       }

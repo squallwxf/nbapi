@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 import time
 import traceback
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -21,9 +22,22 @@ UPSTREAM = "https://ai.krapi.cn"
 MICROS_PER_DOLLAR = 1_000_000
 TOKEN_PREFIX = "nb_sk_"
 DEFAULT_SUPER_ADMIN_USERNAME = "squallwxf"
-DEFAULT_SUPER_ADMIN_PASSWORD = "Aa19860120"
+DEFAULT_SUPER_ADMIN_PASSWORD = os.environ.get("NBAPI_SUPER_ADMIN_PASSWORD", "")
 DEFAULT_SUPER_ADMIN_EMAIL = "squallwxf@nbapi.local"
 PROXY_PREFIXES = ("/v1/", "/v1beta/")
+ALLOWED_ORIGINS = {
+    origin.strip().rstrip("/")
+    for origin in os.environ.get(
+        "NBAPI_ALLOWED_ORIGINS",
+        "https://nbapi.win,http://127.0.0.1:8000,http://localhost:8000",
+    ).split(",")
+    if origin.strip()
+}
+MAX_REQUEST_BODY = 2_000_000
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX = 10
+_rate_limit_lock = threading.Lock()
+_rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -255,39 +269,18 @@ def init_db() -> None:
             (DEFAULT_SUPER_ADMIN_USERNAME,),
         ).fetchone()
         if desired_super_admin:
-            db.execute(
-                """UPDATE users
-                   SET role='super_admin', active=1, password_hash=?, email=?
-                   WHERE id=?""",
-                (hash_password(DEFAULT_SUPER_ADMIN_PASSWORD), DEFAULT_SUPER_ADMIN_EMAIL, desired_super_admin[0]),
-            )
+            db.execute("UPDATE users SET role='super_admin', active=1 WHERE id=?", (desired_super_admin[0],))
             if super_admin_row and super_admin_row[0] != desired_super_admin[0]:
                 db.execute("UPDATE users SET role='admin' WHERE id=?", (super_admin_row[0],))
         elif super_admin_row:
-            db.execute(
-                """UPDATE users
-                   SET username=?, email=?, password_hash=?, role='super_admin', active=1
-                   WHERE id=?""",
-                (
-                    DEFAULT_SUPER_ADMIN_USERNAME,
-                    DEFAULT_SUPER_ADMIN_EMAIL,
-                    hash_password(DEFAULT_SUPER_ADMIN_PASSWORD),
-                    super_admin_row[0],
-                ),
-            )
+            db.execute("UPDATE users SET username=?, email=?, role='super_admin', active=1 WHERE id=?", (DEFAULT_SUPER_ADMIN_USERNAME, DEFAULT_SUPER_ADMIN_EMAIL, super_admin_row[0]))
         else:
+            if not DEFAULT_SUPER_ADMIN_PASSWORD:
+                raise RuntimeError("NBAPI_SUPER_ADMIN_PASSWORD is required when initializing a new database")
             db.execute(
                 "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'super_admin', 1, ?, ?)",
                 (DEFAULT_SUPER_ADMIN_USERNAME, DEFAULT_SUPER_ADMIN_EMAIL, hash_password(DEFAULT_SUPER_ADMIN_PASSWORD), 100 * MICROS_PER_DOLLAR, timestamp),
             )
-        db.execute(
-            "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'admin', 1, ?, ?)",
-            ("admin", "admin@nbapi.local", hash_password("admin123"), 100 * MICROS_PER_DOLLAR, timestamp),
-        )
-        db.execute(
-            "INSERT OR IGNORE INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, ?, ?, 'user', 1, ?, ?)",
-            ("demo", "demo@nbapi.local", hash_password("demo123"), 100 * MICROS_PER_DOLLAR, timestamp),
-        )
         for name, provider_label, provider, kind, billing_unit, price_micros in MODEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO models
@@ -526,13 +519,40 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_cors_headers(self) -> None:
+        origin = self.headers.get("Origin", "").rstrip("/")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, X-NBAPI-Key, Content-Type, Idempotency-Key")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+
+    def _client_ip(self) -> str:
+        forwarded = self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        return forwarded or self.client_address[0]
+
+    def _rate_limited(self, bucket: str) -> bool:
+        now_value = time.monotonic()
+        key = (self._client_ip(), bucket)
+        with _rate_limit_lock:
+            recent = [stamp for stamp in _rate_limit_buckets.get(key, []) if now_value - stamp < RATE_LIMIT_WINDOW]
+            limited = len(recent) >= RATE_LIMIT_MAX
+            if not limited:
+                recent.append(now_value)
+            _rate_limit_buckets[key] = recent
+            if len(_rate_limit_buckets) > 5000:
+                for old_key, stamps in list(_rate_limit_buckets.items()):
+                    if not stamps or now_value - stamps[-1] >= RATE_LIMIT_WINDOW:
+                        _rate_limit_buckets.pop(old_key, None)
+            return limited
+
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
-        if length > 2_000_000:
+        if length < 0 or length > MAX_REQUEST_BODY:
             raise ValueError("request body too large")
         return json.loads(self.rfile.read(length) or b"{}")
 
@@ -543,7 +563,7 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -752,13 +772,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, X-NBAPI-Key, Content-Type, Idempotency-Key")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+        self._send_cors_headers()
         self.end_headers()
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/health":
+            try:
+                with sqlite3.connect(DB_PATH, timeout=2) as db:
+                    db.execute("SELECT 1").fetchone()
+                self.send_json(200, {"status": "ok", "service": "nbapi", "timestamp": now()})
+            except sqlite3.Error:
+                self.send_json(503, {"status": "error", "service": "nbapi"})
+            return
         if self._proxy_upstream("GET"):
             return
         if path == "/api/admin/config":
@@ -930,6 +956,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/auth/login":
+                if self._rate_limited("login"):
+                    self.send_json(429, {"error": "rate_limited"})
+                    return
                 username = str(payload.get("username", "")).strip()
                 password = str(payload.get("password", ""))
                 with sqlite3.connect(DB_PATH) as db:
@@ -959,7 +988,29 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
 
+            if path == "/api/auth/password":
+                user = self.require_user()
+                if not user:
+                    return
+                current_password = str(payload.get("currentPassword", ""))
+                new_password = str(payload.get("newPassword", ""))
+                if len(new_password) < 12:
+                    self.send_json(400, {"error": "password_too_short"})
+                    return
+                with sqlite3.connect(DB_PATH) as db:
+                    row = db.execute("SELECT password_hash FROM users WHERE id=?", (user[0],)).fetchone()
+                    if not row or not verify_password(current_password, row[0]):
+                        self.send_json(401, {"error": "current_password_invalid"})
+                        return
+                    db.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(new_password), user[0]))
+                    db.execute("DELETE FROM sessions WHERE user_id=? AND token<>?", (user[0], self.headers.get("Authorization", "")[7:].strip()))
+                self.send_json(200, {"updated": True})
+                return
+
             if path == "/api/auth/register":
+                if self._rate_limited("register"):
+                    self.send_json(429, {"error": "rate_limited"})
+                    return
                 username = str(payload.get("username", "")).strip()
                 email = str(payload.get("email", "")).strip().lower()
                 password = str(payload.get("password", ""))
@@ -1392,9 +1443,7 @@ def main():
     init_db()
     server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     print("NBAPI running at http://127.0.0.1:8765")
-    print(f"Super admin: {DEFAULT_SUPER_ADMIN_USERNAME} / {DEFAULT_SUPER_ADMIN_PASSWORD}")
-    print("Admin: admin / admin123")
-    print("Demo user: demo / demo123")
+    print(f"Super admin account: {DEFAULT_SUPER_ADMIN_USERNAME}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
