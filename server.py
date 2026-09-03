@@ -311,6 +311,7 @@ def init_db() -> None:
             db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_users_manager_id ON users(manager_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_billing_reservations_status ON billing_reservations(status)")
+        cleanup_stale_reservations(db)
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
             db.execute("ALTER TABLE ledger ADD COLUMN token_id INTEGER REFERENCES api_tokens(id)")
@@ -674,6 +675,18 @@ def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_ke
     }
 
 
+def cleanup_stale_reservations(db, ttl_seconds: int = 24 * 60 * 60):
+    cutoff = now() - ttl_seconds
+    rows = db.execute(
+        "SELECT id, user_id, token_id, reserved_micros FROM billing_reservations WHERE status='reserved' AND updated_at<?",
+        (cutoff,),
+    ).fetchall()
+    for reservation_id, user_id, token_id, reserved_micros in rows:
+        db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (reserved_micros, user_id))
+        db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (reserved_micros, token_id))
+        db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=? AND status='reserved'", (now(), reservation_id))
+
+
 def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int):
     """Atomically reserve wallet and token quota before an upstream call."""
     existing_ledger = db.execute(
@@ -928,7 +941,7 @@ class Handler(BaseHTTPRequestHandler):
         model_name = extract_model_name(path, payload)
         idempotency_key = (
             str(self.headers.get("Idempotency-Key", "")).strip()
-            or hashlib.sha256((method + "|" + path + "|" + body.decode("utf-8", "ignore")).encode("utf-8")).hexdigest()
+            or secrets.token_urlsafe(24)
         )
         if len(idempotency_key) > 128:
             self.send_json(400, {"error": "idempotency_key_too_long"})
