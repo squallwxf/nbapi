@@ -102,3 +102,12 @@ nginx -t && systemctl reload nginx
 - 数据库路径可通过 `NBAPI_DB_PATH` 改
 - 备份目录可通过 `NBAPI_BACKUP_DIR` 改
 - 服务器改动后要记得同步到仓库
+
+## 2026-09-03 计费审计
+
+- 已对照 New API 的计费思路检查 NBAPI：上游成功后只使用上游响应中的真实输入/补全 Token 进行结算，并使用整数微美元计算，避免浮点误差。
+- Token 模型不再使用请求长度或 `max_tokens` 估算值扣费；如果上游没有返回可拆分的输入和补全用量，则返回 `upstream_usage_unavailable`，本次不执行扣费。
+- 已支持 OpenAI-compatible 的 `prompt_tokens/completion_tokens`、Gemini 的 `promptTokenCount/candidatesTokenCount`，以及流式 SSE 中最后带有 usage 的 JSON 数据。
+- OpenAI-compatible 缓存输入会从普通输入 Token 中扣除后再按缓存读取价格计费，避免重复收费；缓存相关 Token 和输入/补全 Token 会写入使用日志。
+- `/api/billing/call` 已停用。该旧接口允许客户端自行提交 usage，存在伪造低用量的风险；真实计费只允许走带用户 API Key 的 `/v1` 代理接口。
+- 当前仍建议上线后用测试账号分别验证：普通对话、流式对话、Gemini、图片/视频按次模型、余额不足、重复 `Idempotency-Key`、上游无 usage 响应和缓存 Token。当前代理是响应后结算，后续如需完全复刻 New API 的预扣/后结算生命周期，可继续增加计费预留表和失败退款机制。

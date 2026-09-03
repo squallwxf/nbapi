@@ -421,18 +421,53 @@ def extract_model_name(path: str, payload) -> str:
     return ""
 
 
-def extract_usage_counts(payload) -> tuple[int, int]:
+def extract_response_payload(body: bytes):
+    """Extract the final JSON response, including usage from streaming SSE."""
+    payload = try_parse_json_bytes(body)
+    if isinstance(payload, dict):
+        return payload
+    try:
+        lines = body.decode("utf-8", "replace").splitlines()
+    except Exception:
+        return None
+    fallback = None
+    for line in reversed(lines):
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            candidate = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            if extract_usage_object(candidate) is not None:
+                return candidate
+            if fallback is None:
+                fallback = candidate
+    return fallback
+
+
+def extract_usage_object(payload):
     if not isinstance(payload, dict):
-        return 0, 0
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        usage = payload.get("usageMetadata") if isinstance(payload.get("usageMetadata"), dict) else {}
-    if not isinstance(usage, dict):
+        return None
+    if isinstance(payload.get("usage"), dict):
+        return payload["usage"]
+    if isinstance(payload.get("usageMetadata"), dict):
+        return payload["usageMetadata"]
+    return None
+
+
+def extract_usage_counts(payload) -> tuple[int, int]:
+    usage = extract_usage_object(payload)
+    if usage is None:
         return 0, 0
     candidates = (
-        ("inputTokens", "input_tokens", "prompt_tokens", "promptTokens"),
-        ("outputTokens", "output_tokens", "completion_tokens", "completionTokens"),
-        ("totalTokens", "total_tokens", "totalTokens"),
+        ("inputTokens", "input_tokens", "prompt_tokens", "promptTokens", "promptTokenCount", "inputTokenCount"),
+        ("outputTokens", "output_tokens", "completion_tokens", "completionTokens", "candidatesTokenCount", "outputTokenCount"),
+        ("totalTokens", "total_tokens", "totalTokens", "totalTokenCount"),
     )
 
     def pick(keys):
@@ -447,24 +482,74 @@ def extract_usage_counts(payload) -> tuple[int, int]:
 
     input_tokens = pick(candidates[0])
     output_tokens = pick(candidates[1])
-    total_tokens = pick(candidates[2])
-    if input_tokens is None and output_tokens is None and total_tokens is not None:
-        return total_tokens, 0
-    return input_tokens or 0, output_tokens or 0
+    if input_tokens is None or output_tokens is None:
+        return 0, 0
+    return input_tokens, output_tokens
 
 
 def extract_cache_usage(payload) -> tuple[int, int]:
-    if not isinstance(payload, dict):
+    usage = extract_usage_object(payload)
+    if usage is None:
         return 0, 0
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
     details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
     input_details = usage.get("input_tokens_details") if isinstance(usage.get("input_tokens_details"), dict) else {}
-    cache_read = details.get("cached_tokens", details.get("cache_read_input_tokens", input_details.get("cached_tokens", 0))) or 0
-    cache_write = usage.get("cache_creation_input_tokens", usage.get("cache_write_input_tokens", 0)) or 0
+    cache_read = details.get("cached_tokens")
+    if cache_read is None:
+        cache_read = details.get("cache_read_input_tokens")
+    if cache_read is None:
+        cache_read = input_details.get("cached_tokens")
+    if cache_read is None:
+        cache_read = usage.get("cache_read_input_tokens")
+    if cache_read is None:
+        cache_read = usage.get("cacheReadInputTokens")
+    if cache_read is None:
+        cache_read = usage.get("cachedContentTokenCount", 0)
+    cache_write = usage.get("cache_creation_input_tokens", usage.get("cache_write_input_tokens", usage.get("cacheWriteInputTokens", 0))) or 0
     try:
         return max(0, int(cache_read)), max(0, int(cache_write))
     except (TypeError, ValueError):
         return 0, 0
+
+
+def has_separate_usage_counts(payload) -> bool:
+    usage = extract_usage_object(payload)
+    if usage is None:
+        return False
+    input_keys = ("inputTokens", "input_tokens", "prompt_tokens", "promptTokens", "promptTokenCount", "inputTokenCount")
+    output_keys = ("outputTokens", "output_tokens", "completion_tokens", "completionTokens", "candidatesTokenCount", "outputTokenCount")
+
+    def has_valid_value(keys):
+        for key in keys:
+            if key not in usage:
+                continue
+            try:
+                return int(usage[key]) >= 0
+            except (TypeError, ValueError):
+                return False
+        return False
+
+    return has_valid_value(input_keys) and has_valid_value(output_keys)
+
+
+def calculate_token_charge_micros(model_row, response_payload):
+    """Calculate a token charge only from authoritative upstream usage."""
+    if not has_separate_usage_counts(response_payload):
+        raise ValueError("upstream_usage_unavailable")
+    input_tokens, output_tokens = extract_usage_counts(response_payload)
+    cache_read_tokens, cache_write_tokens = extract_cache_usage(response_payload)
+    input_price = model_row[7] if model_row[7] > 0 else model_row[5]
+    output_price = model_row[8] if model_row[8] > 0 else input_price
+    usage = extract_usage_object(response_payload) or {}
+    has_openai_cache_details = isinstance(usage.get("prompt_tokens_details"), dict) or isinstance(usage.get("input_tokens_details"), dict)
+    billable_input_tokens = max(0, input_tokens - cache_read_tokens) if has_openai_cache_details else input_tokens
+    amount_micros = (
+        input_price * billable_input_tokens
+        + output_price * output_tokens
+        + model_row[9] * cache_read_tokens
+        + model_row[10] * cache_write_tokens
+        + 999_999
+    ) // 1_000_000
+    return amount_micros, input_tokens, output_tokens
 
 
 def get_upstream_routes(db):
@@ -797,23 +882,20 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
         if model_row:
-            response_payload = try_parse_json_bytes(resp_body)
+            response_payload = extract_response_payload(resp_body)
             billing_unit = model_row[4]
             price_micros = model_row[5]
             input_tokens = 0
             output_tokens = 0
-            cache_read_tokens = 0
-            cache_write_tokens = 0
             if billing_unit == "per_token":
-                input_tokens, output_tokens = extract_usage_counts(response_payload)
-                cache_read_tokens, cache_write_tokens = extract_cache_usage(response_payload)
-                quantity = input_tokens + output_tokens
-                if quantity <= 0:
-                    quantity = self._estimate_token_quantity(payload)
-                    input_tokens = quantity
-                input_price = model_row[7] or price_micros
-                output_price = model_row[8] or input_price
-                amount_micros = (input_price * input_tokens + output_price * output_tokens + model_row[9] * cache_read_tokens + model_row[10] * cache_write_tokens + 999_999) // 1_000_000
+                # Never silently charge an estimate for a token-priced model.
+                # New API settles from authoritative upstream usage; doing the
+                # same here prevents both accidental overcharging and free
+                # calls caused by an unparseable response.
+                if not has_separate_usage_counts(response_payload):
+                    self.send_json(502, {"error": "upstream_usage_unavailable", "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。"})
+                    return True
+                amount_micros, input_tokens, output_tokens = calculate_token_charge_micros(model_row, response_payload)
             else:
                 amount_micros = price_micros
 
@@ -1439,54 +1521,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/billing/call":
-                api_user = self.require_api_token()
-                user = (api_user[1], api_user[2], api_user[3], api_user[4]) if api_user else None
-                if not user:
-                    return
-                token_id = api_user[0]
-                model_name = str(payload.get("model", "")).strip()
-                key = str(payload.get("idempotencyKey") or self.headers.get("Idempotency-Key") or "").strip()
-                usage = payload.get("usage") or {}
-                input_tokens = max(0, int(usage.get("inputTokens", 0) or 0))
-                output_tokens = max(0, int(usage.get("outputTokens", 0) or 0))
-                if not model_name or not key or len(key) > 128:
-                    self.send_json(400, {"error": "model_and_idempotency_key_required"})
-                    return
-                if not token_allows_model(api_user[9], model_name):
-                    self.send_json(403, {"error": "model_not_allowed_for_token"})
-                    return
-                with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
-                    try:
-                        db.execute("BEGIN IMMEDIATE")
-                        model = fetch_model_row(db, model_name)
-                        if not model or not model[6]:
-                            raise ValueError("model_not_available")
-                        unit = model[4]
-                        price_micros = model[5]
-                        if unit == "per_token":
-                            quantity = input_tokens + output_tokens
-                            if quantity <= 0:
-                                raise ValueError("token_usage_required")
-                            amount = (model[7] * input_tokens + model[8] * output_tokens + 999_999) // 1_000_000
-                        else:
-                            amount = price_micros
-                        client_ip = self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
-                        charge_result = bill_ledger(db, user[0], token_id, model_name, key, amount, unit, input_tokens, output_tokens, client_ip, 0, path, key)
-                        db.execute("COMMIT")
-                    except ValueError as exc:
-                        db.execute("ROLLBACK")
-                        self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
-                        return
-                    except sqlite3.IntegrityError:
-                        db.execute("ROLLBACK")
-                        self.send_json(409, {"error": "duplicate_idempotency_key"})
-                        return
-                self.send_json(200, {
-                    "charged": micros_to_dollars(charge_result["amount_micros"]),
-                    "balance": micros_to_dollars(charge_result["balance_micros"]),
-                    "idempotent": charge_result["idempotent"],
-                    "status": charge_result["status"],
-                })
+                # This legacy endpoint accepted client-supplied usage and was
+                # therefore forgeable. Billing is now performed only inside
+                # the authenticated upstream proxy after parsing its response.
+                self.send_json(410, {"error": "billing_endpoint_removed", "message": "请直接调用 /v1 接口，系统会依据上游返回的真实用量自动计费。"})
                 return
 
             if path == "/api/admin/channels":

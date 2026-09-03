@@ -2181,39 +2181,6 @@
       copyToast.timer = window.setTimeout(() => copyToast.classList.remove("show"), 1600);
     }
 
-    async function chargeModel(name) {
-      const model = documentedModels.find(([modelName]) => modelName === name);
-      if (!model) return;
-      if (!activeApiKey) {
-        alert("调用模型必须使用自己的 API Key，请先登录并在令牌管理中创建令牌。");
-        location.hash = "tokens";
-        return;
-      }
-      const pricing = getModelPricing(model[0], model[2]);
-      let quantity = 1;
-      if (pricing.unit === "per_token") {
-        quantity = Number(prompt(`请输入本次调用的 Token 数量（${name}）`, "1000"));
-        if (!Number.isFinite(quantity) || quantity <= 0) return;
-      }
-      try {
-        const idempotencyKey = crypto.randomUUID();
-        const data = await fetch(`${API_BASE}/api/billing/call`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-NBAPI-Key": activeApiKey, "Idempotency-Key": idempotencyKey },
-          body: JSON.stringify({ model: name, usage: { inputTokens: pricing.unit === "per_token" ? quantity : 0, outputTokens: 0 }, idempotencyKey })
-        }).then(async (response) => {
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "调用失败");
-          return result;
-        });
-        accountBalance = Number(data.balance);
-        updateBalance();
-        showToast(`${name} 调用成功，扣除 $${Number(data.charged).toFixed(6)}`);
-      } catch (error) {
-        alert(error.message === "insufficient_balance" ? "余额不足，本次调用已拒绝。" : error.message);
-      }
-    }
-
     async function copyModelName(modelName) {
       try {
         await navigator.clipboard.writeText(modelName);
