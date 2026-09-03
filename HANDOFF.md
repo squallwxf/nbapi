@@ -113,3 +113,4 @@ nginx -t && systemctl reload nginx
 - 当前仍建议上线后用测试账号分别验证：普通对话、流式对话、Gemini、图片/视频按次模型、余额不足、重复 `Idempotency-Key`、上游无 usage 响应和缓存 Token。
 - 2026-09-03 后续加固已增加 `billing_reservations`：按次模型和 Token 模型在请求上游前先预留余额/令牌额度；上游失败或 Token 用量不可核验时退款；成功后按真实用量补扣或退回差额，并再写入 `ledger`。重复请求使用同一幂等键时不会重复建立预留或账单。
 - Token 预留使用请求体长度和 `max_tokens` 做调用前授权估算，最终账单仍只使用上游真实 usage；若实际用量超过预留，会在同一事务中补扣差额，避免上游已成功但 NBAPI 漏记账。
+- 使用日志已补充计费审计字段：预扣金额、实际结算差额、缓存读/写 Token、用量来源（OpenAI-compatible/Gemini/按次）和请求路径；日志详情中可核对预扣与最终实际扣费是否一致。

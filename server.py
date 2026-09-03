@@ -221,6 +221,11 @@ def init_db() -> None:
               latency_ms INTEGER NOT NULL DEFAULT 0,
               request_path TEXT NOT NULL DEFAULT '',
               request_id TEXT NOT NULL DEFAULT '',
+              reserved_micros INTEGER NOT NULL DEFAULT 0,
+              adjustment_micros INTEGER NOT NULL DEFAULT 0,
+              cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+              cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+              usage_source TEXT NOT NULL DEFAULT '',
               UNIQUE(user_id, idempotency_key)
             );
             CREATE TABLE IF NOT EXISTS billing_reservations (
@@ -320,6 +325,11 @@ def init_db() -> None:
             ("latency_ms", "INTEGER NOT NULL DEFAULT 0"),
             ("request_path", "TEXT NOT NULL DEFAULT ''"),
             ("request_id", "TEXT NOT NULL DEFAULT ''"),
+            ("reserved_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("adjustment_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("usage_source", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in columns:
                 db.execute(f"ALTER TABLE ledger ADD COLUMN {column} {definition}")
@@ -563,7 +573,7 @@ def calculate_token_charge_micros(model_row, response_payload):
         + model_row[10] * cache_write_tokens
         + 999_999
     ) // 1_000_000
-    return amount_micros, input_tokens, output_tokens
+    return amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 
 
 def get_upstream_routes(db):
@@ -727,7 +737,7 @@ def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotenc
     return {"idempotent": False, "settled": False, "amount_micros": amount_micros, "reservation_id": cursor.lastrowid}
 
 
-def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, request_path: str, request_id: str):
+def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, request_path: str, request_id: str, cache_read_tokens: int = 0, cache_write_tokens: int = 0, usage_source: str = ""):
     reservation = db.execute(
         "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
         (user_id, idempotency_key),
@@ -755,8 +765,8 @@ def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency
         db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (refund, token_id))
     timestamp = now()
     db.execute(
-        "INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, request_path, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?)",
-        (user_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, timestamp, token_id, client_ip, latency_ms, request_path, request_id),
+        "INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, request_path, request_id, reserved_micros, adjustment_micros, cache_read_tokens, cache_write_tokens, usage_source) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, timestamp, token_id, client_ip, latency_ms, request_path, request_id, reservation[1], delta, cache_read_tokens, cache_write_tokens, usage_source),
     )
     db.execute("UPDATE billing_reservations SET status='settled', updated_at=? WHERE id=?", (timestamp, reservation[0]))
     balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
@@ -1054,14 +1064,18 @@ class Handler(BaseHTTPRequestHandler):
                             db.execute("COMMIT")
                     self.send_json(502, {"error": "upstream_usage_unavailable", "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。"})
                     return True
-                amount_micros, input_tokens, output_tokens = calculate_token_charge_micros(model_row, response_payload)
+                amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens = calculate_token_charge_micros(model_row, response_payload)
+                usage_source = "gemini" if extract_usage_object(response_payload) is response_payload.get("usageMetadata") else "openai_compatible"
             else:
                 amount_micros = price_micros
+                cache_read_tokens = 0
+                cache_write_tokens = 0
+                usage_source = "per_task"
 
             with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                 try:
                     db.execute("BEGIN IMMEDIATE")
-                    charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), path, idempotency_key)
+                    charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), path, idempotency_key, cache_read_tokens, cache_write_tokens, usage_source)
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")
@@ -1336,11 +1350,11 @@ class Handler(BaseHTTPRequestHandler):
                         f"SELECT COUNT(*), COALESCE(SUM(l.amount_micros),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
                     ).fetchone()
                     rows = db.execute(
-                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
+                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
                         [*params, page_size, (page - 1) * page_size],
                     ).fetchall()
                 self.send_json(200, {"items": [{
-                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15]
+                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-"
                 } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
         if path == "/api/tokens":
