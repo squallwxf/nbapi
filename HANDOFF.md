@@ -106,6 +106,14 @@ nginx -t && systemctl reload nginx
 - 备份目录可通过 `NBAPI_BACKUP_DIR` 改
 - 服务器改动后要记得同步到仓库
 
+## 2026-09-04 ZPAY 联调状态
+
+- GitHub 已有 ZPAY 充值实现及“仅支付宝、回调验签自动到账”的代码，当前基线提交为 `4e42202`；该版本已移除超级管理员人工审核/手动入账界面和接口。
+- 服务器 `/etc/nbapi.env` 已确认 `NBAPI_ZPAY_PID=2026090213005330`，且运行中的 `nbapi` 服务可读取 `NBAPI_ZPAY_KEY`。密钥绝不能写入仓库或聊天记录。
+- 访问 `https://nbapi.win/api/payment/zpay/notify` 会返回 HTTP 400 和 `fail`，这是未携带真实支付通知参数时的正常结果，说明公网回调地址可到达。
+- 当前支付跳转返回“商户尚未开通或开启支付宝渠道，请先开通或开启”。已确认 NBAPI 使用 `type=alipay` 且服务器 PID 与 ZPAY 后台 PID 一致；下一步应在 ZPAY 后台“支付渠道 -> 我的支付渠道”确认支付宝通道为已开通、已启用状态，并记录页面显示的渠道 ID（CID）。只有后台确有 CID 时，才将其填入服务器 `/etc/nbapi.env` 的 `NBAPI_ZPAY_CID` 后重启 `nbapi`。
+- 云服务器 SSH 密码登录目前不稳定/可能拒绝认证；可通过云服务商网页 VNC/控制台进入服务器，再在 `/opt/nbapi` 执行 `git pull --ff-only origin main`、`systemctl restart nbapi` 和 `systemctl is-active nbapi` 完成部署。数据库 `nbapi.sqlite3` 与 `/etc/nbapi.env` 不在 Git 中，不能被 `git pull` 覆盖。
+
 ## 2026-09-03 计费审计
 
 - 已对照 New API 的计费思路检查 NBAPI：上游成功后只使用上游响应中的真实输入/补全 Token 进行结算，并使用整数微美元计算，避免浮点误差。
