@@ -853,6 +853,26 @@ class Handler(BaseHTTPRequestHandler):
                 for r in rows
             ]})
             return
+        if path == "/api/dashboard":
+            user = self.current_user()
+            current_time = time.localtime()
+            today_start = int(time.mktime((current_time.tm_year, current_time.tm_mon, current_time.tm_mday, 0, 0, 0, 0, 0, -1)))
+            month_start = int(time.mktime((current_time.tm_year, current_time.tm_mon, 1, 0, 0, 0, 0, 0, -1)))
+            with sqlite3.connect(DB_PATH) as db:
+                model_count = db.execute("SELECT COUNT(*) FROM models WHERE active=1").fetchone()[0]
+                channel_count = db.execute("SELECT COUNT(*) FROM channels WHERE active=1").fetchone()[0]
+                if user:
+                    today_requests = db.execute("SELECT COUNT(*) FROM ledger WHERE user_id=? AND created_at>=?", (user[0], today_start)).fetchone()[0]
+                    month_amount = db.execute("SELECT COALESCE(SUM(amount_micros),0) FROM ledger WHERE user_id=? AND created_at>=?", (user[0], month_start)).fetchone()[0]
+                    avg_latency = db.execute("SELECT COALESCE(AVG(latency_ms),0) FROM ledger WHERE user_id=? AND created_at>=? AND latency_ms>0", (user[0], today_start)).fetchone()[0]
+                    balance = user[3]
+                else:
+                    today_requests = 0
+                    month_amount = 0
+                    avg_latency = 0
+                    balance = 0
+            self.send_json(200, {"models": model_count, "channels": channel_count, "todayRequests": today_requests, "monthAmount": micros_to_dollars(month_amount), "balance": micros_to_dollars(balance), "avgLatencyMs": round(avg_latency or 0)})
+            return
         if path == "/api/me":
             user = self.require_user()
             if user:

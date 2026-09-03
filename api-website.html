@@ -821,10 +821,10 @@
         </div>
 
         <section class="stats">
-          <article class="panel stat"><div class="label">可用模型 <span class="trend">已同步</span></div><div class="value">32</div><div class="sub">对话、图片与视频模型</div></article>
-          <article class="panel stat"><div class="label">今日请求 <span class="trend">+18.6%</span></div><div class="value">84,291</div><div class="sub">平均响应 1.2s</div></article>
-          <article class="panel stat"><div class="label">在线渠道 <span class="trend">健康</span></div><div class="value">36</div><div class="sub">自动轮询与失败重试</div></article>
-          <article class="panel stat"><div class="label">本月消耗 <span class="trend">可控</span></div><div class="value">$ 926</div><div class="sub">按倍率与分组计费</div></article>
+          <article class="panel stat"><div class="label">可用模型 <span class="trend">实时</span></div><div class="value" id="dashboardModels">-</div><div class="sub">对话、图片与视频模型</div></article>
+          <article class="panel stat"><div class="label">今日请求 <span class="trend">本人</span></div><div class="value" id="dashboardTodayRequests">-</div><div class="sub" id="dashboardLatency">登录后显示真实调用</div></article>
+          <article class="panel stat"><div class="label">在线渠道 <span class="trend">当前启用</span></div><div class="value" id="dashboardChannels">-</div><div class="sub">已启用的上游渠道</div></article>
+          <article class="panel stat"><div class="label">本月消耗 <span class="trend">本人</span></div><div class="value" id="dashboardMonthAmount">-</div><div class="sub" id="dashboardBalance">账户余额：-</div></article>
         </section>
 
         <section class="console-shell" id="console">
@@ -840,10 +840,10 @@
             </div>
             <div class="console-body">
               <div class="console-grid">
-                <div class="console-metric"><div class="k">在线模型</div><div class="v">32</div><div class="s">可切换全部接口</div></div>
-                <div class="console-metric"><div class="k">健康渠道</div><div class="v">36</div><div class="s">自动降权和重试</div></div>
-                <div class="console-metric"><div class="k">今日调用</div><div class="v">84,291</div><div class="s">增长 18.6%</div></div>
-                <div class="console-metric"><div class="k">账户余额</div><div class="v">$ 926</div><div class="s">管理员可调价</div></div>
+                <div class="console-metric"><div class="k">在线模型</div><div class="v" id="consoleModels">-</div><div class="s">可切换全部接口</div></div>
+                <div class="console-metric"><div class="k">启用渠道</div><div class="v" id="consoleChannels">-</div><div class="s">当前可用上游渠道</div></div>
+                <div class="console-metric"><div class="k">今日调用</div><div class="v" id="consoleTodayRequests">-</div><div class="s">当前账号真实调用</div></div>
+                <div class="console-metric"><div class="k">账户余额</div><div class="v" id="consoleBalance">-</div><div class="s">登录后显示账户余额</div></div>
               </div>
               <div class="console-subnav">
                 <span class="chip active">总览</span>
@@ -1144,6 +1144,16 @@
     const copyToast = document.getElementById("copyToast");
     const balanceDisplay = document.getElementById("balanceDisplay");
     const balancePill = document.getElementById("balancePill");
+    const dashboardModels = document.getElementById("dashboardModels");
+    const dashboardTodayRequests = document.getElementById("dashboardTodayRequests");
+    const dashboardChannels = document.getElementById("dashboardChannels");
+    const dashboardMonthAmount = document.getElementById("dashboardMonthAmount");
+    const dashboardLatency = document.getElementById("dashboardLatency");
+    const dashboardBalance = document.getElementById("dashboardBalance");
+    const consoleModels = document.getElementById("consoleModels");
+    const consoleChannels = document.getElementById("consoleChannels");
+    const consoleTodayRequests = document.getElementById("consoleTodayRequests");
+    const consoleBalance = document.getElementById("consoleBalance");
     const createToken = document.getElementById("createToken");
     const tokenModal = document.getElementById("tokenModal");
     const closeTokenModal = document.getElementById("closeTokenModal");
@@ -1335,6 +1345,30 @@
     function usageLogQuery() {
       const values = { from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, group: logGroup.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
       return Object.entries(values).filter(([, value]) => value !== "" && value != null).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
+    }
+
+    async function loadDashboard() {
+      try {
+        const data = await apiRequest("/api/dashboard");
+        const money = (value) => `$${Number(value || 0).toFixed(6)}`;
+        const requests = Number(data.todayRequests || 0).toLocaleString();
+        dashboardModels.textContent = Number(data.models || 0).toLocaleString();
+        dashboardTodayRequests.textContent = requests;
+        dashboardChannels.textContent = Number(data.channels || 0).toLocaleString();
+        dashboardMonthAmount.textContent = money(data.monthAmount);
+        dashboardLatency.textContent = data.avgLatencyMs ? `平均响应 ${data.avgLatencyMs}ms` : (currentUser ? "暂无调用记录" : "登录后显示真实调用");
+        dashboardBalance.textContent = `账户余额：${money(data.balance)}`;
+        consoleModels.textContent = dashboardModels.textContent;
+        consoleChannels.textContent = dashboardChannels.textContent;
+        consoleTodayRequests.textContent = requests;
+        consoleBalance.textContent = money(data.balance);
+      } catch (error) {
+        dashboardModels.textContent = "-";
+        dashboardTodayRequests.textContent = "-";
+        dashboardChannels.textContent = "-";
+        dashboardMonthAmount.textContent = "-";
+        dashboardBalance.textContent = "统计加载失败";
+      }
     }
 
     function renderUsageLogs(data) {
@@ -2317,8 +2351,9 @@
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
     updateBalance();
     renderPrices();
+    loadDashboard();
     applyRoute();
-    loadCurrentSession().then(applyRoute);
+    loadCurrentSession().then(() => { loadDashboard(); applyRoute(); });
   </script>
 </body>
 </html>
