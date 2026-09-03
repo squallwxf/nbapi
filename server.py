@@ -104,11 +104,11 @@ MODEL_PRICE_OVERRIDES = {
     "gpt-5.5": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 6240000, 78000, 0),
     "claude-fable-5": ("per_token", 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 43200000, 864000, 10800000),
     "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 18000000, 300000, 0),
-    "ky-fast-720p": ("per_task", 6800000), "ky-pro-720p": ("per_task", 8500000),
-    "grok-video-480p": ("per_task", 1000000), "grok-video-720p": ("per_task", 1000000), "grok-imagine-video-1.5-480p": ("per_task", 1000000), "grok-imagine-video-1.5-720p": ("per_task", 1000000),
+    "ky-fast-720p": ("per_task", 5100000), "ky-pro-720p": ("per_task", 5950000),
+    "grok-video-480p": ("per_task", 800000), "grok-video-720p": ("per_task", 1000000), "grok-imagine-video-1.5-480p": ("per_task", 800000), "grok-imagine-video-1.5-720p": ("per_task", 1000000),
     "omni-flash": ("per_task", 456000), "omni-flash-1080p": ("per_task", 532000), "omni-flash-4k": ("per_task", 608000), "omni-flash-components": ("per_task", 456000), "omni-flash-components-1080p": ("per_task", 532000), "omni-flash-components-4k": ("per_task", 608000), "omni-flash-edit": ("per_task", 4920000), "omni-flash-edit-1080p": ("per_task", 6720000), "omni-flash-edit-4k": ("per_task", 9280000),
     "sora-v3-fast": ("per_task", 1000000), "sora-v3-fast-1080p": ("per_task", 1680000), "sora-v3-pro": ("per_task", 1200000), "sora-v3-pro-1080p": ("per_task", 1960000), "sora-v4-480p": ("per_task", 1310000), "sora-v4-720p": ("per_task", 1360000), "sora-v4-1080p": ("per_task", 2800000),
-    "veo-3.1-lite-720": ("per_task", 960000), "veo-3.1-lite-1080": ("per_task", 1440000), "veo-3.1-lite-4k": ("per_task", 4800000), "veo-3.1-fast-720": ("per_task", 1560000), "veo-3.1-fast-1080": ("per_task", 2160000), "veo-3.1-fast-4k": ("per_task", 5280000),
+    "veo-3.1-lite-720": ("per_task", 960000), "veo-3.1-lite-1080": ("per_task", 1440000), "veo-3.1-lite-4k": ("per_task", 4800000), "veo-3.1-fast-720": ("per_task", 1560000), "veo-3.1-fast-1080": ("per_task", 2160000), "veo-3.1-fast-4k": ("per_task", 4224000),
     "veo-3.1-quality-720": ("per_task", 2000000), "veo-3.1-quality-1080": ("per_task", 2000000), "veo-3.1-quality-4k": ("per_task", 2000000),
 }
 CHANNEL_ROWS = [
@@ -365,12 +365,12 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (name, provider_label, provider, kind, billing_unit, price_micros, timestamp),
             )
-        if not get_setting(db, "pricing_schema_version"):
+        if get_setting(db, "pricing_schema_version") != "3":
             for name, pricing in MODEL_PRICE_OVERRIDES.items():
                 unit, price, *token_prices = pricing
                 input_price, output_price, cache_read, cache_write = (token_prices + [0, 0, 0, 0])[:4]
                 db.execute("UPDATE models SET billing_unit=?, price_micros=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (unit, price, input_price, output_price, cache_read, cache_write, timestamp, name))
-            set_setting(db, "pricing_schema_version", "2")
+            set_setting(db, "pricing_schema_version", "3")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels

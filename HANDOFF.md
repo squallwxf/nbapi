@@ -90,6 +90,7 @@ nginx -t && systemctl reload nginx
 - 充值订阅已提供人工审核 MVP：用户可在“充值订阅”提交充值申请，`GET /api/wallet` 查看订单和余额；管理员通过 `GET /api/admin/wallet/orders` 查看申请，并对订单调用 `POST /api/admin/wallet/orders/{id}`（`{"action":"approve"}` 或 `{"action":"reject"}`）处理。审核通过会增加余额并写入 `balance_transactions`，暂未接入自动支付。
 - 模型价格已统一为客户价格：按 Token 的模型以每 1M Tokens 计费并区分输入、输出和缓存读写价格；按次模型以每次计费。价格初始化为参考截图价格的 2 倍，并通过 `pricing_schema_version` 防止每次启动覆盖超级管理员修改。
 - 模型价格修改权限仅限超级管理员；后端 `/api/admin/models/{name}` 会拒绝普通管理员，模型广场只为超级管理员显示编辑控件。
+- `D:\ai web\nbapi模型价格模板.xlsx` 是模型定价模板；本次已按用户修改后的有效价格更新后端，并将 `pricing_schema_version` 升级为 `3`，线上执行一次启动迁移后会持久化这些价格。
 
 ## 重要提醒
 
