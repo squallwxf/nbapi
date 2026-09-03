@@ -1075,6 +1075,7 @@
           <div class="auth-actions"><input class="auth-input" id="topupAmount" type="number" min="1" step="1" placeholder="充值金额（美元，最低 $1）" style="max-width:260px" /><button class="btn primary" id="submitTopup" type="button">提交充值申请</button></div>
           <div class="key-box" id="walletStatus">登录后可提交充值申请。</div>
           <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>订单号</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody id="walletOrders"><tr><td colspan="4" class="muted">暂无充值记录。</td></tr></tbody></table></div>
+          <div class="management-card admin-only" id="adminWalletOrdersPanel" style="margin-top:16px;"><div class="management-top"><strong>管理员充值审核</strong><button class="btn" id="refreshWalletOrders" type="button">刷新申请</button></div><div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>订单号</th><th>用户</th><th>金额</th><th>状态</th><th>操作</th></tr></thead><tbody id="adminWalletOrders"><tr><td colspan="5" class="muted">暂无申请。</td></tr></tbody></table></div></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="settings">
@@ -1150,6 +1151,8 @@
     const submitTopup = document.getElementById("submitTopup");
     const walletStatus = document.getElementById("walletStatus");
     const walletOrders = document.getElementById("walletOrders");
+    const refreshWalletOrders = document.getElementById("refreshWalletOrders");
+    const adminWalletOrders = document.getElementById("adminWalletOrders");
     const dashboardModels = document.getElementById("dashboardModels");
     const dashboardTodayRequests = document.getElementById("dashboardTodayRequests");
     const dashboardChannels = document.getElementById("dashboardChannels");
@@ -1384,6 +1387,19 @@
         walletStatus.textContent = `当前余额：$${Number(data.balance || 0).toFixed(6)}。充值申请需管理员人工审核。`;
         walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => `<tr><td>#${item.id}</td><td>$${Number(item.amount).toFixed(2)}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待审核"}</td><td>${formatTokenDate(item.createdAt)}</td></tr>`).join("") : '<tr><td colspan="4" class="muted">暂无充值记录。</td></tr>';
       } catch (error) { walletStatus.textContent = `加载失败：${error.message}`; }
+    }
+
+    async function loadAdminWalletOrders() {
+      if (!canManage || !adminWalletOrders) return;
+      try {
+        const data = await apiRequest("/api/admin/wallet/orders");
+        adminWalletOrders.innerHTML = data.items?.length ? data.items.map((item) => `<tr><td>#${item.id}</td><td>${escapeHtml(item.username)}</td><td>$${Number(item.amount).toFixed(2)}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待审核"}</td><td>${item.status === "pending" ? `<button class="btn" type="button" data-wallet-action="approve" data-wallet-id="${item.id}">通过</button> <button class="btn" type="button" data-wallet-action="reject" data-wallet-id="${item.id}">拒绝</button>` : "-"}</td></tr>`).join("") : '<tr><td colspan="5" class="muted">暂无申请。</td></tr>';
+        adminWalletOrders.querySelectorAll("[data-wallet-action]").forEach((button) => button.addEventListener("click", async () => {
+          const action = button.dataset.walletAction;
+          if (action === "reject" && !confirm("确定拒绝这笔充值申请吗？")) return;
+          try { await apiRequest(`/api/admin/wallet/orders/${button.dataset.walletId}`, { method: "POST", body: JSON.stringify({ action }) }); showToast(action === "approve" ? "充值已到账" : "充值申请已拒绝"); loadAdminWalletOrders(); } catch (error) { alert(error.message); }
+        }));
+      } catch (error) { adminWalletOrders.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(error.message)}</td></tr>`; }
     }
 
     function renderUsageLogs(data) {
@@ -2304,6 +2320,7 @@
     refreshUsers.addEventListener("click", loadAdminUsers);
     refreshChannels.addEventListener("click", loadAdminChannels);
     refreshUsageLogs.addEventListener("click", loadUsageLogs);
+    refreshWalletOrders.addEventListener("click", loadAdminWalletOrders);
     queryUsageLogs.addEventListener("click", () => { usageLogsPage = 1; loadUsageLogs(); });
     resetUsageLogs.addEventListener("click", resetLogFilters);
     usagePageSize.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
@@ -2382,7 +2399,7 @@
     renderPrices();
     loadDashboard();
     applyRoute();
-    loadCurrentSession().then(() => { loadDashboard(); loadWallet(); applyRoute(); });
+    loadCurrentSession().then(() => { loadDashboard(); loadWallet(); loadAdminWalletOrders(); applyRoute(); });
   </script>
 </body>
 </html>
