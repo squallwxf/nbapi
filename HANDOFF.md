@@ -86,6 +86,7 @@ nginx -t && systemctl reload nginx
 - `GET /health` 可用于 Nginx、systemd 或监控探针；登录用户可通过 `POST /api/auth/password` 修改自己的密码，新密码至少 12 位。
 - 登录和注册接口按客户端 IP 做基础限流（每分钟最多 10 次），跨域响应只允许 `NBAPI_ALLOWED_ORIGINS` 中的来源。
 - `GET /api/dashboard` 返回实时模型数、启用渠道数，以及当前登录用户的今日调用、本月消耗、平均延迟和余额；首页统计不再使用硬编码演示数字。
+- 上游调用会按渠道优先级依次尝试最多 `NBAPI_UPSTREAM_MAX_ATTEMPTS` 个渠道（默认 2）；网络错误、超时和 5xx 会记录失败并自动尝试下一渠道，3 次连续失败的渠道会熔断 5 分钟后再试。可通过 `NBAPI_UPSTREAM_TIMEOUT` 调整单次上游超时（默认 90 秒）。渠道管理页会显示真实健康状态和最近错误。
 
 ## 重要提醒
 

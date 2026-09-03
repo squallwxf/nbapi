@@ -1645,11 +1645,15 @@
     }
 
     function renderChannelCard(channel) {
+      const healthLabels = { healthy: "健康", unhealthy: "异常", unknown: "未检测" };
+      const healthClass = channel.healthStatus === "healthy" ? "green" : channel.healthStatus === "unhealthy" ? "orange" : "gray";
+      const healthText = healthLabels[channel.healthStatus] || "未检测";
+      const errorText = channel.lastError ? `最近错误：${channel.lastError}` : "尚无失败记录";
       return `
         <div class="management-card" data-channel-id="${channel.id}">
           <div class="management-top">
             <strong>${channel.name}</strong>
-            <span class="tag ${channel.active ? "green" : "gray"}">${channel.active ? "启用" : "停用"}</span>
+            <span class="tag ${channel.active ? "green" : "gray"}">${channel.active ? "启用" : "停用"}</span><span class="tag ${healthClass}">${healthText}</span>
           </div>
           <div class="management-fields">
             <div class="auth-field"><label>渠道名称</label><input class="auth-input" value="${channel.name.replace(/"/g, "&quot;")}" data-channel-name /></div>
@@ -1661,6 +1665,7 @@
             <label>备注</label>
             <input class="auth-input" value="${channel.note.replace(/"/g, "&quot;")}" data-channel-note />
           </div>
+          <small class="muted">连续失败：${Number(channel.consecutiveFailures || 0)}；${escapeHtml(errorText)}</small>
           <div class="auth-actions">
             <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" ${channel.active ? "checked" : ""} data-channel-active /> 启用渠道</label>
             <button class="btn primary" type="button" data-save-channel>保存修改</button>

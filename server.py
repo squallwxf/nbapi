@@ -36,6 +36,8 @@ ALLOWED_ORIGINS = {
 MAX_REQUEST_BODY = 2_000_000
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
+UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
+UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
 _rate_limit_lock = threading.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 HOP_BY_HOP_HEADERS = {
@@ -201,6 +203,12 @@ def init_db() -> None:
               active INTEGER NOT NULL DEFAULT 1,
               priority INTEGER NOT NULL DEFAULT 100,
               note TEXT NOT NULL DEFAULT '',
+              health_status TEXT NOT NULL DEFAULT 'unknown',
+              consecutive_failures INTEGER NOT NULL DEFAULT 0,
+              last_checked_at INTEGER,
+              last_success_at INTEGER,
+              last_failure_at INTEGER,
+              last_error TEXT NOT NULL DEFAULT '',
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
@@ -258,6 +266,17 @@ def init_db() -> None:
         ):
             if column not in token_columns:
                 db.execute(f"ALTER TABLE api_tokens ADD COLUMN {column} {definition}")
+        channel_columns = {row[1] for row in db.execute("PRAGMA table_info(channels)")}
+        for column, definition in (
+            ("health_status", "TEXT NOT NULL DEFAULT 'unknown'"),
+            ("consecutive_failures", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_checked_at", "INTEGER"),
+            ("last_success_at", "INTEGER"),
+            ("last_failure_at", "INTEGER"),
+            ("last_error", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in channel_columns:
+                db.execute(f"ALTER TABLE channels ADD COLUMN {column} {definition}")
         # Keep token hashes usable while removing legacy plaintext copies at rest.
         db.execute("UPDATE api_tokens SET token_secret='' WHERE token_secret<>''")
         timestamp = now()
@@ -363,27 +382,41 @@ def extract_usage_counts(payload) -> tuple[int, int]:
     return input_tokens or 0, output_tokens or 0
 
 
-def get_upstream_route(db):
-    row = db.execute(
-        "SELECT id, name, upstream_base_url, upstream_api_key FROM channels WHERE active=1 ORDER BY priority ASC, id ASC LIMIT 1"
-    ).fetchone()
-    if row:
+def get_upstream_routes(db):
+    rows = db.execute(
+        "SELECT id, name, upstream_base_url, upstream_api_key FROM channels WHERE active=1 AND (consecutive_failures<3 OR last_failure_at<?) ORDER BY priority ASC, id ASC",
+        (now() - 300,),
+    ).fetchall()
+    routes = []
+    for row in rows:
         base_url = str(row[2] or "").strip() or UPSTREAM
         if base_url.lower().endswith("/v1") or base_url.lower().endswith("/v1beta"):
             base_url = base_url.rsplit("/", 1)[0]
-        api_key = str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")
-        return {
-            "channel_id": row[0],
-            "channel_name": row[1],
-            "base_url": base_url.rstrip("/"),
-            "api_key": api_key,
-        }
+        routes.append({"channel_id": row[0], "channel_name": row[1], "base_url": base_url.rstrip("/"), "api_key": str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")})
+    return routes
+
+
+def get_upstream_route(db):
+    routes = get_upstream_routes(db)
+    if routes:
+        return routes[0]
     return {
         "channel_id": None,
         "channel_name": None,
         "base_url": UPSTREAM.rstrip("/"),
         "api_key": get_setting(db, "upstream_api_key", ""),
     }
+
+
+def update_channel_health(channel_id: int | None, success: bool, error: str = "") -> None:
+    if channel_id is None:
+        return
+    timestamp = now()
+    with sqlite3.connect(DB_PATH) as db:
+        if success:
+            db.execute("UPDATE channels SET health_status='healthy', consecutive_failures=0, last_checked_at=?, last_success_at=?, last_error='' WHERE id=?", (timestamp, timestamp, channel_id))
+        else:
+            db.execute("UPDATE channels SET health_status='unhealthy', consecutive_failures=consecutive_failures+1, last_checked_at=?, last_failure_at=?, last_error=? WHERE id=?", (timestamp, timestamp, str(error)[:500], channel_id))
 
 
 def fetch_model_row(db, model_name: str):
@@ -505,6 +538,12 @@ def serialize_channel(row):
         "note": row[6],
         "createdAt": row[7],
         "updatedAt": row[8],
+        "healthStatus": row[9],
+        "consecutiveFailures": row[10],
+        "lastCheckedAt": row[11],
+        "lastSuccessAt": row[12],
+        "lastFailureAt": row[13],
+        "lastError": row[14],
     }
 
 
@@ -604,8 +643,10 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
         with sqlite3.connect(DB_PATH) as db:
-            route = get_upstream_route(db)
-            if not route["api_key"]:
+            routes = get_upstream_routes(db)
+            if not routes:
+                routes = [get_upstream_route(db)]
+            if not any(route["api_key"] for route in routes):
                 self.send_json(503, {"error": "upstream_api_key_not_configured"})
                 return True
 
@@ -624,36 +665,31 @@ class Handler(BaseHTTPRequestHandler):
                         self.send_json(400, {"error": "insufficient_balance"})
                         return True
 
-            upstream_url = f"{route['base_url']}{path}"
-            if parsed.query:
-                upstream_url = f"{upstream_url}?{parsed.query}"
-            upstream_headers = {}
-            for key, value in self.headers.items():
-                lower_key = key.lower()
-                if lower_key in HOP_BY_HOP_HEADERS or lower_key in {"host", "content-length", "authorization"}:
-                    continue
-                upstream_headers[key] = value
+        resp_status, resp_headers, resp_body = 502, {}, b""
+        routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
+        for attempt, route in enumerate(routes):
+            upstream_url = f"{route['base_url']}{path}" + (f"?{parsed.query}" if parsed.query else "")
+            upstream_headers = {key: value for key, value in self.headers.items() if key.lower() not in HOP_BY_HOP_HEADERS | {"host", "content-length", "authorization"}}
             upstream_headers["Authorization"] = f"Bearer {route['api_key']}"
             if body and "content-type" not in {key.lower() for key in upstream_headers}:
                 upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
-            request = Request(
-                upstream_url,
-                data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None,
-                headers=upstream_headers,
-                method=method,
-            )
             try:
-                with urlopen(request, timeout=300) as response:
-                    resp_status = response.status
-                    resp_headers = dict(response.headers.items())
-                    resp_body = response.read()
+                request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
+                with urlopen(request, timeout=UPSTREAM_TIMEOUT) as response:
+                    resp_status, resp_headers, resp_body = response.status, dict(response.headers.items()), response.read()
+                update_channel_health(route["channel_id"], True)
+                break
             except HTTPError as exc:
-                resp_status = exc.code
-                resp_headers = dict(exc.headers.items()) if exc.headers else {}
-                resp_body = exc.read() or b""
-            except URLError as exc:
-                self.send_json(502, {"error": "upstream_unreachable", "detail": str(getattr(exc, "reason", exc))})
-                return True
+                resp_status, resp_headers, resp_body = exc.code, dict(exc.headers.items()) if exc.headers else {}, exc.read() or b""
+                if resp_status < 500:
+                    update_channel_health(route["channel_id"], True)
+                    break
+                update_channel_health(route["channel_id"], False, f"HTTP {resp_status}")
+            except (URLError, TimeoutError, OSError) as exc:
+                resp_status, resp_headers, resp_body = 502, {}, b""
+                update_channel_health(route["channel_id"], False, str(getattr(exc, "reason", exc)))
+            if attempt + 1 < len(routes):
+                continue
 
         if not (200 <= resp_status < 300):
             self._send_raw_response(resp_status, resp_headers, resp_body)
@@ -841,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with sqlite3.connect(DB_PATH) as db:
                 rows = db.execute(
-                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at FROM channels ORDER BY priority ASC, id ASC"
+                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels ORDER BY priority ASC, id ASC"
                 ).fetchall()
             self.send_json(200, {"items": [serialize_channel(row) for row in rows]})
             return
@@ -1230,7 +1266,7 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     channel_id = cursor.lastrowid
                     updated = db.execute(
-                        "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at FROM channels WHERE id=?",
+                        "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?",
                         (channel_id,),
                     ).fetchone()
                 self.send_json(201, {"channel": serialize_channel(updated)})
@@ -1427,7 +1463,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(404, {"error": "channel_not_found"})
                     return
                 updated = db.execute(
-                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at FROM channels WHERE id=?",
+                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?",
                     (channel_id,),
                 ).fetchone()
             self.send_json(200, {"channel": serialize_channel(updated)})
