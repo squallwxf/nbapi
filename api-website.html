@@ -52,6 +52,7 @@
     body.dark .nav-item:hover { background: #1b2a42; color: #f4f8ff; }
     body.dark .nav-item.active { background: #e8f1ff; color: #125bd6; }
     body:not(.can-manage) .admin-only { display: none !important; }
+    body:not(.is-super-admin) .super-admin-only { display: none !important; }
     body.logged-in .guest-only { display: none !important; }
     .icon { width: 18px; height: 18px; border-radius: 5px; background: currentColor; opacity: .82; flex: 0 0 auto; }
     .i-token { border-radius: 50%; }
@@ -111,7 +112,7 @@
     .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
     #models, #models + .workspace > .table-card { display: none; }
     .workspace:has(> .table-card) { grid-template-columns: 1fr; }
-    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #login, .content > #signup { display: none; }
+    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #pricing, .content > #login, .content > #signup { display: none; }
     body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
     body.route-square .content > #square { display: grid; }
     body.route-playground .content > #playground { display: block; }
@@ -119,9 +120,10 @@
     body.route-tokens .workspace #tokens, body.route-docs .workspace #docs, body.route-channels .workspace #channels, body.route-users .workspace #users { display: block; }
     body.route-tokens .workspace #docs, body.route-tokens .workspace #channels, body.route-tokens .workspace #users, body.route-docs .workspace #tokens, body.route-docs .workspace #channels, body.route-docs .workspace #users, body.route-channels .workspace #tokens, body.route-channels .workspace #docs, body.route-channels .workspace #users, body.route-users .workspace #tokens, body.route-users .workspace #docs, body.route-users .workspace #channels { display: none; }
     body.route-logs .content > #logs, body.route-wallet .content > #wallet, body.route-settings .content > #settings { display: block; }
+    body.route-pricing .content > #pricing { display: block; }
     body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
-    body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #signup { display: none; }
-    body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #login { display: none; }
+    body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #pricing, body.route-login .content > #signup { display: none; }
+    body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #pricing, body.route-signup .content > #login { display: none; }
     .playground-shell { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
     .playground-panel { padding: 16px; }
     .playground-panel h3 { margin: 0 0 12px; }
@@ -672,7 +674,7 @@
         <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
         <a class="nav-item" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
         <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
-        <a class="nav-item admin-only" href="#channels" title="仅管理员可用"><span class="icon i-channel"></span><span>渠道管理</span></a>
+        <a class="nav-item super-admin-only" href="#pricing"><span class="icon i-money"></span><span>模型定价</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
         <a class="nav-item" href="#wallet"><span class="icon i-money"></span><span>充值订阅</span></a>
         <a class="nav-item" href="#logs"><span class="icon i-log"></span><span>使用日志</span></a>
@@ -849,7 +851,7 @@
                 <span class="chip active">总览</span>
                 <a class="chip" href="#tokens">令牌管理</a>
                 <a class="chip admin-only" href="#users">用户管理</a>
-                <a class="chip admin-only" href="#channels">渠道管理</a>
+                <a class="chip super-admin-only" href="#pricing">模型定价</a>
                 <a class="chip" href="#logs">使用日志</a>
                 <a class="chip" href="#docs">接口文档</a>
               </div>
@@ -1006,7 +1008,15 @@
                 <h3 style="margin:0;">用户管理</h3>
                 <button class="btn" id="refreshUsers" type="button">刷新用户</button>
               </div>
-              <p class="muted">调整用户剩余额度、权限、状态和密码，并支持搜索与分页。</p>
+              <p class="muted">管理员可查看用户并创建普通用户；超级管理员可额外设置用户余额。</p>
+              <div class="management-card">
+                <strong>添加用户</strong>
+                <div class="management-fields">
+                  <div class="auth-field"><label for="newUserName">用户名</label><input class="auth-input" id="newUserName" maxlength="32" placeholder="3-32 位字母、数字、下划线或短横线" /></div>
+                  <div class="auth-field"><label for="newUserPassword">登录密码</label><input class="auth-input" id="newUserPassword" type="password" minlength="6" placeholder="至少 6 位" /></div>
+                </div>
+                <div class="auth-actions"><button class="btn" id="generateUserCredentials" type="button">生成用户名和密码</button><button class="btn primary" id="createManagedUser" type="button">添加用户</button></div>
+              </div>
               <div class="plaza-toolbar" style="padding-top:0;">
                 <label class="plaza-search" style="max-width:100%;"><span>⌕</span><input id="userSearch" placeholder="搜索用户名、邮箱或角色" /></label>
                 <div class="plaza-tools">
@@ -1047,6 +1057,11 @@
           </aside>
         </section>
 
+        <section class="panel detail-card super-admin-only" id="pricing">
+          <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">价格保存后立即用于真实调用计费。按 Token 模型按输入、补全及缓存价格分别计算。</p></div><button class="btn" id="refreshPricing" type="button">刷新价格</button></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>计费方式</th><th>按次价格</th><th>输入 / 1M</th><th>补全 / 1M</th><th>缓存读 / 1M</th><th>缓存写 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="9" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
+        </section>
+
         <section class="panel detail-card" id="logs">
           <div class="log-toolbar"><div><h3>使用日志</h3><p class="muted">查看真实模型调用、令牌归属、耗时与扣费记录。</p></div><button class="btn" id="refreshUsageLogs" type="button">刷新</button></div>
           <div class="usage-stats">
@@ -1075,36 +1090,11 @@
           <div class="auth-actions"><input class="auth-input" id="topupAmount" type="number" min="1" step="1" placeholder="充值金额（美元，最低 $1）" style="max-width:260px" /><button class="btn primary" id="submitTopup" type="button">提交充值申请</button></div>
           <div class="key-box" id="walletStatus">登录后可提交充值申请。</div>
           <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>订单号</th><th>金额</th><th>状态</th><th>时间</th></tr></thead><tbody id="walletOrders"><tr><td colspan="4" class="muted">暂无充值记录。</td></tr></tbody></table></div>
-          <div class="management-card admin-only" id="adminWalletOrdersPanel" style="margin-top:16px;"><div class="management-top"><strong>管理员充值审核</strong><button class="btn" id="refreshWalletOrders" type="button">刷新申请</button></div><div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>订单号</th><th>用户</th><th>金额</th><th>状态</th><th>操作</th></tr></thead><tbody id="adminWalletOrders"><tr><td colspan="5" class="muted">暂无申请。</td></tr></tbody></table></div></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="settings">
           <h2>系统设置</h2>
-          <p class="muted">管理账户偏好、通知设置和上游接入密钥。</p>
-          <div class="detail-grid" style="display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start;">
-            <div class="panel" style="padding:16px;box-shadow:none;">
-              <div class="token-head" style="margin-bottom:12px;">
-                <strong>上游接入</strong>
-                <span class="tag blue">管理员</span>
-              </div>
-              <div class="auth-field" style="margin-bottom:12px;">
-                <label for="upstreamBaseUrl">上游地址</label>
-                <input class="auth-input" id="upstreamBaseUrl" readonly />
-              </div>
-              <div class="auth-field" style="margin-bottom:12px;">
-                <label for="upstreamApiKey">上游 API Key</label>
-                <input class="auth-input" id="upstreamApiKey" type="password" placeholder="留空表示不修改，填写后会保存到服务器" />
-              </div>
-              <div class="auth-actions">
-                <button class="btn primary" id="saveUpstreamApiKey" type="button">保存上游 Key</button>
-                <button class="btn" id="clearUpstreamApiKey" type="button">清空上游 Key</button>
-              </div>
-            </div>
-            <div class="panel" style="padding:16px;box-shadow:none;">
-              <strong style="display:block;margin-bottom:10px;">当前状态</strong>
-              <div class="key-box" id="upstreamConfigStatus">尚未加载配置。</div>
-            </div>
-          </div>
+          <p class="muted">账户和界面偏好将逐步在此提供。上游渠道、密钥和充值审核不再属于管理员权限。</p>
         </section>
       </section>
     </main>
@@ -1210,6 +1200,12 @@
     const clearUpstreamApiKey = document.getElementById("clearUpstreamApiKey");
     const upstreamConfigStatus = document.getElementById("upstreamConfigStatus");
     const refreshUsers = document.getElementById("refreshUsers");
+    const newUserName = document.getElementById("newUserName");
+    const newUserPassword = document.getElementById("newUserPassword");
+    const generateUserCredentials = document.getElementById("generateUserCredentials");
+    const createManagedUser = document.getElementById("createManagedUser");
+    const refreshPricing = document.getElementById("refreshPricing");
+    const pricingList = document.getElementById("pricingList");
     const refreshChannels = document.getElementById("refreshChannels");
     const userManagementList = document.getElementById("userManagementList");
     const userSearch = document.getElementById("userSearch");
@@ -1324,7 +1320,7 @@
         return result;
       });
       applyUserSession(data.user, data.token);
-      await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+      await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog()]);
       location.hash = "console";
       applyRoute();
       showToast(`${source}成功`);
@@ -1339,7 +1335,7 @@
       try {
         const me = await apiRequest("/api/me");
         applyUserSession(me, sessionToken);
-        await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+        await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog()]);
       } catch {
         clearSessionState();
         syncAuthState();
@@ -1485,6 +1481,7 @@
     }
 
     function setUpstreamUiState(config = null) {
+      if (!upstreamBaseUrl || !upstreamApiKey || !upstreamConfigStatus) return;
       const adminMode = Boolean(canManage && sessionToken);
       upstreamBaseUrl.value = config?.upstreamBaseUrl || "https://nbapi.win/v1";
       upstreamApiKey.disabled = !adminMode;
@@ -1571,28 +1568,85 @@
       }
     }
 
+    function generateManagedCredentials() {
+      const suffix = crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(-6);
+      const password = crypto.getRandomValues(new Uint32Array(2)).join("").slice(-10);
+      newUserName.value = `user_${suffix}`;
+      newUserPassword.value = `Nb${password}a`;
+      newUserPassword.type = "text";
+      showToast("已生成用户名和登录密码");
+    }
+
+    async function createManagedAccount() {
+      const username = newUserName.value.trim();
+      const password = newUserPassword.value;
+      if (!username || !password) {
+        alert("请填写用户名和登录密码。");
+        return;
+      }
+      try {
+        await apiRequest("/api/admin/users", { method: "POST", body: JSON.stringify({ username, password }) });
+        newUserName.value = "";
+        newUserPassword.value = "";
+        newUserPassword.type = "password";
+        showToast("用户已添加");
+        usersPage = 1;
+        await loadAdminUsers();
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function renderPricingTable() {
+      if (!pricingList) return;
+      const models = documentedModels.map(getModelMeta);
+      pricingList.innerHTML = models.map((model) => {
+        const pricing = getModelPricing(model.name, model.kind);
+        const token = pricing.unit === "per_token";
+        return `<tr data-pricing-model="${model.name}">
+          <td><code>${model.name}</code></td><td>${model.providerLabel}</td><td>${token ? "按 1M Token" : "按次"}</td>
+          <td>${token ? "-" : `<input class="auth-input" data-price type="number" min="0" step="0.000001" value="${pricing.amount}" />`}</td>
+          <td>${token ? `<input class="auth-input" data-input-price type="number" min="0" step="0.000001" value="${pricing.inputPrice}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-output-price type="number" min="0" step="0.000001" value="${pricing.outputPrice}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-cache-read-price type="number" min="0" step="0.000001" value="${pricing.cacheReadPrice}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-cache-write-price type="number" min="0" step="0.000001" value="${pricing.cacheWritePrice}" />` : "-"}</td>
+          <td><button class="btn primary" type="button" data-save-pricing>保存</button></td></tr>`;
+      }).join("");
+      pricingList.querySelectorAll("[data-save-pricing]").forEach((button) => button.addEventListener("click", async () => {
+        const row = button.closest("[data-pricing-model]");
+        const name = row.dataset.pricingModel;
+        const perToken = Boolean(row.querySelector("[data-input-price]"));
+        const payload = perToken
+          ? { billingUnit: "per_token", price: row.querySelector("[data-input-price]").value, inputPrice: row.querySelector("[data-input-price]").value, outputPrice: row.querySelector("[data-output-price]").value, cacheReadPrice: row.querySelector("[data-cache-read-price]").value, cacheWritePrice: row.querySelector("[data-cache-write-price]").value }
+          : { billingUnit: "per_task", price: row.querySelector("[data-price]").value };
+        try {
+          const data = await apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(payload) });
+          serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice), outputPrice: Number(data.outputPrice), cacheReadPrice: Number(data.cacheReadPrice), cacheWritePrice: Number(data.cacheWritePrice) };
+          renderModelSquare();
+          showToast(`${name} 价格已保存`);
+        } catch (error) { alert(error.message); }
+      }));
+    }
+
+    async function loadModelPricing() {
+      if (!isSuperAdmin || !sessionToken) return;
+      await loadModelCatalog();
+      renderPricingTable();
+    }
+
     function renderUserCard(user) {
-      const roleOptions = isSuperAdmin
-        ? `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option><option value="super_admin" ${user.role === "super_admin" ? "selected" : ""}>超级管理员</option>`
-        : `<option value="user" ${user.role === "user" ? "selected" : ""}>用户</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>`;
       return `
-        <div class="management-card" data-user-id="${user.id}" data-user-active="${user.active ? "1" : "0"}">
+        <div class="management-card" data-user-id="${user.id}">
           <div class="management-top">
             <strong>${user.username}</strong>
             <span class="tag ${user.role === "super_admin" ? "purple" : user.role === "admin" ? "blue" : "gray"}">${roleLabel(user.role)}</span>
           </div>
           <div class="management-fields">
-            <div class="auth-field"><label>权限</label><select class="auth-input" data-user-role>${roleOptions}</select></div>
-            <div class="auth-field"><label>剩余额度</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>
-            <div class="auth-field"><label>邮箱</label><input class="auth-input" value="${(user.email || "").replace(/"/g, "&quot;")}" readonly /></div>
-            <div class="auth-field"><label>状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div>
+            <div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div>
+            ${isSuperAdmin ? `<div class="auth-field"><label>账户余额（美元）</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>` : ""}
           </div>
           <small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small>
-          <div class="auth-actions">
-            <button class="btn primary" type="button" data-save-user>保存修改</button>
-            <button class="btn" type="button" data-reset-user-password>重置密码</button>
-            <button class="btn" type="button" data-toggle-user-active>${user.active ? "禁用用户" : "启用用户"}</button>
-          </div>
+          ${isSuperAdmin ? `<div class="auth-actions"><button class="btn primary" type="button" data-save-user-balance>保存余额</button></div>` : ""}
         </div>`;
     }
 
@@ -1614,57 +1668,17 @@
         prevUsersPage.disabled = data.page <= 1;
         nextUsersPage.disabled = data.page >= data.totalPages;
         userManagementList.innerHTML = data.items.length ? data.items.map(renderUserCard).join("") : "<small>暂无用户。</small>";
-        userManagementList.querySelectorAll("[data-save-user]").forEach((button) => {
+        userManagementList.querySelectorAll("[data-save-user-balance]").forEach((button) => {
           button.addEventListener("click", async () => {
             const card = button.closest("[data-user-id]");
             const userId = card.dataset.userId;
-            const role = card.querySelector("[data-user-role]").value;
             const balance = card.querySelector("[data-user-balance]").value;
             try {
               await apiRequest(`/api/admin/users/${userId}`, {
                 method: "PUT",
-                body: JSON.stringify({ role, balance })
+                body: JSON.stringify({ balance })
               });
-              showToast("用户信息已保存");
-              await loadAdminUsers();
-            } catch (error) {
-              alert(error.message);
-            }
-          });
-        });
-        userManagementList.querySelectorAll("[data-reset-user-password]").forEach((button) => {
-          button.addEventListener("click", async () => {
-            const card = button.closest("[data-user-id]");
-            const userId = card.dataset.userId;
-            const password = prompt("请输入新的登录密码", "abc12345");
-            if (!password) return;
-            if (password.length < 6) {
-              alert("密码至少 6 位。");
-              return;
-            }
-            try {
-              await apiRequest(`/api/admin/users/${userId}`, {
-                method: "PUT",
-                body: JSON.stringify({ password })
-              });
-              showToast("密码已重置");
-              await loadAdminUsers();
-            } catch (error) {
-              alert(error.message);
-            }
-          });
-        });
-        userManagementList.querySelectorAll("[data-toggle-user-active]").forEach((button) => {
-          button.addEventListener("click", async () => {
-            const card = button.closest("[data-user-id]");
-            const userId = card.dataset.userId;
-            const active = card.dataset.userActive !== "1";
-            try {
-              await apiRequest(`/api/admin/users/${userId}`, {
-                method: "PUT",
-                body: JSON.stringify({ active })
-              });
-              showToast(active ? "用户已启用" : "用户已禁用");
+              showToast("用户余额已保存");
               await loadAdminUsers();
             } catch (error) {
               alert(error.message);
@@ -1845,7 +1859,7 @@
     let usersPageSize = 8;
     let usersTotalPages = 1;
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "playground", "tokens", "docs", "users", "channels", "logs", "wallet", "settings", "login", "signup"];
+    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "logs", "wallet", "settings", "login", "signup"];
 
     function applyRoute() {
       let route = (location.hash || "#console").slice(1) || "console";
@@ -1855,8 +1869,13 @@
         route = "console";
         history.replaceState(null, "", "#console");
       }
-      if ((route === "channels" || route === "users") && !canManage) {
+      if (route === "users" && !canManage) {
         alert("该页面仅管理员可用，请先登录管理员账号。");
+        route = "console";
+        history.replaceState(null, "", "#console");
+      }
+      if (route === "pricing" && !isSuperAdmin) {
+        alert("模型定价仅超级管理员可用。");
         route = "console";
         history.replaceState(null, "", "#console");
       }
@@ -1866,6 +1885,7 @@
         link.classList.toggle("active", link.getAttribute("href") === `#${route}`);
       });
       if (route === "logs") loadUsageLogs();
+      if (route === "pricing") loadModelPricing();
     }
     window.addEventListener("hashchange", applyRoute);
 
@@ -2070,11 +2090,7 @@
       document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${documentedModels.length} 个模型`;
       modelGrid.innerHTML = visibleModels.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
-        const priceMarkup = isSuperAdmin
-          ? pricing.unit === "per_token"
-            ? `<div class="billing-controls"><input class="billing-input" title="输入价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.inputPrice ?? pricing.amount}" data-input-price-model="${model.name}" /><input class="billing-input" title="补全价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.outputPrice ?? pricing.amount}" data-output-price-model="${model.name}" /><input class="billing-input" title="缓存读取价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.cacheReadPrice ?? 0}" data-cache-read-price-model="${model.name}" /><input class="billing-input" title="缓存写入价格 / 1M Tokens" type="number" min="0" step="0.0001" value="${pricing.cacheWritePrice ?? 0}" data-cache-write-price-model="${model.name}" /><span class="muted">/ 1M</span></div>`
-            : `<div class="billing-controls"><input class="billing-input" type="number" min="0" step="0.0001" value="${pricing.amount}" data-price-model="${model.name}" /><span class="muted">/ 次</span></div>`
-          : `<strong>${formatModelPrice(pricing)}</strong>`;
+        const priceMarkup = `<strong>${formatModelPrice(pricing)}</strong>`;
         return `
         <article class="plaza-card">
           <div class="plaza-card-top">
@@ -2090,19 +2106,6 @@
       }).join("");
       modelGrid.querySelectorAll("[data-copy-model]").forEach((button) => {
         button.addEventListener("click", () => copyModelName(button.dataset.copyModel));
-      });
-      modelGrid.querySelectorAll("[data-price-model], [data-input-price-model], [data-output-price-model], [data-cache-read-price-model], [data-cache-write-price-model]").forEach((control) => {
-        control.addEventListener("change", () => {
-          const name = control.dataset.priceModel || control.dataset.inputPriceModel || control.dataset.outputPriceModel;
-          const card = control.closest(".plaza-card");
-          const amountInput = card.querySelector("[data-price-model]");
-          const inputInput = card.querySelector("[data-input-price-model]");
-          const outputInput = card.querySelector("[data-output-price-model]");
-          const cacheReadInput = card.querySelector("[data-cache-read-price-model]");
-          const cacheWriteInput = card.querySelector("[data-cache-write-price-model]");
-          const payload = amountInput ? { price: amountInput.value, billingUnit: "per_task" } : { price: inputInput.value, inputPrice: inputInput.value, outputPrice: outputInput.value, cacheReadPrice: cacheReadInput.value, cacheWritePrice: cacheWriteInput.value, billingUnit: "per_token" };
-          apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(payload) }).then((data) => { serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice || data.price), outputPrice: Number(data.outputPrice || data.price), cacheReadPrice: Number(data.cacheReadPrice || 0), cacheWritePrice: Number(data.cacheWritePrice || 0) }; renderModelSquare(); showToast(`${name} 价格已保存`); }).catch((error) => alert(error.message));
-        });
       });
     }
 
@@ -2214,7 +2217,7 @@
       renderPrices();
       setUpstreamUiState();
       loadTokens();
-      await Promise.all([loadAdminUsers(), loadAdminChannels()]);
+      await Promise.all([loadAdminUsers(), loadModelCatalog()]);
       location.hash = "console";
       showToast("已退出登录");
     });
@@ -2259,7 +2262,7 @@
         signupEmail.value = "";
         signupPassword.value = "";
         signupConfirm.value = "";
-        await Promise.all([loadTokens(), loadUpstreamConfig(), loadAdminUsers(), loadAdminChannels()]);
+        await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog()]);
         location.hash = "console";
         applyRoute();
         showToast("注册成功");
@@ -2336,24 +2339,27 @@
       copyModelName(names.join("\n"));
     });
 
-    saveUpstreamApiKey.addEventListener("click", async () => {
+    saveUpstreamApiKey?.addEventListener("click", async () => {
       await saveUpstreamKey(upstreamApiKey.value);
     });
 
-    clearUpstreamApiKey.addEventListener("click", async () => {
+    clearUpstreamApiKey?.addEventListener("click", async () => {
       if (!confirm("确定要清空服务器里保存的上游 API Key 吗？")) return;
       await saveUpstreamKey("");
     });
     refreshUsers.addEventListener("click", loadAdminUsers);
-    refreshChannels.addEventListener("click", loadAdminChannels);
+    generateUserCredentials.addEventListener("click", generateManagedCredentials);
+    createManagedUser.addEventListener("click", createManagedAccount);
+    refreshPricing.addEventListener("click", loadModelPricing);
+    refreshChannels?.addEventListener("click", loadAdminChannels);
     refreshUsageLogs.addEventListener("click", loadUsageLogs);
-    refreshWalletOrders.addEventListener("click", loadAdminWalletOrders);
+    refreshWalletOrders?.addEventListener("click", loadAdminWalletOrders);
     queryUsageLogs.addEventListener("click", () => { usageLogsPage = 1; loadUsageLogs(); });
     resetUsageLogs.addEventListener("click", resetLogFilters);
     usagePageSize.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
     usagePrevPage.addEventListener("click", () => { if (usageLogsPage > 1) { usageLogsPage -= 1; loadUsageLogs(); } });
     usageNextPage.addEventListener("click", () => { if (usageLogsPage < usageLogsTotalPages) { usageLogsPage += 1; loadUsageLogs(); } });
-    createChannelButton.addEventListener("click", createChannel);
+    createChannelButton?.addEventListener("click", createChannel);
     userSearch.addEventListener("input", () => {
       usersPage = 1;
       loadAdminUsers();
@@ -2427,7 +2433,7 @@
     loadModelCatalog();
     loadDashboard();
     applyRoute();
-    loadCurrentSession().then(() => { loadDashboard(); loadWallet(); loadAdminWalletOrders(); applyRoute(); });
+    loadCurrentSession().then(() => { loadDashboard(); loadWallet(); applyRoute(); });
   </script>
 </body>
 </html>

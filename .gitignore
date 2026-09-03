@@ -2,6 +2,10 @@ nbapi.sqlite3
 nbapi.sqlite3-wal
 nbapi.sqlite3-shm
 __pycache__/
+node_modules/
+price_workbook_dump.json
+*价格模板.xlsx.inspect.ndjson
+*价格模板预览.png
 *.py[cod]
 .env
 *.log

@@ -908,17 +908,7 @@ class Handler(BaseHTTPRequestHandler):
         if self._proxy_upstream("GET"):
             return
         if path == "/api/admin/config":
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            with sqlite3.connect(DB_PATH) as db:
-                route = get_upstream_route(db)
-            self.send_json(200, {
-                "upstreamBaseUrl": route["base_url"],
-                "activeChannelName": route["channel_name"],
-                "upstreamApiKeySet": bool(route["api_key"]),
-                "upstreamApiKeyHint": mask_secret(route["api_key"]),
-            })
+            self.send_json(403, {"error": "permission_removed"})
             return
         if path == "/api/admin/users":
             admin = self.require_user(admin=True)
@@ -956,14 +946,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/admin/channels":
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute(
-                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels ORDER BY priority ASC, id ASC"
-                ).fetchall()
-            self.send_json(200, {"items": [serialize_channel(row) for row in rows]})
+            self.send_json(403, {"error": "permission_removed"})
             return
         if path == "/api/models":
             with sqlite3.connect(DB_PATH) as db:
@@ -1003,12 +986,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "note": r[4], "createdAt": r[5], "updatedAt": r[6]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
             return
         if path == "/api/admin/wallet/orders":
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute("SELECT o.id, o.user_id, u.username, o.amount_micros, o.status, o.payment_method, o.note, o.created_at, o.updated_at FROM wallet_orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 100").fetchall()
-            self.send_json(200, {"items": [{"id": r[0], "userId": r[1], "username": r[2], "amount": micros_to_dollars(r[3]), "status": r[4], "paymentMethod": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in rows]})
+            self.send_json(403, {"error": "permission_removed"})
             return
         if path == "/api/me":
             user = self.require_user()
@@ -1113,32 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path.startswith("/api/admin/wallet/orders/"):
-                admin = self.require_user(admin=True)
-                if not admin:
-                    return
-                try:
-                    order_id = int(path.rsplit("/", 1)[1])
-                    action = str(payload.get("action", "")).strip().lower()
-                except (ValueError, TypeError):
-                    self.send_json(400, {"error": "invalid_order_id"})
-                    return
-                if action not in ("approve", "reject"):
-                    self.send_json(400, {"error": "invalid_order_action"})
-                    return
-                with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
-                    db.execute("BEGIN IMMEDIATE")
-                    order = db.execute("SELECT user_id, amount_micros, status FROM wallet_orders WHERE id=?", (order_id,)).fetchone()
-                    if not order:
-                        db.execute("ROLLBACK"); self.send_json(404, {"error": "order_not_found"}); return
-                    if order[2] != "pending":
-                        db.execute("ROLLBACK"); self.send_json(409, {"error": "order_already_processed"}); return
-                    status = "paid" if action == "approve" else "rejected"
-                    db.execute("UPDATE wallet_orders SET status=?, updated_at=? WHERE id=?", (status, now(), order_id))
-                    if action == "approve":
-                        db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (order[1], order[0]))
-                        db.execute("INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'topup', ?, '人工审核充值', ?)", (order[0], order[1], order_id, now()))
-                    db.execute("COMMIT")
-                self.send_json(200, {"id": order_id, "status": status})
+                self.send_json(403, {"error": "permission_removed"})
                 return
 
             if path == "/api/auth/login":
@@ -1242,6 +1195,34 @@ class Handler(BaseHTTPRequestHandler):
                         "createdAt": row[6],
                     },
                 })
+                return
+
+            if path == "/api/admin/users":
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                username = str(payload.get("username", "")).strip()
+                password = str(payload.get("password", ""))
+                if not (3 <= len(username) <= 32):
+                    self.send_json(400, {"error": "username_length_invalid"})
+                    return
+                if not username.replace("_", "").replace("-", "").isalnum():
+                    self.send_json(400, {"error": "username_format_invalid"})
+                    return
+                if len(password) < 6:
+                    self.send_json(400, {"error": "password_too_short"})
+                    return
+                try:
+                    with sqlite3.connect(DB_PATH) as db:
+                        cursor = db.execute(
+                            "INSERT INTO users(username, email, password_hash, role, active, balance_micros, created_at) VALUES (?, '', ?, 'user', 1, 0, ?)",
+                            (username, hash_password(password), now()),
+                        )
+                        row = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (cursor.lastrowid,)).fetchone()
+                except sqlite3.IntegrityError:
+                    self.send_json(409, {"error": "username_already_exists"})
+                    return
+                self.send_json(201, {"user": serialize_user(row)})
                 return
 
             if path == "/api/wallet/orders":
@@ -1395,30 +1376,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/admin/channels":
-                admin = self.require_user(admin=True)
-                if not admin:
-                    return
-                name = str(payload.get("name", "")).strip()
-                upstream_base_url = str(payload.get("upstreamBaseUrl", "")).strip()
-                upstream_api_key = str(payload.get("upstreamApiKey", "") or "").strip()
-                note = str(payload.get("note", "")).strip()
-                active = 1 if bool(payload.get("active", True)) else 0
-                priority = int(payload.get("priority", 100) or 100)
-                if not name or not upstream_base_url:
-                    self.send_json(400, {"error": "name_and_upstreamBaseUrl_required"})
-                    return
-                with sqlite3.connect(DB_PATH) as db:
-                    cursor = db.execute(
-                        """INSERT INTO channels(name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (name, upstream_base_url, upstream_api_key, active, priority, note, now(), now()),
-                    )
-                    channel_id = cursor.lastrowid
-                    updated = db.execute(
-                        "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?",
-                        (channel_id,),
-                    ).fetchone()
-                self.send_json(201, {"channel": serialize_channel(updated)})
+                self.send_json(403, {"error": "permission_removed"})
                 return
             self.send_json(404, {"error": "not_found"})
         except Exception as exc:
@@ -1459,27 +1417,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"id": token_id, "active": active})
             return
         if path == "/api/admin/config":
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            try:
-                payload = self.read_json()
-            except (ValueError, json.JSONDecodeError) as exc:
-                self.send_json(400, {"error": str(exc)})
-                return
-            if "upstreamApiKey" not in payload:
-                self.send_json(400, {"error": "upstreamApiKey_required"})
-                return
-            upstream_api_key = str(payload.get("upstreamApiKey", "") or "").strip()
-            with sqlite3.connect(DB_PATH) as db:
-                set_setting(db, "upstream_api_key", upstream_api_key)
-                route = get_upstream_route(db)
-            self.send_json(200, {
-                "upstreamBaseUrl": route["base_url"],
-                "activeChannelName": route["channel_name"],
-                "upstreamApiKeySet": bool(route["api_key"]),
-                "upstreamApiKeyHint": mask_secret(route["api_key"]),
-            })
+            self.send_json(403, {"error": "permission_removed"})
             return
         if path == "/api/admin/users":
             admin = self.require_user(admin=True)
@@ -1491,6 +1429,9 @@ class Handler(BaseHTTPRequestHandler):
             admin = self.require_user(admin=True)
             if not admin:
                 return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
             try:
                 user_id = int(path.rsplit("/", 1)[1])
             except ValueError:
@@ -1501,38 +1442,17 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"error": str(exc)})
                 return
-            role = str(payload.get("role", "")).strip()
-            if admin[2] == "admin" and role == "super_admin":
-                self.send_json(403, {"error": "super_admin_only"})
-                return
-            allowed_roles = {"user", "admin"} if admin[2] == "admin" else {"user", "admin", "super_admin"}
-            if role and role not in allowed_roles:
-                self.send_json(400, {"error": "invalid_role"})
-                return
             balance_value = payload.get("balance")
-            active_value = payload.get("active")
-            password_value = str(payload.get("password", "") or "").strip()
-            email_value = str(payload.get("email", "") or "").strip().lower()
+            if balance_value is None:
+                self.send_json(400, {"error": "balance_required"})
+                return
             with sqlite3.connect(DB_PATH) as db:
                 current = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
                 if not current:
                     self.send_json(404, {"error": "user_not_found"})
                     return
-                new_role = role or current[3]
-                new_active = current[4] if active_value is None else (1 if bool(active_value) else 0)
-                new_balance = current[5]
-                if balance_value is not None:
-                    new_balance = dollars_to_micros(balance_value)
-                updates = ["role=?", "active=?", "balance_micros=?"]
-                values = [new_role, new_active, new_balance]
-                if email_value:
-                    updates.insert(0, "email=?")
-                    values.insert(0, email_value)
-                if password_value:
-                    updates.append("password_hash=?")
-                    values.append(hash_password(password_value))
-                values.append(user_id)
-                db.execute(f"UPDATE users SET {', '.join(updates)} WHERE id=?", values)
+                new_balance = dollars_to_micros(balance_value)
+                db.execute("UPDATE users SET balance_micros=? WHERE id=?", (new_balance, user_id))
                 updated = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
             self.send_json(200, {"user": serialize_user(updated)})
             return
@@ -1572,57 +1492,7 @@ class Handler(BaseHTTPRequestHandler):
         if self._proxy_upstream("PATCH"):
             return
         if path.startswith("/api/admin/channels/"):
-            admin = self.require_user(admin=True)
-            if not admin:
-                return
-            try:
-                channel_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                self.send_json(400, {"error": "invalid_channel_id"})
-                return
-            try:
-                payload = self.read_json()
-            except (ValueError, json.JSONDecodeError) as exc:
-                self.send_json(400, {"error": str(exc)})
-                return
-            fields = []
-            values = []
-            for key, column in (
-                ("name", "name"),
-                ("upstreamBaseUrl", "upstream_base_url"),
-                ("upstreamApiKey", "upstream_api_key"),
-                ("note", "note"),
-                ("active", "active"),
-                ("priority", "priority"),
-            ):
-                if key not in payload:
-                    continue
-                value = payload.get(key)
-                if key == "active":
-                    value = 1 if bool(value) else 0
-                elif key == "priority":
-                    value = int(value or 0)
-                else:
-                    value = str(value or "").strip()
-                fields.append(f"{column}=?")
-                values.append(value)
-            if not fields:
-                self.send_json(400, {"error": "no_fields_to_update"})
-                return
-            values.extend([now(), channel_id])
-            with sqlite3.connect(DB_PATH) as db:
-                cursor = db.execute(
-                    f"UPDATE channels SET {', '.join(fields)}, updated_at=? WHERE id=?",
-                    values,
-                )
-                if cursor.rowcount != 1:
-                    self.send_json(404, {"error": "channel_not_found"})
-                    return
-                updated = db.execute(
-                    "SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?",
-                    (channel_id,),
-                ).fetchone()
-            self.send_json(200, {"channel": serialize_channel(updated)})
+            self.send_json(403, {"error": "permission_removed"})
             return
         self.send_json(404, {"error": "not_found"})
 
