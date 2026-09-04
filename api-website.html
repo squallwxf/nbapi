@@ -955,7 +955,7 @@
           </aside>
           <section class="panel playground-panel playground-chat">
             <div class="playground-chat-head"><div><h2>AI 对话</h2><span class="playground-status" id="playgroundStatus">选择令牌和模型后即可开始真实测试。</span></div><button class="btn" id="clearPlayground" type="button">清空对话</button></div>
-            <div class="playground-messages" id="playgroundMessages"><div class="playground-message assistant">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div></div>
+            <div class="playground-messages" id="playgroundMessages"><div class="playground-message assistant">您好，我是牛B的模型操练场，左侧选择模型和相关参数，说出你的要求，我随时为你服务。（发送快捷键 Ctrl+Enter）</div></div>
             <div class="playground-composer"><textarea class="auth-input" id="playgroundPrompt" placeholder="请输入你的问题..." maxlength="20000"></textarea><button class="btn primary" id="sendPlayground" type="button" title="发送快捷键：Ctrl + Enter（Mac：Command + Enter）" aria-label="发送，快捷键 Ctrl 加 Enter">发送</button></div>
           </section>
         </section>
@@ -2045,7 +2045,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
 
     function resetPlaygroundConversation() {
       playgroundConversation = [];
-      if (playgroundMessages) playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">你好，我是 NBAPI 操练场。登录后发送消息即可开始真实测试。</div>";
+      if (playgroundMessages) playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">您好，我是牛B的模型操练场，左侧选择模型和相关参数，说出你的要求，我随时为你服务。（发送快捷键 Ctrl+Enter）</div>";
       if (playgroundStatus) playgroundStatus.textContent = "登录后可使用操练场。";
     }
 
@@ -2701,7 +2701,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     playgroundPrompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); runPlayground(); } });
     clearPlayground.addEventListener("click", () => {
       playgroundConversation = [];
-      playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div>";
+      playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">您好，我是牛B的模型操练场，左侧选择模型和相关参数，说出你的要求，我随时为你服务。（发送快捷键 Ctrl+Enter）</div>";
       playgroundStatus.textContent = "选择令牌和模型后即可开始真实测试。";
     });
     submitTopup.addEventListener("click", async () => {
