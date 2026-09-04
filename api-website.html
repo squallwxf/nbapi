@@ -2243,17 +2243,22 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       if (!prompt) { alert("请输入要发送的问题。"); playgroundPrompt.focus(); return; }
       const model = playgroundModel.value;
       const modelMeta = getModelMeta(getPlaygroundModelRows().find((item) => item[0] === model));
+      const isGemini = modelMeta.endpoint.includes("generateContent");
+      const isGeminiImage = isGemini && modelMeta.kind === "图片生成";
+      const isAsyncMedia = modelMeta.kind === "图片生成" || modelMeta.kind.includes("视频");
       const userMessage = { role: "user", content: prompt };
       playgroundConversation.push(userMessage);
       appendPlaygroundMessage("user", prompt);
       playgroundPrompt.value = "";
       playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
       try {
-        const endpoint = modelMeta.endpoint.includes("generateContent") ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
+        const endpoint = isGemini ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
         const selectedVideoResolution = playgroundVideoResolution.value;
         const resolvedVideoModel = modelMeta.kind.includes("视频") ? resolveVideoModel(model, selectedVideoResolution) : model;
-        const requestBody = modelMeta.endpoint.includes("generateContent")
+        const requestBody = isGeminiImage
           ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value), imageConfig: { aspectRatio: playgroundImageAspect.value, imageSize: playgroundImageSize.value } } }
+          : isGemini
+            ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value) } }
           : modelMeta.kind === "图片生成"
             ? { model, prompt, n: 1, size: playgroundImageAspect.value, image_size: playgroundImageSize.value, quality: "auto", response_format: "url" }
             : modelMeta.kind.includes("视频")
@@ -2271,7 +2276,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
         if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
         const charged = response.headers.get("X-NBAPI-Charged");
         const latestBalance = response.headers.get("X-NBAPI-Balance");
-        const asyncTaskId = (modelMeta.kind === "图片生成" || modelMeta.kind.includes("视频") || modelMeta.endpoint.includes("generateContent")) ? (data.task_id || data.taskId || data.id) : "";
+        const asyncTaskId = isAsyncMedia ? (data.task_id || data.taskId || data.id) : "";
         if (asyncTaskId) {
           const taskType = modelMeta.kind.includes("视频") ? "video" : "image";
           appendPlaygroundMessage("assistant", `${taskType === "video" ? "视频" : "图片"}任务已提交，任务编号：${asyncTaskId}`);
