@@ -1902,6 +1902,7 @@
     let accountBalance = Number(localStorage.getItem("nbapi-balance") || "0");
     let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
     let serverModelPricing = {};
+    let serverModelCatalog = [];
     let showPlazaPrices = true;
     let compactPlaza = false;
     let usersPage = 1;
@@ -1962,8 +1963,20 @@
 
     let playgroundConversation = [];
 
+    function getPlaygroundModelRows() {
+      if (!serverModelCatalog.length) return documentedModels;
+      return serverModelCatalog.filter((item) => item.active !== false).map((item) => {
+        const known = documentedModels.find((row) => row[0] === item.name);
+        if (known) return known;
+        const kind = item.kind || "对话模型";
+        const endpoint = kind === "图片生成" ? "/v1/images/generations" : kind.includes("视频") ? "/v1/videos" : "/v1/chat/completions";
+        return [item.name, item.providerLabel || item.provider || "上游模型", item.provider || "Unknown", kind, endpoint, "a-blue", (item.provider || "N").slice(0, 1).toUpperCase(), item.billingUnit === "per_task" ? "按次" : "按 Token"];
+      });
+    }
+
     function populatePlaygroundModels() {
-      playgroundModel.innerHTML = documentedModels.map(([name, providerLabel, provider, kind]) => `<option value="${escapeHtml(name)}">${escapeHtml(name)} · ${escapeHtml(providerLabel)} · ${escapeHtml(kind)}</option>`).join("");
+      const rows = getPlaygroundModelRows();
+      playgroundModel.innerHTML = rows.map(([name, providerLabel, provider, kind]) => `<option value="${escapeHtml(name)}">${escapeHtml(name)} · ${escapeHtml(providerLabel)} · ${escapeHtml(kind)}</option>`).join("");
     }
 
     function appendPlaygroundMessage(role, content) {
@@ -1974,40 +1987,45 @@
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
-    function appendPlaygroundImage(url) {
+    function appendPlaygroundMedia(url, taskType) {
       const message = document.createElement("div");
       message.className = "playground-message assistant";
       const label = document.createElement("div");
-      label.textContent = "图片生成成功";
-      const image = document.createElement("img");
-      image.src = url;
-      image.alt = "模型生成的图片";
-      image.loading = "lazy";
-      image.style.cssText = "display:block;max-width:min(620px,100%);margin-top:8px;border-radius:8px;";
-      message.append(label, image);
+      label.textContent = taskType === "video" ? "视频生成成功" : "图片生成成功";
+      const media = taskType === "video" ? document.createElement("video") : document.createElement("img");
+      media.src = url;
+      media.alt = taskType === "video" ? "模型生成的视频" : "模型生成的图片";
+      media.loading = "lazy";
+      if (taskType === "video") {
+        media.controls = true;
+        media.playsInline = true;
+      }
+      media.style.cssText = "display:block;max-width:min(620px,100%);margin-top:8px;border-radius:8px;";
+      message.append(label, media);
       playgroundMessages.appendChild(message);
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
     const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-    async function pollImageTask(apiKey, taskId) {
+    async function pollAsyncTask(apiKey, taskId, taskType) {
       for (let attempt = 0; attempt < 60; attempt += 1) {
         await wait(attempt === 0 ? 800 : 3000);
-        const response = await fetch(`${API_BASE}/v1/images/tasks/${encodeURIComponent(taskId)}`, { headers: { "X-NBAPI-Key": apiKey } });
+        const taskPath = taskType === "video" ? `/v1/videos/${encodeURIComponent(taskId)}` : `/v1/images/tasks/${encodeURIComponent(taskId)}`;
+        const response = await fetch(`${API_BASE}${taskPath}`, { headers: { "X-NBAPI-Key": apiKey, "Idempotency-Key": `playground-poll-${taskId}` } });
         const task = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(task.error?.message || task.error || `查询图片任务失败（${response.status}）`);
+        if (!response.ok) throw new Error(task.error?.message || task.error || `查询${taskType === "video" ? "视频" : "图片"}任务失败（${response.status}）`);
         const status = String(task.status || "").toLowerCase();
         const progress = task.progress == null ? "" : ` ${task.progress}%`;
-        playgroundStatus.textContent = `图片任务 ${status || "processing"}${progress}，请稍候...`;
-        const url = task.data?.[0]?.url || task.result?.data?.[0]?.url || task.url;
+        playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}任务 ${status || "processing"}${progress}，请稍候...`;
+        const url = task.data?.[0]?.url || task.result?.data?.[0]?.url || task.data?.url || task.result?.url || task.url;
         if ((status === "succeeded" || status === "completed" || status === "success") && url) return url;
-        if (status === "failed" || status === "error") {
+        if (status === "failed" || status === "error" || status === "cancelled" || status === "canceled") {
           const refunded = response.headers.get("X-NBAPI-Refunded") === "1";
-          throw new Error(`${task.error?.message || "图片生成失败"}${refunded ? "，本次费用已自动退回。" : ""}`);
+          throw new Error(`${task.error?.message || `${taskType === "video" ? "视频" : "图片"}生成失败`}${refunded ? "，本次费用已自动退回。" : ""}`);
         }
       }
-      throw new Error("图片任务查询超时，请稍后到使用日志查看任务状态");
+      throw new Error(`${taskType === "video" ? "视频" : "图片"}任务查询超时，请稍后到使用日志查看任务状态`);
     }
 
     function playgroundResponseText(data) {
@@ -2027,7 +2045,7 @@
       if (!apiKey) { alert("请先在令牌管理中创建一个令牌，并在当前浏览器中保留完整 Key。"); location.hash = "tokens"; return; }
       if (!prompt) { alert("请输入要发送的问题。"); playgroundPrompt.focus(); return; }
       const model = playgroundModel.value;
-      const modelMeta = getModelMeta(documentedModels.find((item) => item[0] === model));
+      const modelMeta = getModelMeta(getPlaygroundModelRows().find((item) => item[0] === model));
       const userMessage = { role: "user", content: prompt };
       playgroundConversation.push(userMessage);
       appendPlaygroundMessage("user", prompt);
@@ -2042,30 +2060,33 @@
             ? { model, prompt, n: 1, size: "1024x1024" }
             : modelMeta.kind.includes("视频")
               ? { model, prompt }
-              : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value) };
+              : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
+        const requestId = `playground-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
         const response = await fetch(`${API_BASE}${endpoint}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-NBAPI-Key": apiKey },
+          headers: { "Content-Type": "application/json", "X-NBAPI-Key": apiKey, "Idempotency-Key": requestId },
           body: JSON.stringify(requestBody)
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
         const charged = response.headers.get("X-NBAPI-Charged");
         const latestBalance = response.headers.get("X-NBAPI-Balance");
-        const imageTaskId = (modelMeta.kind === "图片生成" || modelMeta.endpoint.includes("generateContent")) ? (data.task_id || data.taskId || data.id) : "";
-        if (imageTaskId) {
-          appendPlaygroundMessage("assistant", `图片任务已提交，任务编号：${imageTaskId}`);
-          playgroundStatus.textContent = "图片任务已进入队列，正在等待生成...";
-          const imageUrl = await pollImageTask(apiKey, imageTaskId);
-          appendPlaygroundImage(imageUrl);
+        const asyncTaskId = (modelMeta.kind === "图片生成" || modelMeta.kind.includes("视频") || modelMeta.endpoint.includes("generateContent")) ? (data.task_id || data.taskId || data.id) : "";
+        if (asyncTaskId) {
+          const taskType = modelMeta.kind.includes("视频") ? "video" : "image";
+          appendPlaygroundMessage("assistant", `${taskType === "video" ? "视频" : "图片"}任务已提交，任务编号：${asyncTaskId}`);
+          playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}任务已进入队列，正在等待生成...`;
+          const mediaUrl = await pollAsyncTask(apiKey, asyncTaskId, taskType);
+          appendPlaygroundMedia(mediaUrl, taskType);
           await refreshAccountBalance();
-          playgroundStatus.textContent = `图片生成成功，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
+          playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}生成成功，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
           return;
         }
         const text = playgroundResponseText(data);
         playgroundConversation.push({ role: "assistant", content: text });
         appendPlaygroundMessage("assistant", text);
-        const usage = data.usage ? `，使用 ${data.usage.total_tokens || data.usage.totalTokens || 0} tokens` : "";
+        const usageObject = data.usage || data.usageMetadata;
+        const usage = usageObject ? `，使用 ${usageObject.total_tokens || usageObject.totalTokens || usageObject.totalTokenCount || 0} tokens` : "";
         await refreshAccountBalance();
         playgroundStatus.textContent = `调用成功${usage}，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
       } catch (error) {
@@ -2079,6 +2100,8 @@
       try {
         const data = await fetch(`${API_BASE}/api/models`).then((response) => response.json());
         serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
+        serverModelCatalog = data.models || [];
+        populatePlaygroundModels();
         renderModelSquare();
       } catch { /* The local defaults keep the plaza usable during startup. */ }
     }
