@@ -1591,8 +1591,8 @@ class Handler(BaseHTTPRequestHandler):
                         return default
                 page = as_int("page", 1, 1, 1000000)
                 page_size = as_int("pageSize", 10, 1, 100)
-                filters = ["l.user_id=?"]
-                params = [user[0]]
+                filters = ["1=1"] if user[2] == "super_admin" else ["l.user_id=?"]
+                params = [] if user[2] == "super_admin" else [user[0]]
                 for key, expression in (("model", "lower(l.model_name) LIKE ?"), ("requestId", "lower(COALESCE(l.request_id, l.idempotency_key)) LIKE ?"), ("token", "(lower(COALESCE(t.name, '')) LIKE ? OR lower(COALESCE(t.token_hint, '')) LIKE ?)") , ("group", "lower(COALESCE(t.token_group, '')) LIKE ?")):
                     value = get_filter(key).lower()
                     if value:
@@ -1623,11 +1623,11 @@ class Handler(BaseHTTPRequestHandler):
                         f"SELECT COUNT(*), COALESCE(SUM(CASE WHEN l.status='charged' THEN l.amount_micros ELSE 0 END),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
                     ).fetchone()
                     rows = db.execute(
-                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
+                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,''), COALESCE(u.username,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id LEFT JOIN users u ON u.id=l.user_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
                         [*params, page_size, (page - 1) * page_size],
                     ).fetchall()
                 self.send_json(200, {"items": [{
-                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-"
+                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-", "userName": r[21] or "-"
                 } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
         if path == "/api/tokens":

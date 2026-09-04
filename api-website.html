@@ -53,6 +53,7 @@
     body.dark .nav-item.active { background: #e8f1ff; color: #125bd6; }
     body:not(.can-manage) .admin-only { display: none !important; }
     body:not(.is-super-admin) .super-admin-only { display: none !important; }
+    body:not(.logged-in) #balancePill { display: none !important; }
     body.logged-in .guest-only { display: none !important; }
     .icon { width: 18px; height: 18px; border-radius: 5px; background: currentColor; opacity: .82; flex: 0 0 auto; }
     .i-token { border-radius: 50%; }
@@ -696,7 +697,7 @@
         <div class="logo">NB</div>
         <div class="brand-text"><strong>NBAPI</strong><span>AI 模型聚合网关</span></div>
       </div>
-      <div class="nav-section">
+      <div class="nav-section auth-required">
         <div class="nav-title">控制台</div>
         <a class="nav-item auth-required active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
         <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
@@ -1155,7 +1156,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
             <div class="auth-field"><label for="logType">类型</label><select class="auth-input" id="logType"><option value="">全部类型</option><option value="per_task">按次计费</option><option value="per_token">按 Token</option></select></div>
             <div class="usage-filter-actions"><button class="btn primary" id="queryUsageLogs" type="button">查询</button><button class="btn" id="resetUsageLogs" type="button">重置</button></div>
           </div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>令牌</th><th>分组</th><th>类型</th><th>模型</th><th>用时</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="11" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>用户</th><th>令牌</th><th>分组</th><th>类型</th><th>模型</th><th>用时</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
           <div class="usage-pagination"><span class="muted" id="usagePageInfo">共 0 条</span><div class="page-actions"><select class="auth-input" id="usagePageSize" style="width:92px;height:34px"><option>10</option><option>20</option><option>50</option></select><button class="btn" id="usagePrevPage" type="button">上一页</button><button class="btn" id="usageNextPage" type="button">下一页</button></div></div>
         </section>
 
@@ -1377,6 +1378,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       authLogout.style.display = currentUser ? "inline-flex" : "none";
       authLogin.style.display = currentUser ? "none" : "inline-flex";
       authSignup.style.display = currentUser ? "none" : "inline-flex";
+      updateBalance();
     }
 
     function clearSessionState() {
@@ -1493,9 +1495,9 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       usagePageInfo.textContent = data.total ? `显示第 ${(data.page - 1) * data.pageSize + 1} 条到第 ${Math.min(data.page * data.pageSize, data.total)} 条，共 ${data.total} 条` : "共 0 条";
       usagePrevPage.disabled = usageLogsPage <= 1;
       usageNextPage.disabled = usageLogsPage >= usageLogsTotalPages;
-      if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
+      if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
       usageLogBody.innerHTML = data.items.map((item) => `<tr>
-        <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td><td>${escapeHtml(item.tokenGroup || "default")}</td>
+        <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.userName || "-")}</strong></td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td><td>${escapeHtml(item.tokenGroup || "default")}</td>
         <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${Number(item.latencyMs || 0)} ms</td>
         <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>$${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
         <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}<br>计费来源：${escapeHtml(item.usageSource || "-")}<br>预扣：$${Number(item.reserved || 0).toFixed(6)}<br>结算差额：$${Number(item.adjustment || 0).toFixed(6)}<br>缓存读：${Number(item.cacheReadTokens || 0).toLocaleString()} · 缓存写：${Number(item.cacheWriteTokens || 0).toLocaleString()}</div></td></tr>`).join("");
@@ -1503,9 +1505,9 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     }
 
     async function loadUsageLogs() {
-      if (!sessionToken) { usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">请先登录后查看使用日志。</td></tr>'; return; }
-      usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">正在加载真实账单记录...</td></tr>';
-      try { renderUsageLogs(await apiRequest(`/api/ledger?${usageLogQuery()}`)); } catch (error) { usageLogBody.innerHTML = `<tr><td colspan="11" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`; }
+      if (!sessionToken) { usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">请先登录后查看使用日志。</td></tr>'; return; }
+      usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">正在加载真实账单记录...</td></tr>';
+      try { renderUsageLogs(await apiRequest(`/api/ledger?${usageLogQuery()}`)); } catch (error) { usageLogBody.innerHTML = `<tr><td colspan="12" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`; }
     }
 
     function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; usageLogsPage = 1; loadUsageLogs(); }
@@ -1992,7 +1994,8 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       let route = (location.hash || "#console").slice(1) || "console";
       if (route === "models") route = "square";
       if (!routes.includes(route)) route = "console";
-      if (!currentUser && (route === "console" || route === "playground")) {
+      const privateRoutes = ["console", "playground", "tokens", "docs", "users", "pricing", "logs", "wallet", "settings"];
+      if (!currentUser && privateRoutes.includes(route)) {
         route = "square";
         history.replaceState(null, "", "#square");
       }
