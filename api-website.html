@@ -143,6 +143,14 @@
     .playground-message.assistant { justify-self: start; background: var(--surface-2); border: 1px solid var(--line); }
     .playground-message.system { justify-self: stretch; background: #fff8eb; border: 1px solid #fed7aa; color: #9a3412; font-size: 12px; }
     body.dark .playground-message.system { background: #2a2115; color: #fed7aa; border-color: #714f23; }
+    .playground-media { display: block; max-width: min(680px, 100%); max-height: 52vh; margin-top: 8px; border-radius: 8px; cursor: zoom-in; object-fit: contain; }
+    .media-resolution { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .media-lightbox { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(3, 8, 20, .88); }
+    .media-lightbox.show { display: flex; }
+    .media-lightbox-content { position: relative; display: grid; justify-items: center; gap: 10px; max-width: 96vw; max-height: 94vh; }
+    .media-lightbox-content img, .media-lightbox-content video { display: block; max-width: 92vw; max-height: 84vh; object-fit: contain; border-radius: 8px; background: #050914; }
+    .media-lightbox-close { position: absolute; top: -14px; right: -14px; z-index: 1; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); font-size: 22px; line-height: 1; cursor: pointer; }
+    .media-lightbox-meta { color: #fff; font-size: 13px; text-align: center; }
     .playground-composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
     .playground-composer textarea { min-height: 92px; resize: vertical; }
     .playground-status { color: var(--muted); font-size: 12px; }
@@ -2114,6 +2122,48 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
+    function closeMediaLightbox() {
+      const lightbox = document.getElementById("mediaLightbox");
+      if (!lightbox) return;
+      lightbox.classList.remove("show");
+      lightbox.setAttribute("aria-hidden", "true");
+      const media = lightbox.querySelector("img, video");
+      if (media?.tagName === "VIDEO") media.pause();
+    }
+
+    function openMediaLightbox(url, taskType, resolution = "") {
+      let lightbox = document.getElementById("mediaLightbox");
+      if (!lightbox) {
+        lightbox = document.createElement("div");
+        lightbox.id = "mediaLightbox";
+        lightbox.className = "media-lightbox";
+        lightbox.setAttribute("aria-hidden", "true");
+        lightbox.innerHTML = "<div class=\"media-lightbox-content\" role=\"dialog\" aria-modal=\"true\" aria-label=\"媒体预览\"><button class=\"media-lightbox-close\" type=\"button\" aria-label=\"关闭预览\">&times;</button><div class=\"media-lightbox-media\"></div><div class=\"media-lightbox-meta\"></div></div>";
+        document.body.appendChild(lightbox);
+        lightbox.addEventListener("click", (event) => { if (event.target === lightbox) closeMediaLightbox(); });
+        lightbox.querySelector(".media-lightbox-close").addEventListener("click", closeMediaLightbox);
+      }
+      const mediaHost = lightbox.querySelector(".media-lightbox-media");
+      const meta = lightbox.querySelector(".media-lightbox-meta");
+      const media = document.createElement(taskType === "video" ? "video" : "img");
+      media.src = url;
+      media.alt = taskType === "video" ? "放大查看生成的视频" : "放大查看生成的图片";
+      if (taskType === "video") {
+        media.controls = true;
+        media.autoplay = true;
+        media.playsInline = true;
+      }
+      mediaHost.replaceChildren(media);
+      meta.textContent = taskType === "image" && resolution ? `分辨率：${resolution}` : "点击关闭按钮或按 Esc 返回";
+      lightbox.classList.add("show");
+      lightbox.setAttribute("aria-hidden", "false");
+      lightbox.querySelector(".media-lightbox-close").focus();
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeMediaLightbox();
+    });
+
     function appendPlaygroundMedia(url, taskType) {
       const message = document.createElement("div");
       message.className = "playground-message assistant";
@@ -2126,8 +2176,23 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       if (taskType === "video") {
         media.controls = true;
         media.playsInline = true;
+      } else {
+        const resolution = document.createElement("div");
+        resolution.className = "media-resolution";
+        resolution.textContent = "分辨率：读取中...";
+        media.addEventListener("load", () => {
+          resolution.textContent = media.naturalWidth && media.naturalHeight ? `分辨率：${media.naturalWidth} × ${media.naturalHeight}` : "分辨率：无法读取";
+        });
+        media.addEventListener("error", () => { resolution.textContent = "分辨率：无法读取"; });
+        media.addEventListener("click", () => openMediaLightbox(url, taskType, resolution.textContent.replace("分辨率：", "")));
+        media.style.cssText = "display:block;max-width:min(680px,100%);max-height:52vh;margin-top:8px;border-radius:8px;cursor:zoom-in;object-fit:contain;";
+        message.append(label, media, resolution);
+        playgroundMessages.appendChild(message);
+        playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
+        return;
       }
-      media.style.cssText = "display:block;max-width:min(620px,100%);margin-top:8px;border-radius:8px;";
+      media.className = "playground-media";
+      media.addEventListener("click", () => openMediaLightbox(url, taskType));
       message.append(label, media);
       playgroundMessages.appendChild(message);
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
