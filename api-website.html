@@ -913,11 +913,11 @@
             <div class="playground-controls">
               <div class="playground-control"><label for="playgroundToken">调用令牌</label><select id="playgroundToken"><option value="">请先在令牌管理创建并复制 Key</option></select></div>
               <div class="playground-control"><label for="playgroundModel">模型</label><select id="playgroundModel"></select></div>
-              <div class="playground-control"><label for="playgroundTemperature">Temperature <span class="playground-value" id="temperatureValue">0.9</span></label><input id="playgroundTemperature" type="range" min="0" max="2" step="0.1" value="0.9" /></div>
-              <div class="playground-control"><label for="playgroundTopP">Top P <span class="playground-value" id="topPValue">1.0</span></label><input id="playgroundTopP" type="range" min="0" max="1" step="0.1" value="1" /></div>
-              <div class="playground-control"><label for="playgroundFrequencyPenalty">Frequency Penalty <span class="playground-value" id="frequencyValue">0.0</span></label><input id="playgroundFrequencyPenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
-              <div class="playground-control"><label for="playgroundPresencePenalty">Presence Penalty <span class="playground-value" id="presenceValue">0.0</span></label><input id="playgroundPresencePenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
-              <div class="playground-control"><label for="playgroundMaxTokens">Max Tokens</label><input id="playgroundMaxTokens" type="number" min="1" max="32768" value="1024" /></div>
+              <div class="playground-control"><label for="playgroundTemperature">Temperature <span class="playground-value" id="temperatureValue">0.9</span></label><small class="muted">随机性：数值越高，回答越有变化；越低，回答越稳定。</small><input id="playgroundTemperature" type="range" min="0" max="2" step="0.1" value="0.9" /></div>
+              <div class="playground-control"><label for="playgroundTopP">Top P <span class="playground-value" id="topPValue">1.0</span></label><small class="muted">采样范围：数值越低，模型越倾向选择高概率词。</small><input id="playgroundTopP" type="range" min="0" max="1" step="0.1" value="1" /></div>
+              <div class="playground-control"><label for="playgroundFrequencyPenalty">Frequency Penalty <span class="playground-value" id="frequencyValue">0.0</span></label><small class="muted">重复惩罚：提高后会减少重复使用相同词语。</small><input id="playgroundFrequencyPenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
+              <div class="playground-control"><label for="playgroundPresencePenalty">Presence Penalty <span class="playground-value" id="presenceValue">0.0</span></label><small class="muted">话题惩罚：提高后会鼓励模型引入新的词语和话题。</small><input id="playgroundPresencePenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
+              <div class="playground-control"><label for="playgroundMaxTokens">Max Tokens</label><small class="muted">最大输出长度：限制本次回答最多生成的 Token 数量。</small><input id="playgroundMaxTokens" type="number" min="1" max="32768" value="1024" /></div>
             </div>
           </aside>
           <section class="panel playground-panel playground-chat">
@@ -1977,6 +1977,19 @@
     function populatePlaygroundModels() {
       const rows = getPlaygroundModelRows();
       playgroundModel.innerHTML = rows.map(([name, providerLabel, provider, kind]) => `<option value="${escapeHtml(name)}">${escapeHtml(name)} · ${escapeHtml(providerLabel)} · ${escapeHtml(kind)}</option>`).join("");
+      updatePlaygroundControls();
+    }
+
+    function updatePlaygroundControls() {
+      const row = getPlaygroundModelRows().find((item) => item[0] === playgroundModel.value);
+      const meta = row ? getModelMeta(row) : null;
+      const isChat = Boolean(meta && meta.kind === "对话模型");
+      const isGemini = Boolean(meta && meta.endpoint.includes("generateContent"));
+      const isTextCapable = isChat || isGemini;
+      [[playgroundTemperature, isTextCapable], [playgroundTopP, isTextCapable], [playgroundMaxTokens, isTextCapable], [playgroundFrequencyPenalty, isChat], [playgroundPresencePenalty, isChat]].forEach(([input, enabled]) => {
+        input.disabled = !enabled;
+        input.closest(".playground-control")?.classList.toggle("disabled", !enabled);
+      });
     }
 
     function appendPlaygroundMessage(role, content) {
@@ -2464,6 +2477,7 @@
       input.addEventListener("input", () => { document.getElementById(outputId).textContent = Number(input.value).toFixed(1); });
     });
     playgroundToken.addEventListener("change", () => { activeApiKey = playgroundToken.value; });
+    playgroundModel.addEventListener("change", updatePlaygroundControls);
     sendPlayground.addEventListener("click", runPlayground);
     playgroundPrompt.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); runPlayground(); } });
     clearPlayground.addEventListener("click", () => {
