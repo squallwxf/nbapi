@@ -2122,6 +2122,11 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
+    function removePlaygroundConversationMessage(message) {
+      const index = playgroundConversation.indexOf(message);
+      if (index >= 0) playgroundConversation.splice(index, 1);
+    }
+
     function closeMediaLightbox() {
       const lightbox = document.getElementById("mediaLightbox");
       if (!lightbox) return;
@@ -2242,7 +2247,6 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       playgroundConversation.push(userMessage);
       appendPlaygroundMessage("user", prompt);
       playgroundPrompt.value = "";
-      sendPlayground.disabled = true;
       playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
       try {
         const endpoint = modelMeta.endpoint.includes("generateContent") ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
@@ -2287,10 +2291,10 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
         await refreshAccountBalance();
         playgroundStatus.textContent = `调用成功${usage}，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
       } catch (error) {
-        playgroundConversation.pop();
+        removePlaygroundConversationMessage(userMessage);
         appendPlaygroundMessage("system", error.message);
         playgroundStatus.textContent = "调用失败，请检查令牌、上游 Key、模型名称和余额。";
-      } finally { sendPlayground.disabled = false; }
+      }
     }
 
     async function loadModelCatalog() {
