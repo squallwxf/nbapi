@@ -113,6 +113,7 @@
     #models, #models + .workspace > .table-card { display: none; }
     .workspace:has(> .table-card) { grid-template-columns: 1fr; }
     .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #pricing, .content > #login, .content > #signup { display: none; }
+    body:not(.logged-in) .auth-required { display: none !important; }
     body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
     body.route-square .content > #square { display: grid; }
     body.route-playground .content > #playground { display: block; }
@@ -124,7 +125,7 @@
     body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
     body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #pricing, body.route-login .content > #signup { display: none; }
     body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #pricing, body.route-signup .content > #login { display: none; }
-    .playground-shell { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .playground-shell { width: min(100%, 1320px); max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
     .playground-panel { padding: 16px; }
     .playground-panel h3 { margin: 0 0 12px; }
     .playground-controls { display: grid; gap: 14px; }
@@ -551,6 +552,25 @@
     .endpoint { border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius); padding: 10px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
     .endpoint code { color: #344054; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     body.dark .endpoint code { color: #d9e4f5; }
+    .docs-shell { display: grid; gap: 16px; }
+    .docs-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 18px; }
+    .docs-hero h2, .docs-section h3 { margin: 0 0 8px; }
+    .docs-hero p, .docs-section p { margin: 0; color: var(--muted); }
+    .docs-base-url { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .docs-base-url code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; color: var(--text); }
+    .docs-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .docs-section { padding: 18px; }
+    .docs-section.full { grid-column: 1 / -1; }
+    .docs-code-wrap { position: relative; margin-top: 12px; }
+    .docs-code-wrap .copy-doc { position: absolute; top: 8px; right: 8px; z-index: 1; }
+    .docs-code { padding-right: 80px; min-height: 90px; }
+    .docs-model-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .docs-model { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+    .docs-model code { overflow-wrap: anywhere; color: var(--text); font-size: 12px; }
+    .docs-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    .docs-table th, .docs-table td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .docs-table th { color: var(--muted); font-weight: 700; }
+    @media (max-width: 760px) { .docs-grid { grid-template-columns: 1fr; } .docs-section.full { grid-column: auto; } .docs-model-list { grid-template-columns: 1fr; } .docs-hero { grid-template-columns: 1fr; } }
     .channel-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -670,9 +690,9 @@
       </div>
       <div class="nav-section">
         <div class="nav-title">控制台</div>
-        <a class="nav-item active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
+        <a class="nav-item auth-required active" href="#console"><span class="icon i-home"></span><span>总览</span></a>
         <a class="nav-item" href="#tokens"><span class="icon i-token"></span><span>令牌管理</span></a>
-        <a class="nav-item" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
+        <a class="nav-item auth-required" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
         <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
         <a class="nav-item super-admin-only" href="#pricing"><span class="icon i-money"></span><span>模型定价</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
@@ -694,9 +714,9 @@
     </aside>
 
     <main class="main">
-      <div class="mobile-nav"><a class="chip active" href="#console">控制台</a><a class="chip" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
+      <div class="mobile-nav"><a class="chip auth-required active" href="#console">控制台</a><a class="chip auth-required" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
       <header class="topbar">
-        <nav class="top-nav"><a class="active" href="#console">控制台</a><a href="#playground">操练场</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
+        <nav class="top-nav"><a class="auth-required active" href="#console">控制台</a><a class="auth-required" href="#playground">操练场</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
           <span class="pill" id="balancePill" style="display:none;">余额 <strong class="account-balance" id="balanceDisplay">$ 0.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
@@ -913,6 +933,11 @@
             <div class="playground-controls">
               <div class="playground-control"><label for="playgroundToken">调用令牌</label><select id="playgroundToken"><option value="">请先在令牌管理创建并复制 Key</option></select></div>
               <div class="playground-control"><label for="playgroundModel">模型</label><select id="playgroundModel"></select></div>
+              <div class="playground-control media-only" id="playgroundImageOptions"><label for="playgroundImageAspect">图片比例</label><select id="playgroundImageAspect"><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="4:3">4:3</option><option value="3:4">3:4</option></select><small class="muted">图片画面的宽高比例。</small></div>
+              <div class="playground-control media-only" id="playgroundImageSizeControl"><label for="playgroundImageSize">图片规格</label><select id="playgroundImageSize"><option value="1K">1K</option><option value="2K" selected>2K</option><option value="4K">4K</option></select><small class="muted">图片输出规格；是否支持由当前模型决定。</small></div>
+              <div class="playground-control media-only" id="playgroundVideoOptions"><label for="playgroundVideoResolution">视频分辨率</label><select id="playgroundVideoResolution"><option value="480p">480p</option><option value="720p" selected>720p</option><option value="1080p">1080p</option><option value="4k">4K</option></select><small class="muted">部分视频模型通过对应的模型版本切换分辨率。</small></div>
+              <div class="playground-control media-only" id="playgroundVideoRatioControl"><label for="playgroundVideoRatio">视频比例</label><select id="playgroundVideoRatio"><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 方形</option></select><small class="muted">视频画面的宽高比例。</small></div>
+              <div class="playground-control media-only" id="playgroundVideoDurationControl"><label for="playgroundVideoDuration">视频时长</label><select id="playgroundVideoDuration"><option value="4">4 秒</option><option value="6">6 秒</option><option value="8" selected>8 秒</option><option value="10">10 秒</option></select><small class="muted">部分模型支持 4、6、8 或 10 秒。</small></div>
               <div class="playground-control"><label for="playgroundTemperature">Temperature <span class="playground-value" id="temperatureValue">0.9</span></label><small class="muted">随机性：数值越高，回答越有变化；越低，回答越稳定。</small><input id="playgroundTemperature" type="range" min="0" max="2" step="0.1" value="0.9" /></div>
               <div class="playground-control"><label for="playgroundTopP">Top P <span class="playground-value" id="topPValue">1.0</span></label><small class="muted">采样范围：数值越低，模型越倾向选择高概率词。</small><input id="playgroundTopP" type="range" min="0" max="1" step="0.1" value="1" /></div>
               <div class="playground-control"><label for="playgroundFrequencyPenalty">Frequency Penalty <span class="playground-value" id="frequencyValue">0.0</span></label><small class="muted">重复惩罚：提高后会减少重复使用相同词语。</small><input id="playgroundFrequencyPenalty" type="range" min="-2" max="2" step="0.1" value="0" /></div>
@@ -923,7 +948,7 @@
           <section class="panel playground-panel playground-chat">
             <div class="playground-chat-head"><div><h2>AI 对话</h2><span class="playground-status" id="playgroundStatus">选择令牌和模型后即可开始真实测试。</span></div><button class="btn" id="clearPlayground" type="button">清空对话</button></div>
             <div class="playground-messages" id="playgroundMessages"><div class="playground-message assistant">你好，我是 NBAPI 操练场。发送消息后会通过你的令牌调用真实上游模型。</div></div>
-            <div class="playground-composer"><textarea class="auth-input" id="playgroundPrompt" placeholder="请输入你的问题..." maxlength="20000"></textarea><button class="btn primary" id="sendPlayground" type="button">发送</button></div>
+            <div class="playground-composer"><textarea class="auth-input" id="playgroundPrompt" placeholder="请输入你的问题..." maxlength="20000"></textarea><button class="btn primary" id="sendPlayground" type="button" title="发送快捷键：Ctrl + Enter（Mac：Command + Enter）" aria-label="发送，快捷键 Ctrl 加 Enter">发送</button></div>
           </section>
         </section>
 
@@ -999,14 +1024,43 @@
               <div class="token-bulk-tools"><button class="btn" id="copySelectedTokens" type="button">复制所选 Key</button><button class="btn" id="enableSelectedTokens" type="button">批量启用</button><button class="btn" id="disableSelectedTokens" type="button">批量禁用</button><button class="btn" id="deleteSelectedTokens" type="button">批量删除</button><span class="muted" id="tokenSelectionInfo">已选择 0 个</span></div>
               <div class="token-list" id="tokenList"></div>
             </article>
-            <article class="panel detail-card" id="docs">
-              <h3>兼容接口</h3>
-              <div class="endpoint-list">
-                <div class="endpoint"><code>https://nbapi.win/v1/chat/completions</code><span class="tag green">OpenAI</span></div>
-                <div class="endpoint"><code>https://nbapi.win/v1/messages</code><span class="tag purple">Claude</span></div>
-                <div class="endpoint"><code>https://nbapi.win/v1beta/models</code><span class="tag orange">Gemini</span></div>
-                <div class="endpoint"><code>https://nbapi.win/v1/images/generations</code><span class="tag blue">Image</span></div>
+            <article class="docs-shell" id="docs">
+              <section class="panel docs-hero">
+                <div><h2>NBAPI 接口文档</h2><p>使用你的 NBAPI 令牌，以兼容 OpenAI、Claude 和 Gemini 的方式调用已开放模型。</p><div class="docs-base-url"><strong>接口地址</strong><code id="docsBaseUrl">https://nbapi.win</code><button class="btn" type="button" data-copy-doc="https://nbapi.win">复制地址</button></div></div>
+                <div><span class="tag green">OpenAI Compatible</span><p style="margin-top:8px;">余额按真实用量自动扣费</p></div>
+              </section>
+              <section class="panel docs-section full"><h3>开始接入</h3><p>先在“令牌管理”创建令牌。完整 Key 只在创建时显示，请将下面示例中的 `nb_sk_xxx` 替换为你的令牌。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsAuthCode">复制</button><pre class="code docs-code" id="docsAuthCode">Authorization: Bearer nb_sk_xxx
+Content-Type: application/json
+Idempotency-Key: your-unique-request-id</pre></div></section>
+              <div class="docs-grid">
+                <section class="panel docs-section"><h3>OpenAI 对话</h3><p>适用于 GPT 等 OpenAI 兼容对话模型。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsOpenAiCode">复制</button><pre class="code docs-code" id="docsOpenAiCode">curl https://nbapi.win/v1/chat/completions \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: chat-001" \
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"你好"}],"max_tokens":256}'</pre></div></section>
+                <section class="panel docs-section"><h3>Claude 对话</h3><p>使用 Anthropic Messages 兼容格式。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsClaudeCode">复制</button><pre class="code docs-code" id="docsClaudeCode">curl https://nbapi.win/v1/messages \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"你好"}]}'</pre></div></section>
+                <section class="panel docs-section"><h3>Gemini 对话</h3><p>使用 Gemini 原生 `v1beta` 格式。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsGeminiCode">复制</button><pre class="code docs-code" id="docsGeminiCode">curl "https://nbapi.win/v1beta/models/gemini-3.1-pro-preview:generateContent" \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"contents":[{"role":"user","parts":[{"text":"你好"}]}]}'</pre></div></section>
+                <section class="panel docs-section"><h3>图片生成</h3><p>异步接口：提交任务后查询任务状态。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsImageCode">复制</button><pre class="code docs-code" id="docsImageCode">curl https://nbapi.win/v1beta/models/T香蕉2:generateContent \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"contents":[{"role":"user","parts":[{"text":"生成一张城市夜景"}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"16:9","imageSize":"2K"}}}'
+
+GET https://nbapi.win/v1/images/tasks/{task_id}</pre></div></section>
+                <section class="panel docs-section"><h3>视频生成</h3><p>按模型系列使用对应的视频端点和参数。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsVideoCode">复制</button><pre class="code docs-code" id="docsVideoCode">curl https://nbapi.win/v1/videos \
+  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"veo-3.1-fast-1080","prompt":"城市夜景，电影感","aspect_ratio":"16:9","n":1}'
+
+GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
+                <section class="panel docs-section"><h3>模型列表</h3><p>下面列表来自服务器当前启用的模型。</p><div class="docs-model-list" id="docsModelList"><span class="muted">正在加载模型列表...</span></div></section>
               </div>
+              <section class="panel docs-section full"><h3>参数与计费</h3><table class="docs-table"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>输入/补全 Token</td><td>按服务器模型价格分别计算，单位为每 1M Token。</td></tr><tr><td>图片/视频</td><td>按模型设置的每次价格计费；异步任务失败或取消会自动退款。</td></tr><tr><td>幂等键</td><td>建议每个业务请求传递唯一 `Idempotency-Key`，重复请求不会重复扣费。</td></tr><tr><td>错误处理</td><td>HTTP 4xx 表示请求、令牌或余额问题；HTTP 5xx 表示上游或服务异常，请根据 `error` 和 `requestId` 排查。</td></tr></tbody></table></section>
             </article>
             <article class="panel detail-card" id="users">
               <div class="management-top">
@@ -1155,6 +1209,7 @@
     const submitTopup = document.getElementById("submitTopup");
     const walletStatus = document.getElementById("walletStatus");
     const walletOrders = document.getElementById("walletOrders");
+    const docsModelList = document.getElementById("docsModelList");
     const dashboardModels = document.getElementById("dashboardModels");
     const dashboardTodayRequests = document.getElementById("dashboardTodayRequests");
     const dashboardChannels = document.getElementById("dashboardChannels");
@@ -1192,6 +1247,16 @@
     const playgroundFrequencyPenalty = document.getElementById("playgroundFrequencyPenalty");
     const playgroundPresencePenalty = document.getElementById("playgroundPresencePenalty");
     const playgroundMaxTokens = document.getElementById("playgroundMaxTokens");
+    const playgroundImageOptions = document.getElementById("playgroundImageOptions");
+    const playgroundImageSizeControl = document.getElementById("playgroundImageSizeControl");
+    const playgroundImageAspect = document.getElementById("playgroundImageAspect");
+    const playgroundImageSize = document.getElementById("playgroundImageSize");
+    const playgroundVideoOptions = document.getElementById("playgroundVideoOptions");
+    const playgroundVideoResolution = document.getElementById("playgroundVideoResolution");
+    const playgroundVideoRatioControl = document.getElementById("playgroundVideoRatioControl");
+    const playgroundVideoRatio = document.getElementById("playgroundVideoRatio");
+    const playgroundVideoDurationControl = document.getElementById("playgroundVideoDurationControl");
+    const playgroundVideoDuration = document.getElementById("playgroundVideoDuration");
     const playgroundPrompt = document.getElementById("playgroundPrompt");
     const playgroundMessages = document.getElementById("playgroundMessages");
     const playgroundStatus = document.getElementById("playgroundStatus");
@@ -1312,8 +1377,11 @@
       canManage = false;
       isSuperAdmin = false;
       activeApiKey = "";
+      resetPlaygroundConversation();
+      accountBalance = 0;
       localStorage.removeItem("nbapi-session-token");
       localStorage.removeItem("nbapi-active-api-key");
+      localStorage.removeItem("nbapi-balance");
     }
 
     function applyUserSession(user, token) {
@@ -1384,11 +1452,11 @@
         dashboardChannels.textContent = Number(data.channels || 0).toLocaleString();
         dashboardMonthAmount.textContent = money(data.monthAmount);
         dashboardLatency.textContent = data.avgLatencyMs ? `平均响应 ${data.avgLatencyMs}ms` : (currentUser ? "暂无调用记录" : "登录后显示真实调用");
-        dashboardBalance.textContent = `账户余额：${money(data.balance)}`;
+        dashboardBalance.textContent = currentUser ? `账户余额：${money(data.balance)}` : "登录后显示账户余额";
         consoleModels.textContent = dashboardModels.textContent;
         consoleChannels.textContent = dashboardChannels.textContent;
         consoleTodayRequests.textContent = requests;
-        consoleBalance.textContent = money(data.balance);
+        consoleBalance.textContent = currentUser ? money(data.balance) : "-";
       } catch (error) {
         dashboardModels.textContent = "-";
         dashboardTodayRequests.textContent = "-";
@@ -1916,19 +1984,23 @@
       let route = (location.hash || "#console").slice(1) || "console";
       if (route === "models") route = "square";
       if (!routes.includes(route)) route = "console";
+      if (!currentUser && (route === "console" || route === "playground")) {
+        route = "square";
+        history.replaceState(null, "", "#square");
+      }
       if (currentUser && (route === "login" || route === "signup")) {
         route = "console";
         history.replaceState(null, "", "#console");
       }
       if (route === "users" && !canManage) {
         alert("该页面仅管理员可用，请先登录管理员账号。");
-        route = "console";
-        history.replaceState(null, "", "#console");
+        route = currentUser ? "console" : "square";
+        history.replaceState(null, "", `#${route}`);
       }
       if (route === "pricing" && !isSuperAdmin) {
         alert("模型定价仅超级管理员可用。");
-        route = "console";
-        history.replaceState(null, "", "#console");
+        route = currentUser ? "console" : "square";
+        history.replaceState(null, "", `#${route}`);
       }
       document.body.classList.remove(...routes.map((item) => `route-${item}`));
       document.body.classList.add(`route-${route}`);
@@ -1963,6 +2035,12 @@
 
     let playgroundConversation = [];
 
+    function resetPlaygroundConversation() {
+      playgroundConversation = [];
+      if (playgroundMessages) playgroundMessages.innerHTML = "<div class=\"playground-message assistant\">你好，我是 NBAPI 操练场。登录后发送消息即可开始真实测试。</div>";
+      if (playgroundStatus) playgroundStatus.textContent = "登录后可使用操练场。";
+    }
+
     function getPlaygroundModelRows() {
       if (!serverModelCatalog.length) return documentedModels;
       return serverModelCatalog.filter((item) => item.active !== false).map((item) => {
@@ -1986,10 +2064,46 @@
       const isChat = Boolean(meta && meta.kind === "对话模型");
       const isGemini = Boolean(meta && meta.endpoint.includes("generateContent"));
       const isTextCapable = isChat || isGemini;
+      const isImage = Boolean(meta && meta.kind === "图片生成");
+      const isVideo = Boolean(meta && meta.kind.includes("视频"));
       [[playgroundTemperature, isTextCapable], [playgroundTopP, isTextCapable], [playgroundMaxTokens, isTextCapable], [playgroundFrequencyPenalty, isChat], [playgroundPresencePenalty, isChat]].forEach(([input, enabled]) => {
         input.disabled = !enabled;
         input.closest(".playground-control")?.classList.toggle("disabled", !enabled);
       });
+      [[playgroundImageOptions, isImage], [playgroundImageSizeControl, isImage], [playgroundVideoOptions, isVideo], [playgroundVideoRatioControl, isVideo], [playgroundVideoDurationControl, isVideo]].forEach(([control, visible]) => { control.hidden = !visible; });
+      playgroundVideoResolution.disabled = !isVideo;
+      playgroundVideoRatio.disabled = !isVideo;
+      playgroundVideoDuration.disabled = !isVideo;
+      updateVideoResolutionOptions(meta && meta.kind.includes("视频") ? meta.name : "");
+    }
+
+    function updateVideoResolutionOptions(model) {
+      const current = playgroundVideoResolution.value;
+      let values = ["720p", "1080p", "4k"];
+      if (model.startsWith("grok-")) values = ["480p", "720p"];
+      if (model.startsWith("sora-v3-")) values = ["720p", "1080p"];
+      playgroundVideoResolution.innerHTML = values.map((value) => `<option value="${value}">${value.toUpperCase()}</option>`).join("");
+      playgroundVideoResolution.value = values.includes(current) ? current : values[0];
+    }
+
+    function resolveVideoModel(model, resolution) {
+      const normalized = String(resolution || "720p").toLowerCase();
+      if (model.startsWith("veo-")) {
+        const suffix = normalized === "4k" ? "4k" : normalized === "1080p" ? "1080" : "720";
+        return model.replace(/-(720|1080|4k)$/i, `-${suffix}`);
+      }
+      if (model.startsWith("sora-v3-")) {
+        return normalized === "1080p" ? (model.endsWith("-1080p") ? model : `${model}-1080p`) : model.replace(/-1080p$/i, "");
+      }
+      if (model.startsWith("omni-")) {
+        if (normalized === "1080p" || normalized === "4k") return model.replace(/-(1080p|4k)$/i, "") + `-${normalized}`;
+        return model.replace(/-(1080p|4k)$/i, "");
+      }
+      if (model.startsWith("grok-")) {
+        const suffix = normalized === "480p" ? "480p" : "720p";
+        return model.replace(/-(480p|720p)$/i, "") + `-${suffix}`;
+      }
+      return model;
     }
 
     function appendPlaygroundMessage(role, content) {
@@ -2021,10 +2135,10 @@
 
     const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-    async function pollAsyncTask(apiKey, taskId, taskType) {
+    async function pollAsyncTask(apiKey, taskId, taskType, queryPath) {
       for (let attempt = 0; attempt < 60; attempt += 1) {
         await wait(attempt === 0 ? 800 : 3000);
-        const taskPath = taskType === "video" ? `/v1/videos/${encodeURIComponent(taskId)}` : `/v1/images/tasks/${encodeURIComponent(taskId)}`;
+        const taskPath = queryPath || (taskType === "video" ? `/v1/videos/${encodeURIComponent(taskId)}` : `/v1/images/tasks/${encodeURIComponent(taskId)}`);
         const response = await fetch(`${API_BASE}${taskPath}`, { headers: { "X-NBAPI-Key": apiKey, "Idempotency-Key": `playground-poll-${taskId}` } });
         const task = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(task.error?.message || task.error || `查询${taskType === "video" ? "视频" : "图片"}任务失败（${response.status}）`);
@@ -2066,13 +2180,17 @@
       sendPlayground.disabled = true;
       playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
       try {
-        const endpoint = modelMeta.endpoint.includes("generateContent") ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? "/v1/videos" : "/v1/chat/completions";
+        const endpoint = modelMeta.endpoint.includes("generateContent") ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
+        const selectedVideoResolution = playgroundVideoResolution.value;
+        const resolvedVideoModel = modelMeta.kind.includes("视频") ? resolveVideoModel(model, selectedVideoResolution) : model;
         const requestBody = modelMeta.endpoint.includes("generateContent")
-          ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value) } }
+          ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value), imageConfig: { aspectRatio: playgroundImageAspect.value, imageSize: playgroundImageSize.value } } }
           : modelMeta.kind === "图片生成"
-            ? { model, prompt, n: 1, size: "1024x1024" }
+            ? { model, prompt, n: 1, size: playgroundImageAspect.value, image_size: playgroundImageSize.value, quality: "auto", response_format: "url" }
             : modelMeta.kind.includes("视频")
-              ? { model, prompt }
+              ? endpoint.includes("submit/generate")
+                ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
+                : { model: resolvedVideoModel, prompt, ...(model.startsWith("veo-") ? {} : { seconds: String(playgroundVideoDuration.value) }), aspect_ratio: playgroundVideoRatio.value, n: 1 }
               : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
         const requestId = `playground-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
         const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -2089,7 +2207,8 @@
           const taskType = modelMeta.kind.includes("视频") ? "video" : "image";
           appendPlaygroundMessage("assistant", `${taskType === "video" ? "视频" : "图片"}任务已提交，任务编号：${asyncTaskId}`);
           playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}任务已进入队列，正在等待生成...`;
-          const mediaUrl = await pollAsyncTask(apiKey, asyncTaskId, taskType);
+          const queryPath = model.startsWith("sora-v3-") ? `/v1/video/fetch/${encodeURIComponent(asyncTaskId)}` : taskType === "video" ? `/v1/videos/${encodeURIComponent(asyncTaskId)}` : `/v1/images/tasks/${encodeURIComponent(asyncTaskId)}`;
+          const mediaUrl = await pollAsyncTask(apiKey, asyncTaskId, taskType, queryPath);
           appendPlaygroundMedia(mediaUrl, taskType);
           await refreshAccountBalance();
           playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}生成成功，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
@@ -2115,6 +2234,7 @@
         serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
         serverModelCatalog = data.models || [];
         populatePlaygroundModels();
+        renderDocsModelList();
         renderModelSquare();
       } catch { /* The local defaults keep the plaza usable during startup. */ }
     }
@@ -2136,7 +2256,7 @@
     }
 
     function updateBalance() {
-      balanceDisplay.textContent = `$ ${accountBalance.toFixed(2)}`;
+      balanceDisplay.textContent = currentUser ? `$ ${accountBalance.toFixed(2)}` : "-";
       balancePill.style.display = currentUser ? "inline-flex" : "none";
       if (currentUser) localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
     }
@@ -2223,6 +2343,33 @@
       copyToast.timer = window.setTimeout(() => copyToast.classList.remove("show"), 1600);
     }
 
+    async function copyDocText(value) {
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+      }
+      showToast("文档内容已复制");
+    }
+
+    function renderDocsModelList() {
+      if (!docsModelList) return;
+      const models = serverModelCatalog.length ? serverModelCatalog.filter((item) => item.active !== false) : documentedModels.map(([name, providerLabel, provider, kind]) => ({ name, providerLabel, provider, kind }));
+      docsModelList.innerHTML = models.length ? models.map((model) => `<div class="docs-model"><code>${escapeHtml(model.name)}</code><button class="btn" type="button" data-copy-doc-value="${escapeHtml(model.name)}">复制</button></div>`).join("") : '<span class="muted">暂无可用模型。</span>';
+      docsModelList.querySelectorAll("[data-copy-doc-value]").forEach((button) => button.addEventListener("click", () => copyDocText(button.dataset.copyDocValue)));
+    }
+
+    document.querySelectorAll("[data-copy-target]").forEach((button) => button.addEventListener("click", () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (target) copyDocText(target.textContent);
+    }));
+    document.querySelectorAll("[data-copy-doc]").forEach((button) => button.addEventListener("click", () => copyDocText(button.dataset.copyDoc)));
+
     async function copyFullToken(token) {
       if (!token) {
         alert("这个令牌创建于旧版本，后端没有保存完整 Key，请重新创建一个新令牌。");
@@ -2279,7 +2426,7 @@
       showToast("已退出登录");
     });
 
-    loginSubmit.addEventListener("click", async () => {
+    async function submitLogin() {
       if (!loginUsername.value.trim() || !loginPassword.value) {
         alert("请先填写用户名和密码。");
         return;
@@ -2289,7 +2436,14 @@
       } catch (error) {
         alert(error.message);
       }
-    });
+    }
+    loginSubmit.addEventListener("click", submitLogin);
+    [loginUsername, loginPassword].forEach((input) => input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitLogin();
+      }
+    }));
 
     signupSubmit.addEventListener("click", async () => {
       const username = signupUsername?.value?.trim() || "";
@@ -2499,6 +2653,7 @@
     updateBalance();
     renderPrices();
     loadModelCatalog();
+    renderDocsModelList();
     loadDashboard();
     applyRoute();
     loadCurrentSession().then(() => { loadDashboard(); loadWallet(); applyRoute(); });
