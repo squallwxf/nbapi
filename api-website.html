@@ -125,7 +125,7 @@
     body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
     body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #pricing, body.route-login .content > #signup { display: none; }
     body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #pricing, body.route-signup .content > #login { display: none; }
-    .playground-shell { width: min(100%, 1320px); max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .playground-shell { width: min(100%, 1320px); max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 920px); justify-content: center; gap: 18px; align-items: start; }
     .playground-panel { padding: 16px; }
     .playground-panel h3 { margin: 0 0 12px; }
     .playground-controls { display: grid; gap: 14px; }
@@ -134,7 +134,7 @@
     .playground-control input, .playground-control select, .playground-control textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text); padding: 9px 10px; outline: 0; }
     .playground-control input[type="range"] { padding: 0; accent-color: var(--blue); }
     .playground-value { color: var(--blue); font-weight: 700; }
-    .playground-chat { min-height: 620px; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; }
+    .playground-chat { width: 100%; max-width: 920px; min-height: 620px; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; }
     .playground-chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .playground-chat-head h2 { margin: 0; font-size: 20px; }
     .playground-messages { min-height: 360px; max-height: 58vh; overflow: auto; display: grid; align-content: start; gap: 12px; padding: 4px; }
@@ -1026,7 +1026,7 @@
             </article>
             <article class="docs-shell" id="docs">
               <section class="panel docs-hero">
-                <div><h2>NBAPI 接口文档</h2><p>使用你的 NBAPI 令牌，以兼容 OpenAI、Claude 和 Gemini 的方式调用已开放模型。</p><div class="docs-base-url"><strong>接口地址</strong><code id="docsBaseUrl">https://nbapi.win</code><button class="btn" type="button" data-copy-doc="https://nbapi.win">复制地址</button></div></div>
+                <div><h2>NBAPI 接口文档</h2><p>使用你的 NBAPI 令牌，以兼容 OpenAI、Claude 和 Gemini 的方式调用已开放模型。</p><div class="docs-base-url"><strong>API 接口地址</strong><code id="docsBaseUrl">https://nbapi.win/v1</code><button class="btn" type="button" data-copy-doc="https://nbapi.win/v1">复制地址</button></div></div>
                 <div><span class="tag green">OpenAI Compatible</span><p style="margin-top:8px;">余额按真实用量自动扣费</p></div>
               </section>
               <section class="panel docs-section full"><h3>开始接入</h3><p>先在“令牌管理”创建令牌。完整 Key 只在创建时显示，请将下面示例中的 `nb_sk_xxx` 替换为你的令牌。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsAuthCode">复制</button><pre class="code docs-code" id="docsAuthCode">Authorization: Bearer nb_sk_xxx
