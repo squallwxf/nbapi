@@ -1,4 +1,5 @@
 import hashlib
+import gzip
 import ipaddress
 import json
 import os
@@ -7,6 +8,7 @@ import sqlite3
 import threading
 import time
 import traceback
+import zlib
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -58,6 +60,7 @@ HOP_BY_HOP_HEADERS = {
     "trailer",
     "transfer-encoding",
     "upgrade",
+    "accept-encoding",
 }
 
 MODEL_ROWS = [
@@ -545,8 +548,21 @@ def try_parse_json_bytes(body: bytes):
         return None
     try:
         return json.loads(body)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None
+
+
+def decode_upstream_body(body: bytes, headers: dict[str, str]) -> bytes:
+    """Decode common upstream compression before inspecting JSON or SSE."""
+    encoding = str(headers.get("Content-Encoding", "")).lower().strip()
+    try:
+        if encoding == "gzip":
+            return gzip.decompress(body)
+        if encoding == "deflate":
+            return zlib.decompress(body)
+    except (OSError, zlib.error):
+        return body
+    return body
 
 
 def extract_model_name(path: str, payload) -> str:
@@ -1284,7 +1300,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_raw_response(resp_status, resp_headers, resp_body)
             return True
 
-        response_payload = extract_response_payload(resp_body)
+        response_payload = extract_response_payload(decode_upstream_body(resp_body, resp_headers))
         if method == "GET" and (path.startswith("/v1/images/tasks/") or path.startswith("/v1/videos/")):
             task_id = unquote(path.rstrip("/").rsplit("/", 1)[-1]).strip()
             if task_id:

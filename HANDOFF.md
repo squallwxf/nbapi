@@ -113,6 +113,7 @@ nginx -t && systemctl reload nginx
 - 访问 `https://nbapi.win/api/payment/zpay/notify` 会返回 HTTP 400 和 `fail`，这是未携带真实支付通知参数时的正常结果，说明公网回调地址可到达。
 - 当前支付跳转返回“商户尚未开通或开启支付宝渠道，请先开通或开启”。已确认 NBAPI 使用 `type=alipay` 且服务器 PID 与 ZPAY 后台 PID 一致；下一步应在 ZPAY 后台“支付渠道 -> 我的支付渠道”确认支付宝通道为已开通、已启用状态，并记录页面显示的渠道 ID（CID）。只有后台确有 CID 时，才将其填入服务器 `/etc/nbapi.env` 的 `NBAPI_ZPAY_CID` 后重启 `nbapi`。
 - 云服务器 SSH 密码登录目前不稳定/可能拒绝认证；可通过云服务商网页 VNC/控制台进入服务器，再在 `/opt/nbapi` 执行 `git pull --ff-only origin main`、`systemctl restart nbapi` 和 `systemctl is-active nbapi` 完成部署。数据库 `nbapi.sqlite3` 与 `/etc/nbapi.env` 不在 Git 中，不能被 `git pull` 覆盖。
+- 2026-09-04 已修复图片/视频任务查询遇到 gzip 响应时的后端异常：上游请求不再转发 `Accept-Encoding`，响应检查前会解压 gzip/deflate，二进制内容不会再触发 `UnicodeDecodeError`。
 
 ## 2026-09-03 计费审计
 
