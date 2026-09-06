@@ -1491,7 +1491,15 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/api/admin/channels":
-            self.send_json(403, {"error": "permission_removed"})
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels ORDER BY priority ASC, id ASC").fetchall()
+            self.send_json(200, {"items": [serialize_channel(row) for row in rows]})
             return
         if path == "/api/models":
             query = parse_qs(urlparse(self.path).query)
@@ -2003,7 +2011,37 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/admin/channels":
-                self.send_json(403, {"error": "permission_removed"})
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+                try:
+                    payload = self.read_json()
+                    name = str(payload.get("name", "")).strip()
+                    base_url = str(payload.get("upstreamBaseUrl", "")).strip().rstrip("/")
+                    api_key = str(payload.get("upstreamApiKey", "")).strip()
+                    priority = int(payload.get("priority", 100))
+                    note = str(payload.get("note", "")).strip()
+                    active = 1 if payload.get("active", True) else 0
+                    if not name or len(name) > 80:
+                        raise ValueError("channel_name_required")
+                    if not base_url.startswith(("http://", "https://")):
+                        raise ValueError("invalid_upstream_url")
+                    if priority < 0:
+                        raise ValueError("invalid_priority")
+                except (ValueError, json.JSONDecodeError) as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                try:
+                    with sqlite3.connect(DB_PATH) as db:
+                        cursor = db.execute("INSERT INTO channels(name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (name, base_url, api_key, active, priority, note, now(), now()))
+                        row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?", (cursor.lastrowid,)).fetchone()
+                except sqlite3.IntegrityError:
+                    self.send_json(409, {"error": "channel_name_exists"})
+                    return
+                self.send_json(201, {"channel": serialize_channel(row)})
                 return
             self.send_json(404, {"error": "not_found"})
         except Exception as exc:
@@ -2132,13 +2170,68 @@ class Handler(BaseHTTPRequestHandler):
         if self._proxy_upstream("PATCH"):
             return
         if path.startswith("/api/admin/channels/"):
-            self.send_json(403, {"error": "permission_removed"})
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            try:
+                channel_id = int(path.rsplit("/", 1)[1])
+                payload = self.read_json()
+                name = str(payload.get("name", "")).strip()
+                base_url = str(payload.get("upstreamBaseUrl", "")).strip().rstrip("/")
+                priority = int(payload.get("priority", 100))
+                note = str(payload.get("note", "")).strip()
+                active = 1 if payload.get("active", True) else 0
+                if not name or len(name) > 80:
+                    raise ValueError("channel_name_required")
+                if not base_url.startswith(("http://", "https://")):
+                    raise ValueError("invalid_upstream_url")
+                if priority < 0:
+                    raise ValueError("invalid_priority")
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_json(400, {"error": str(exc)})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                current = db.execute("SELECT upstream_api_key FROM channels WHERE id=?", (channel_id,)).fetchone()
+                if not current:
+                    self.send_json(404, {"error": "channel_not_found"})
+                    return
+                api_key = str(payload.get("upstreamApiKey", "")).strip() or current[0]
+                try:
+                    db.execute("UPDATE channels SET name=?, upstream_base_url=?, upstream_api_key=?, active=?, priority=?, note=?, updated_at=? WHERE id=?", (name, base_url, api_key, active, priority, note, now(), channel_id))
+                except sqlite3.IntegrityError:
+                    self.send_json(409, {"error": "channel_name_exists"})
+                    return
+                row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?", (channel_id,)).fetchone()
+            self.send_json(200, {"channel": serialize_channel(row)})
             return
         self.send_json(404, {"error": "not_found"})
 
     def do_DELETE(self):
         path = urlparse(self.path).path
         if self._proxy_upstream("DELETE"):
+            return
+        prefix = "/api/admin/channels/"
+        if path.startswith(prefix):
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            try:
+                channel_id = int(path[len(prefix):])
+            except ValueError:
+                self.send_json(400, {"error": "invalid_channel_id"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                cursor = db.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+            if cursor.rowcount != 1:
+                self.send_json(404, {"error": "channel_not_found"})
+                return
+            self.send_json(200, {"id": channel_id, "deleted": True})
             return
         prefix = "/api/admin/models/"
         if path.startswith(prefix):

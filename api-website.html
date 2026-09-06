@@ -517,7 +517,8 @@
       font-weight: 700;
     }
     body.is-super-admin .admin-hint { display: block; }
-    body:not(.can-manage) #channels, body:not(.can-manage) #users { display: none; }
+    body:not(.is-super-admin) #channels { display: none; }
+    body:not(.can-manage) #users { display: none; }
 
     .detail { display: grid; gap: 14px; align-content: start; }
     .detail-card { padding: 16px; }
@@ -704,6 +705,7 @@
         <a class="nav-item auth-required" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
         <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
         <a class="nav-item super-admin-only" href="#pricing"><span class="icon i-money"></span><span>模型定价</span></a>
+        <a class="nav-item super-admin-only" href="#channels"><span class="icon i-channel"></span><span>供应商对接</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
         <a class="nav-item" href="#wallet"><span class="icon i-money"></span><span>充值订阅</span></a>
         <a class="nav-item" href="#logs"><span class="icon i-log"></span><span>使用日志</span></a>
@@ -1106,14 +1108,14 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
                 <button class="btn" id="nextUsersPage" type="button">下一页</button>
               </div>
             </article>
-            <article class="panel detail-card" id="channels">
+            <article class="panel detail-card super-admin-only" id="channels">
               <div class="management-top">
-                <h3 style="margin:0;">渠道管理</h3>
+                <h3 style="margin:0;">供应商对接</h3>
                 <button class="btn" id="refreshChannels" type="button">刷新渠道</button>
               </div>
-              <p class="muted">配置模型渠道、上游接入网址和 API Key。</p>
+              <p class="muted">配置上游供应商地址和 API Key。保存后，新请求会按优先级使用启用的供应商渠道。</p>
               <div class="management-card">
-                <strong>新增渠道</strong>
+                <strong>新增供应商渠道</strong>
                 <div class="management-fields">
                   <div class="auth-field"><label for="newChannelName">渠道名称</label><input class="auth-input" id="newChannelName" placeholder="例如：主站渠道" /></div>
                   <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" placeholder="https://ai.krapi.cn" /></div>
@@ -1869,7 +1871,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     }
 
     async function loadAdminChannels() {
-      if (!canManage || !sessionToken || !channelList) {
+      if (!isSuperAdmin || !sessionToken || !channelList) {
         if (channelList) channelList.innerHTML = "<small>管理员登录后可查看渠道列表。</small>";
         return;
       }
@@ -1907,8 +1909,8 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     }
 
     async function createChannel() {
-      if (!canManage || !sessionToken) {
-        alert("请先登录管理员账号。");
+      if (!isSuperAdmin || !sessionToken) {
+        alert("请先登录超级管理员账号。");
         return;
       }
       try {
@@ -2012,13 +2014,13 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     let usersTotalPages = 1;
     let managerAccounts = [];
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "logs", "wallet", "settings", "login", "signup"];
+    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup"];
 
     function applyRoute() {
       let route = (location.hash || "#console").slice(1) || "console";
       if (route === "models") route = "square";
       if (!routes.includes(route)) route = "console";
-      const privateRoutes = ["console", "playground", "tokens", "docs", "users", "pricing", "logs", "wallet", "settings"];
+      const privateRoutes = ["console", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings"];
       if (!currentUser && privateRoutes.includes(route)) {
         route = "square";
         history.replaceState(null, "", "#square");
@@ -2037,6 +2039,11 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
         route = currentUser ? "console" : "square";
         history.replaceState(null, "", `#${route}`);
       }
+      if (route === "channels" && !isSuperAdmin) {
+        alert("供应商对接仅超级管理员可用。");
+        route = currentUser ? "console" : "square";
+        history.replaceState(null, "", `#${route}`);
+      }
       document.body.classList.remove(...routes.map((item) => `route-${item}`));
       document.body.classList.add(`route-${route}`);
       document.querySelectorAll("a[href^='#']").forEach((link) => {
@@ -2044,6 +2051,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       });
       if (route === "logs") loadUsageLogs();
       if (route === "pricing") loadModelPricing();
+      if (route === "channels") loadAdminChannels();
       if (route === "users" && isSuperAdmin) loadManagerAccounts();
     }
     window.addEventListener("hashchange", applyRoute);
