@@ -2334,7 +2334,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     async function loadModelCatalog() {
       try {
         const catalogQuery = isSuperAdmin ? "?includeInactive=1" : "";
-        const data = await fetch(`${API_BASE}/api/models${catalogQuery}`).then((response) => response.json());
+        const data = await apiRequest(`/api/models${catalogQuery}`);
         serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
         serverModelCatalog = data.models || [];
         modelCatalogLoaded = true;
