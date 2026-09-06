@@ -67,6 +67,7 @@ MODEL_ROWS = [
     ("T香蕉2", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
     ("T香蕉pro", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
     ("gpt-5.5", "GPT 5.5", "OpenAI", "对话模型", "per_token", 0),
+    ("gpt-6-astra", "GPT 6 Astra", "OpenAI", "对话模型", "per_token", 0),
     ("gpt-5.6-sol", "GPT 5.6 Sol", "OpenAI", "对话模型", "per_token", 0),
     ("gpt-5.6-terra", "GPT 5.6 Terra", "OpenAI", "对话模型", "per_token", 0),
     ("gpt-image-2", "GPT 图片", "OpenAI", "图片生成", "per_task", 100000),
@@ -113,7 +114,7 @@ MODEL_ROWS = [
 # tokens for token models and USD per task for media models.
 MODEL_PRICE_OVERRIDES = {
     "T香蕉2": ("per_task", 240000), "T香蕉pro": ("per_task", 360000), "gpt-image-2": ("per_task", 220000),
-    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
+    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-6-astra": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
     "claude-fable-5": ("per_token", 28800000, 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 8640000, 43200000, 864000, 10800000),
     "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 3000000, 18000000, 300000, 0),
     "ky-fast-720p": ("per_task", 5100000), "ky-pro-720p": ("per_task", 5950000),
@@ -1493,8 +1494,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(403, {"error": "permission_removed"})
             return
         if path == "/api/models":
+            query = parse_qs(urlparse(self.path).query)
+            include_inactive = query.get("includeInactive", ["0"])[0] == "1"
+            if include_inactive:
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+            model_filter = "" if include_inactive else " WHERE active=1"
             with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute("SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models ORDER BY rowid").fetchall()
+                rows = db.execute(f"SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models{model_filter} ORDER BY rowid").fetchall()
             self.send_json(200, {"models": [
                 {"name": r[0], "providerLabel": r[1], "provider": r[2], "kind": r[3], "billingUnit": r[4], "price": micros_to_dollars(r[5]), "inputPrice": micros_to_dollars(r[7] or r[5]), "outputPrice": micros_to_dollars(r[8] or r[5]), "cacheReadPrice": micros_to_dollars(r[9]), "cacheWritePrice": micros_to_dollars(r[10]), "active": bool(r[6])}
                 for r in rows
@@ -2082,9 +2093,22 @@ class Handler(BaseHTTPRequestHandler):
         if admin[2] != "super_admin":
             self.send_json(403, {"error": "super_admin_only"})
             return
-        name = path[len(prefix):]
+        name = unquote(path[len(prefix):])
         try:
             payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            self.send_json(400, {"error": str(exc)})
+            return
+        action = payload.get("action")
+        if action in ("hide", "show"):
+            with sqlite3.connect(DB_PATH) as db:
+                cursor = db.execute("UPDATE models SET active=?, updated_at=? WHERE name=?", (1 if action == "show" else 0, now(), name))
+            if cursor.rowcount != 1:
+                self.send_json(404, {"error": "model_not_found"})
+                return
+            self.send_json(200, {"model": name, "active": action == "show"})
+            return
+        try:
             billing_unit = payload.get("billingUnit")
             if billing_unit not in ("per_task", "per_token"):
                 raise ValueError("billingUnit must be per_task or per_token")
@@ -2115,6 +2139,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         path = urlparse(self.path).path
         if self._proxy_upstream("DELETE"):
+            return
+        prefix = "/api/admin/models/"
+        if path.startswith(prefix):
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            name = unquote(path[len(prefix):])
+            with sqlite3.connect(DB_PATH) as db:
+                cursor = db.execute("DELETE FROM models WHERE name=?", (name,))
+            if cursor.rowcount != 1:
+                self.send_json(404, {"error": "model_not_found"})
+                return
+            self.send_json(200, {"model": name, "deleted": True})
             return
         prefix = "/api/tokens/"
         if not path.startswith(prefix):

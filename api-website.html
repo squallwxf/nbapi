@@ -1135,7 +1135,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
 
         <section class="panel detail-card super-admin-only" id="pricing">
           <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">价格保存后立即用于真实调用计费。按 Token 模型按输入、补全及缓存价格分别计算。</p></div><button class="btn" id="refreshPricing" type="button">刷新价格</button></div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>计费方式</th><th>按次价格</th><th>输入 / 1M</th><th>补全 / 1M</th><th>缓存读 / 1M</th><th>缓存写 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="9" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>状态</th><th>计费方式</th><th>按次价格</th><th>输入 / 1M</th><th>补全 / 1M</th><th>缓存读 / 1M</th><th>缓存写 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="10" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
         </section>
 
         <section class="panel detail-card" id="logs">
@@ -1716,18 +1716,20 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
 
     function renderPricingTable() {
       if (!pricingList) return;
-      const models = documentedModels.map(getModelMeta);
+      const models = (modelCatalogLoaded ? serverModelCatalog.map((item) => getModelMeta(modelCatalogItemToRow(item))) : documentedModels.map(getModelMeta));
       pricingList.innerHTML = models.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
         const token = pricing.unit === "per_token";
+        const catalogItem = serverModelCatalog.find((item) => item.name === model.name);
+        const active = catalogItem ? catalogItem.active !== false : true;
         return `<tr data-pricing-model="${model.name}">
-          <td><code>${model.name}</code></td><td>${model.providerLabel}</td><td>${token ? "按 1M Token" : "按次"}</td>
+          <td><code>${model.name}</code></td><td>${model.providerLabel}</td><td><span class="tag ${active ? "green" : "gray"}">${active ? "已可见" : "已隐藏"}</span></td><td>${token ? "按 1M Token" : "按次"}</td>
           <td>${token ? "-" : `<input class="auth-input" data-price type="number" min="0" step="0.000001" value="${pricing.amount}" />`}</td>
           <td>${token ? `<input class="auth-input" data-input-price type="number" min="0" step="0.000001" value="${pricing.inputPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-output-price type="number" min="0" step="0.000001" value="${pricing.outputPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-cache-read-price type="number" min="0" step="0.000001" value="${pricing.cacheReadPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-cache-write-price type="number" min="0" step="0.000001" value="${pricing.cacheWritePrice}" />` : "-"}</td>
-          <td><button class="btn primary" type="button" data-save-pricing>保存</button></td></tr>`;
+          <td><div class="auth-actions"><button class="btn primary" type="button" data-save-pricing>保存</button><button class="btn" type="button" data-toggle-model>${active ? "隐藏" : "显示"}</button><button class="btn" type="button" data-delete-model>永久删除</button></div></td></tr>`;
       }).join("");
       pricingList.querySelectorAll("[data-save-pricing]").forEach((button) => button.addEventListener("click", async () => {
         const row = button.closest("[data-pricing-model]");
@@ -1741,6 +1743,26 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
           serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice), outputPrice: Number(data.outputPrice), cacheReadPrice: Number(data.cacheReadPrice), cacheWritePrice: Number(data.cacheWritePrice) };
           renderModelSquare();
           showToast(`${name} 价格已保存`);
+        } catch (error) { alert(error.message); }
+      }));
+      pricingList.querySelectorAll("[data-toggle-model]").forEach((button) => button.addEventListener("click", async () => {
+        const row = button.closest("[data-pricing-model]");
+        const name = row.dataset.pricingModel;
+        const hidden = row.querySelector(".tag.gray") !== null;
+        try {
+          await apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ action: hidden ? "show" : "hide" }) });
+          await loadModelPricing();
+          showToast(`${name} 已${hidden ? "显示" : "隐藏"}`);
+        } catch (error) { alert(error.message); }
+      }));
+      pricingList.querySelectorAll("[data-delete-model]").forEach((button) => button.addEventListener("click", async () => {
+        const row = button.closest("[data-pricing-model]");
+        const name = row.dataset.pricingModel;
+        if (!confirm(`确定永久删除模型 ${name} 吗？删除后无法恢复。`)) return;
+        try {
+          await apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "DELETE" });
+          await loadModelPricing();
+          showToast(`${name} 已永久删除`);
         } catch (error) { alert(error.message); }
       }));
     }
@@ -1934,6 +1956,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       ["T香蕉2", "Gemini 图片", "Google", "图片生成", "/v1beta/models/{model}:generateContent", "a-orange", "G", "异步"],
       ["T香蕉pro", "Gemini 图片", "Google", "图片生成", "/v1beta/models/{model}:generateContent", "a-orange", "G", "异步"],
       ["gpt-5.5", "GPT 5.5", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
+      ["gpt-6-astra", "GPT 6 Astra", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
       ["gpt-5.6-sol", "GPT 5.6 Sol", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
       ["gpt-5.6-terra", "GPT 5.6 Terra", "OpenAI", "对话模型", "/v1/chat/completions", "a-blue", "G", "按 Token"],
       ["gpt-image-2", "GPT 图片", "OpenAI", "图片生成", "/v1/images/generations", "a-blue", "O", "异步"],
@@ -1981,6 +2004,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     let modelPricing = JSON.parse(localStorage.getItem("nbapi-model-pricing") || "null") || {};
     let serverModelPricing = {};
     let serverModelCatalog = [];
+    let modelCatalogLoaded = false;
     let showPlazaPrices = true;
     let compactPlaza = false;
     let usersPage = 1;
@@ -2053,14 +2077,16 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     }
 
     function getPlaygroundModelRows() {
-      if (!serverModelCatalog.length) return documentedModels;
-      return serverModelCatalog.filter((item) => item.active !== false).map((item) => {
+      if (!modelCatalogLoaded) return documentedModels;
+      return serverModelCatalog.filter((item) => item.active !== false).map((item) => modelCatalogItemToRow(item));
+    }
+
+    function modelCatalogItemToRow(item) {
         const known = documentedModels.find((row) => row[0] === item.name);
         if (known) return known;
         const kind = item.kind || "对话模型";
         const endpoint = kind === "图片生成" ? "/v1/images/generations" : kind.includes("视频") ? "/v1/videos" : "/v1/chat/completions";
         return [item.name, item.providerLabel || item.provider || "上游模型", item.provider || "Unknown", kind, endpoint, "a-blue", (item.provider || "N").slice(0, 1).toUpperCase(), item.billingUnit === "per_task" ? "按次" : "按 Token"];
-      });
     }
 
     function populatePlaygroundModels() {
@@ -2307,9 +2333,11 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
 
     async function loadModelCatalog() {
       try {
-        const data = await fetch(`${API_BASE}/api/models`).then((response) => response.json());
+        const catalogQuery = isSuperAdmin ? "?includeInactive=1" : "";
+        const data = await fetch(`${API_BASE}/api/models${catalogQuery}`).then((response) => response.json());
         serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
         serverModelCatalog = data.models || [];
+        modelCatalogLoaded = true;
         populatePlaygroundModels();
         renderDocsModelList();
         renderModelSquare();
@@ -2365,7 +2393,8 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
 
     function renderModelSquare() {
       const query = (modelSearch?.value || "").trim().toLowerCase();
-      const visibleModels = documentedModels.map(getModelMeta).filter((model) =>
+      const modelRows = getPlaygroundModelRows();
+      const visibleModels = modelRows.map(getModelMeta).filter((model) =>
         `${model.name} ${model.providerLabel} ${model.provider} ${model.kind} ${model.tags.join(" ")} ${model.endpointType}`.toLowerCase().includes(query) &&
         (selectedFilters.provider === "all" || model.provider === selectedFilters.provider) &&
         (selectedFilters.kind === "all" || model.kind === selectedFilters.kind) &&
@@ -2374,7 +2403,7 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
         (selectedFilters.endpoint === "all" || model.endpointType === selectedFilters.endpoint)
       );
       modelGrid.classList.toggle("compact-plaza", compactPlaza);
-      document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${documentedModels.length} 个模型`;
+      document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${modelRows.length} 个模型`;
       modelGrid.innerHTML = visibleModels.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
         const priceMarkup = `<strong>${formatModelPrice(pricing)}</strong>`;
