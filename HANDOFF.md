@@ -127,3 +127,26 @@ nginx -t && systemctl reload nginx
 - Token 预留使用请求体长度和 `max_tokens` 做调用前授权估算，最终账单仍只使用上游真实 usage；若实际用量超过预留，会在同一事务中补扣差额，避免上游已成功但 NBAPI 漏记账。
 - 使用日志已补充计费审计字段：预扣金额、实际结算差额、缓存读/写 Token、用量来源（OpenAI-compatible/Gemini/按次）和请求路径；日志详情中可核对预扣与最终实际扣费是否一致。
 - 2026-09-03 异步任务计费已补全：按次模型提交返回任务号时写入 `media_tasks`；后续查询接口返回成功会标记完成，返回失败/取消会原子退回该账单金额和令牌额度，并将原使用日志状态改为 `refunded`。退款操作具备状态保护，不会重复退款；日志统计不会把已退款记录计入净花费。
+
+## 2026-09-06 最新状态
+
+- 最新 GitHub 提交：`b183214`，已推送到 `squallwxf/nbapi` 的 `main` 分支。
+- 已新增超级管理员专用“供应商对接”页面，可新增、修改、启用、停用供应商渠道，设置渠道名称、上游地址、API Key、优先级和备注。
+- 供应商 API Key 只在数据库中使用，页面只显示脱敏提示；普通管理员和普通用户不能读取或修改供应商配置。
+- 供应商配置接口为 `GET/POST /api/admin/channels`、`PATCH/DELETE /api/admin/channels/{id}`，统一要求超级管理员权限。
+- 模型定价页面已增加模型状态和操作：超级管理员可隐藏、恢复显示或永久删除模型。隐藏模型不会出现在普通用户模型广场、操练场和接口文档，也不能被调用；隐藏模型仍会显示在超级管理员定价页。
+- 模型目录接口对普通用户只返回启用模型；超级管理员通过 `includeInactive=1` 查看隐藏模型。模型删除后不会通过前端备用列表恢复。
+- 当前模型列表已包含 `gpt-6-astra`，按 OpenAI 兼容接口 `/v1/chat/completions` 接入；其价格暂时沿用 `gpt-5.5`，需要在模型定价页确认后再正式开放。
+- Krapi 模型广场确认没有 GROK 模型，相关 GROK 模型应隐藏。Sora 模型虽在上游显示，但调用返回 403 时要核对上游 API Key 的渠道权限、分组和实际接口。
+
+### 最新服务器更新步骤
+
+```bash
+cd /opt/nbapi
+git pull --ff-only origin main
+systemctl daemon-reload
+systemctl restart nbapi
+systemctl is-active nbapi
+```
+
+数据库 `nbapi.sqlite3` 和 `/etc/nbapi.env` 不在 Git 更新范围内，不能用仓库文件覆盖线上数据和密钥。
