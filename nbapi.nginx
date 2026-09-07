@@ -2,6 +2,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name nbapi.win www.nbapi.win;
+    client_max_body_size 50m;
 
     location / {
         proxy_pass http://127.0.0.1:8765;

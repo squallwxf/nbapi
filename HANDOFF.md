@@ -187,3 +187,10 @@ systemctl is-active nbapi
 - 图片和视频文档已明确任务查询也需要携带 NBAPI 令牌，并补充异步失败退款响应头说明。
 - 已新增 OpenAI SDK / Codex 可用的接入示例：`baseURL=https://nbapi.win/v1`，API Key 使用用户在令牌管理中创建的 `nb_sk_...`。
 - 已用临时本地数据库验证：页面可打开、测试用户可注册登录、可创建 API Key，`X-NBAPI-Key` 和 `Authorization: Bearer nb_sk_...` 两种方式都能通过鉴权进入 `/v1/chat/completions` 代理层；临时环境未配置上游 Key 时按预期返回 `upstream_api_key_not_configured`。
+
+## 2026-09-07 Codex++ 站外接入 413 修复
+
+- Codex++ 调用 `https://nbapi.win/v1/responses` 时出现 `413 Payload Too Large`，原因是站外工具会发送较长上下文，请求体被 Nginx 默认大小限制拦截。
+- 已将 `nbapi.nginx` 增加 `client_max_body_size 50m;`，并将后端 `MAX_REQUEST_BODY` 改为可通过 `NBAPI_MAX_REQUEST_BODY` 环境变量配置，默认 50MB。
+- 服务器更新代码后，还需要把仓库里的 `nbapi.nginx` 同步到 `/etc/nginx/sites-available/nbapi`，执行 `nginx -t`，再 reload Nginx；只重启 `nbapi` 服务不能修复 Nginx 层 413。
+- 如果后续 Codex++ 上下文特别大仍出现 413，可继续把 `client_max_body_size` 和 `NBAPI_MAX_REQUEST_BODY` 提高到 100MB。
