@@ -2257,8 +2257,9 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
     const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
     async function pollAsyncTask(apiKey, taskId, taskType, queryPath) {
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        await wait(attempt === 0 ? 800 : 3000);
+      const maxAttempts = taskType === "video" ? 120 : 60;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await wait(attempt === 0 ? 800 : (taskType === "video" ? 5000 : 3000));
         const taskPath = queryPath || (taskType === "video" ? `/v1/videos/${encodeURIComponent(taskId)}` : `/v1/images/tasks/${encodeURIComponent(taskId)}`);
         const response = await fetch(`${API_BASE}${taskPath}`, { headers: { "X-NBAPI-Key": apiKey, "Idempotency-Key": `playground-poll-${taskId}` } });
         const task = await response.json().catch(() => ({}));
@@ -2315,7 +2316,9 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
             : modelMeta.kind.includes("视频")
               ? endpoint.includes("submit/generate")
                 ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
-                : { model: resolvedVideoModel, prompt, ...(model.startsWith("veo-") ? {} : { seconds: String(playgroundVideoDuration.value) }), aspect_ratio: playgroundVideoRatio.value, n: 1 }
+                : model.startsWith("sora-v4-")
+                  ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
+                  : { model: resolvedVideoModel, prompt, ...(model.startsWith("veo-") ? {} : { seconds: String(playgroundVideoDuration.value) }), aspect_ratio: playgroundVideoRatio.value, n: 1 }
               : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
         const requestId = `playground-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
         const response = await fetch(`${API_BASE}${endpoint}`, {
