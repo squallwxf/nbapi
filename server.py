@@ -826,9 +826,15 @@ def cleanup_stale_reservations(db, ttl_seconds: int = 24 * 60 * 60):
         (cutoff,),
     ).fetchall()
     for reservation_id, user_id, token_id, reserved_micros in rows:
+        timestamp = now()
         db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (reserved_micros, user_id))
         db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (reserved_micros, token_id))
-        db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=? AND status='reserved'", (now(), reservation_id))
+        db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=? AND status='reserved'", (timestamp, reservation_id))
+        if reserved_micros > 0:
+            db.execute(
+                "INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'refund_stale_reservation', ?, '超时未结算预扣自动退款', ?)",
+                (user_id, reserved_micros, reservation_id, timestamp),
+            )
 
 
 def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int):
@@ -907,18 +913,33 @@ def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency
     return {"idempotent": False, "amount_micros": actual_micros, "balance_micros": balance, "status": "charged"}
 
 
-def refund_billing(db, user_id: int, idempotency_key: str):
+def refund_billing(db, user_id: int, idempotency_key: str, reason: str = "refund_billing", note: str = "模型调用失败自动退款", client_ip: str = "", latency_ms: int = 0, request_path: str = ""):
     reservation = db.execute(
-        "SELECT id, token_id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
+        "SELECT id, token_id, model_name, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
         (user_id, idempotency_key),
     ).fetchone()
-    if not reservation or reservation[3] != "reserved":
-        return False
-    refund = reservation[2]
+    if not reservation or reservation[4] != "reserved":
+        balance_row = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()
+        return {"refunded": False, "amount_micros": 0, "balance_micros": balance_row[0] if balance_row else 0}
+    refund = reservation[3]
+    timestamp = now()
+    billing_unit_row = db.execute("SELECT billing_unit FROM models WHERE name=?", (reservation[2],)).fetchone()
+    billing_unit = billing_unit_row[0] if billing_unit_row else "per_task"
     db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (refund, user_id))
     db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (refund, reservation[1]))
-    db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=?", (now(), reservation[0]))
-    return True
+    db.execute("UPDATE billing_reservations SET status='refunded', updated_at=? WHERE id=?", (timestamp, reservation[0]))
+    db.execute(
+        "INSERT OR IGNORE INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, request_path, request_id, reserved_micros, adjustment_micros, usage_source) VALUES (?, ?, ?, ?, ?, 0, 0, 'refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, reservation[2], idempotency_key, refund, billing_unit, timestamp, reservation[1], client_ip, latency_ms, request_path, idempotency_key, refund, -refund, reason),
+    )
+    if refund > 0:
+        ledger = db.execute("SELECT id FROM ledger WHERE user_id=? AND idempotency_key=?", (user_id, idempotency_key)).fetchone()
+        db.execute(
+            "INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, refund, reason, ledger[0] if ledger else reservation[0], note, timestamp),
+        )
+    balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
+    return {"refunded": True, "amount_micros": refund, "balance_micros": balance}
 
 
 def settle_wallet_order(order_id: int, action: str):
@@ -1117,10 +1138,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[{self.log_date_time_string()}] {fmt % args}")
 
-    def send_json(self, status: int, payload) -> None:
+    def send_json(self, status: int, payload, headers: dict | None = None) -> None:
         body = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
         self.end_headers()
@@ -1266,6 +1289,13 @@ class Handler(BaseHTTPRequestHandler):
                     reservation = reserve_billing(db, api_user[1], api_user[0], model_name, idempotency_key, reserve_amount)
                     db.execute("COMMIT")
                     reservation_created = not reservation.get("idempotent")
+                    if reservation.get("idempotent"):
+                        self.send_json(409, {
+                            "error": "duplicate_idempotency_key",
+                            "message": "该 Idempotency-Key 已经使用过。为避免上游重复扣费，NBAPI 已拒绝再次提交，请为新的模型调用生成新的 Idempotency-Key。",
+                            "status": reservation.get("status"),
+                        })
+                        return True
                 except ValueError as exc:
                     db.execute("ROLLBACK")
                     self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
@@ -1301,8 +1331,21 @@ class Handler(BaseHTTPRequestHandler):
             if model_row and reservation_created:
                 with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                     db.execute("BEGIN IMMEDIATE")
-                    refund_billing(db, api_user[1], idempotency_key)
+                    refund_result = refund_billing(
+                        db,
+                        api_user[1],
+                        idempotency_key,
+                        "refund_upstream_failure",
+                        f"上游返回 HTTP {resp_status}，模型调用失败自动退款",
+                        client_ip,
+                        round((time.perf_counter() - started_at) * 1000),
+                        path,
+                    )
                     db.execute("COMMIT")
+                if refund_result.get("refunded"):
+                    resp_headers["X-NBAPI-Refunded"] = "1"
+                    resp_headers["X-NBAPI-Refunded-Amount"] = micros_to_dollars(refund_result["amount_micros"])
+                    resp_headers["X-NBAPI-Balance"] = micros_to_dollars(refund_result["balance_micros"])
             self._send_raw_response(resp_status, resp_headers, resp_body)
             return True
 
@@ -1332,9 +1375,33 @@ class Handler(BaseHTTPRequestHandler):
                     if reservation_created:
                         with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                             db.execute("BEGIN IMMEDIATE")
-                            refund_billing(db, api_user[1], idempotency_key)
+                            refund_result = refund_billing(
+                                db,
+                                api_user[1],
+                                idempotency_key,
+                                "refund_usage_unavailable",
+                                "上游未返回可核验 Token 用量，未执行扣费并自动退款",
+                                client_ip,
+                                round((time.perf_counter() - started_at) * 1000),
+                                path,
+                            )
                             db.execute("COMMIT")
-                    self.send_json(502, {"error": "upstream_usage_unavailable", "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。"})
+                    else:
+                        refund_result = {"refunded": False, "amount_micros": 0, "balance_micros": 0}
+                    refund_headers = {}
+                    if refund_result.get("refunded"):
+                        refund_headers = {
+                            "X-NBAPI-Refunded": "1",
+                            "X-NBAPI-Refunded-Amount": micros_to_dollars(refund_result["amount_micros"]),
+                            "X-NBAPI-Balance": micros_to_dollars(refund_result["balance_micros"]),
+                        }
+                    self.send_json(502, {
+                        "error": "upstream_usage_unavailable",
+                        "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。",
+                        "refunded": bool(refund_result.get("refunded")),
+                        "refundAmount": micros_to_dollars(refund_result.get("amount_micros", 0)),
+                        "balance": micros_to_dollars(refund_result.get("balance_micros", 0)),
+                    }, refund_headers)
                     return True
                 amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens = calculate_token_charge_micros(model_row, response_payload)
                 usage_source = "gemini" if extract_usage_object(response_payload) is response_payload.get("usageMetadata") else "openai_compatible"
@@ -1535,8 +1602,8 @@ class Handler(BaseHTTPRequestHandler):
                 model_count = db.execute("SELECT COUNT(*) FROM models WHERE active=1").fetchone()[0]
                 channel_count = db.execute("SELECT COUNT(*) FROM channels WHERE active=1").fetchone()[0]
                 if user:
-                    today_requests = db.execute("SELECT COUNT(*) FROM ledger WHERE user_id=? AND created_at>=?", (user[0], today_start)).fetchone()[0]
-                    month_amount = db.execute("SELECT COALESCE(SUM(amount_micros),0) FROM ledger WHERE user_id=? AND created_at>=?", (user[0], month_start)).fetchone()[0]
+                    today_requests = db.execute("SELECT COUNT(*) FROM ledger WHERE user_id=? AND status='charged' AND created_at>=?", (user[0], today_start)).fetchone()[0]
+                    month_amount = db.execute("SELECT COALESCE(SUM(amount_micros),0) FROM ledger WHERE user_id=? AND status='charged' AND created_at>=?", (user[0], month_start)).fetchone()[0]
                     avg_latency = db.execute("SELECT COALESCE(AVG(latency_ms),0) FROM ledger WHERE user_id=? AND created_at>=? AND latency_ms>0", (user[0], today_start)).fetchone()[0]
                     balance = user[3]
                 else:

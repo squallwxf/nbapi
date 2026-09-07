@@ -170,3 +170,20 @@ systemctl is-active nbapi
 ```
 
 数据库 `nbapi.sqlite3` 和 `/etc/nbapi.env` 不在 Git 更新范围内，不能用仓库文件覆盖线上数据和密钥。
+
+## 2026-09-07 失败退款与幂等加固
+
+- 已检查所有模型代理调用的失败退款路径：上游返回非 2xx、Token 模型上游未返回可核验 usage、异步图片/视频任务失败或取消、预扣长期未结算，都会把已预扣金额退回用户余额并回退令牌已用额度。
+- 普通上游失败和 usage 不可核验退款现在会写入 `balance_transactions`，并写入一条 `ledger.status='refunded'` 的使用日志，方便超级管理员和用户后续对账。
+- 失败退款响应会附带 `X-NBAPI-Refunded`、`X-NBAPI-Refunded-Amount`、`X-NBAPI-Balance`；操练场收到这些信息后会提示“预扣费用已自动退回”。
+- 已修复一个关键幂等风险：相同 `Idempotency-Key` 已经存在预扣或账单时，NBAPI 现在直接返回 `409 duplicate_idempotency_key`，不再继续请求上游，避免“上游重复扣费但 NBAPI 不重复扣费”的亏损风险。
+- 控制台首页的今日请求和本月消耗现在只统计 `ledger.status='charged'` 的成功扣费记录，已退款失败记录不会计入净消耗。
+- 本次未修改模型参数、供应商渠道、模型价格或令牌生成逻辑。
+
+## 2026-09-07 接口文档完善与调用验证
+
+- 控制台“接口文档”已统一为真实推荐鉴权方式：优先使用 `X-NBAPI-Key: nb_sk_xxx`，同时说明仍兼容 `Authorization: Bearer nb_sk_xxx`。
+- 文档示例已补充每次新调用必须使用唯一 `Idempotency-Key`，并说明重复幂等键会返回 `409 duplicate_idempotency_key`。
+- 图片和视频文档已明确任务查询也需要携带 NBAPI 令牌，并补充异步失败退款响应头说明。
+- 已新增 OpenAI SDK / Codex 可用的接入示例：`baseURL=https://nbapi.win/v1`，API Key 使用用户在令牌管理中创建的 `nb_sk_...`。
+- 已用临时本地数据库验证：页面可打开、测试用户可注册登录、可创建 API Key，`X-NBAPI-Key` 和 `Authorization: Bearer nb_sk_...` 两种方式都能通过鉴权进入 `/v1/chat/completions` 代理层；临时环境未配置上游 Key 时按预期返回 `upstream_api_key_not_configured`。

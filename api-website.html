@@ -1040,38 +1040,60 @@
                 <div><h2>NBAPI 接口文档</h2><p>使用你的 NBAPI 令牌，以兼容 OpenAI、Claude 和 Gemini 的方式调用已开放模型。</p><div class="docs-base-url"><strong>API 接口地址</strong><code id="docsBaseUrl">https://nbapi.win/v1</code><button class="btn" type="button" data-copy-doc="https://nbapi.win/v1">复制地址</button></div></div>
                 <div><span class="tag green">OpenAI Compatible</span><p style="margin-top:8px;">余额按真实用量自动扣费</p></div>
               </section>
-              <section class="panel docs-section full"><h3>开始接入</h3><p>先在“令牌管理”创建令牌。完整 Key 只在创建时显示，请将下面示例中的 `nb_sk_xxx` 替换为你的令牌。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsAuthCode">复制</button><pre class="code docs-code" id="docsAuthCode">Authorization: Bearer nb_sk_xxx
+              <section class="panel docs-section full"><h3>开始接入</h3><p>先在“令牌管理”创建令牌。完整 Key 只在创建时显示，请将下面示例中的 `nb_sk_xxx` 替换为你的令牌。推荐使用 `X-NBAPI-Key`，也兼容 `Authorization: Bearer nb_sk_xxx`。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsAuthCode">复制</button><pre class="code docs-code" id="docsAuthCode">X-NBAPI-Key: nb_sk_xxx
 Content-Type: application/json
 Idempotency-Key: your-unique-request-id</pre></div></section>
               <div class="docs-grid">
                 <section class="panel docs-section"><h3>OpenAI 对话</h3><p>适用于 GPT 等 OpenAI 兼容对话模型。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsOpenAiCode">复制</button><pre class="code docs-code" id="docsOpenAiCode">curl https://nbapi.win/v1/chat/completions \
-  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: chat-001" \
   -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"你好"}],"max_tokens":256}'</pre></div></section>
                 <section class="panel docs-section"><h3>Claude 对话</h3><p>使用 Anthropic Messages 兼容格式。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsClaudeCode">复制</button><pre class="code docs-code" id="docsClaudeCode">curl https://nbapi.win/v1/messages \
-  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: claude-001" \
   -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"你好"}]}'</pre></div></section>
                 <section class="panel docs-section"><h3>Gemini 对话</h3><p>使用 Gemini 原生 `v1beta` 格式。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsGeminiCode">复制</button><pre class="code docs-code" id="docsGeminiCode">curl "https://nbapi.win/v1beta/models/gemini-3.1-pro-preview:generateContent" \
-  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: gemini-001" \
   -d '{"contents":[{"role":"user","parts":[{"text":"你好"}]}]}'</pre></div></section>
                 <section class="panel docs-section"><h3>图片生成</h3><p>异步接口：提交任务后查询任务状态。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsImageCode">复制</button><pre class="code docs-code" id="docsImageCode">curl https://nbapi.win/v1beta/models/T香蕉2:generateContent \
-  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: image-001" \
   -d '{"contents":[{"role":"user","parts":[{"text":"生成一张城市夜景"}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"16:9","imageSize":"2K"}}}'
 
-GET https://nbapi.win/v1/images/tasks/{task_id}</pre></div></section>
+curl https://nbapi.win/v1/images/tasks/{task_id} \
+  -H "X-NBAPI-Key: nb_sk_xxx"</pre></div></section>
                 <section class="panel docs-section"><h3>视频生成</h3><p>按模型系列使用对应的视频端点和参数。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsVideoCode">复制</button><pre class="code docs-code" id="docsVideoCode">curl https://nbapi.win/v1/videos \
-  -H "Authorization: Bearer nb_sk_xxx" \
+  -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: video-001" \
   -d '{"model":"veo-3.1-fast-1080","prompt":"城市夜景，电影感","aspect_ratio":"16:9","n":1}'
 
-GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
+curl https://nbapi.win/v1/videos/{task_id} \
+  -H "X-NBAPI-Key: nb_sk_xxx"</pre></div></section>
+                <section class="panel docs-section"><h3>Codex / SDK 接入</h3><p>OpenAI 兼容 SDK 可直接把 baseURL 指向 NBAPI，API Key 使用你创建的 NBAPI 令牌。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsSdkCode">复制</button><pre class="code docs-code" id="docsSdkCode">import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: "nb_sk_xxx",
+  baseURL: "https://nbapi.win/v1",
+  defaultHeaders: {
+    "X-NBAPI-Key": "nb_sk_xxx"
+  }
+});
+
+const result = await client.chat.completions.create({
+  model: "gpt-5.5",
+  messages: [{ role: "user", content: "你好" }]
+});
+
+console.log(result.choices[0].message.content);</pre></div></section>
                 <section class="panel docs-section"><h3>模型列表</h3><p>下面列表来自服务器当前启用的模型。</p><div class="docs-model-list" id="docsModelList"><span class="muted">正在加载模型列表...</span></div></section>
               </div>
-              <section class="panel docs-section full"><h3>参数与计费</h3><table class="docs-table"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>输入/补全 Token</td><td>按服务器模型价格分别计算，单位为每 1M Token。</td></tr><tr><td>图片/视频</td><td>按模型设置的每次价格计费；异步任务失败或取消会自动退款。</td></tr><tr><td>幂等键</td><td>建议每个业务请求传递唯一 `Idempotency-Key`，重复请求不会重复扣费。</td></tr><tr><td>错误处理</td><td>HTTP 4xx 表示请求、令牌或余额问题；HTTP 5xx 表示上游或服务异常，请根据 `error` 和 `requestId` 排查。</td></tr></tbody></table></section>
+              <section class="panel docs-section full"><h3>参数与计费</h3><table class="docs-table"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>接口地址</td><td>OpenAI 兼容接口使用 `https://nbapi.win/v1`，Gemini 原生接口使用 `https://nbapi.win/v1beta`。</td></tr><tr><td>鉴权方式</td><td>推荐传 `X-NBAPI-Key: nb_sk_xxx`；也兼容 `Authorization: Bearer nb_sk_xxx`。令牌归属哪个用户，就从哪个用户余额扣费。</td></tr><tr><td>输入/补全 Token</td><td>按服务器模型价格分别计算，单位为每 1M Token。NBAPI 只按上游返回的真实 usage 结算。</td></tr><tr><td>图片/视频</td><td>按模型设置的每次价格计费；异步任务失败或取消会自动退款。查询任务也需要携带自己的 NBAPI 令牌。</td></tr><tr><td>幂等键</td><td>每次新调用必须传唯一 `Idempotency-Key`。重复使用同一个值会返回 `409 duplicate_idempotency_key`，避免上游重复扣费。</td></tr><tr><td>退款提示</td><td>失败自动退款时，响应头会包含 `X-NBAPI-Refunded`、`X-NBAPI-Refunded-Amount`、`X-NBAPI-Balance`。</td></tr><tr><td>错误处理</td><td>HTTP 4xx 表示请求、令牌或余额问题；HTTP 5xx 表示上游或服务异常，请根据 `error` 和 `requestId` 排查。</td></tr></tbody></table></section>
             </article>
             <article class="panel detail-card" id="users">
               <div class="management-top">
@@ -2327,7 +2349,12 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
           body: JSON.stringify(requestBody)
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error?.message || data.error || `调用失败（${response.status}）`);
+        if (!response.ok) {
+          const refunded = response.headers.get("X-NBAPI-Refunded") === "1" || data.refunded;
+          const refundAmount = response.headers.get("X-NBAPI-Refunded-Amount") || data.refundAmount || "";
+          const refundText = refunded ? `，预扣费用已自动退回${refundAmount ? ` $${refundAmount}` : ""}` : "";
+          throw new Error(`${data.error?.message || data.error || `调用失败（${response.status}）`}${refundText}`);
+        }
         const charged = response.headers.get("X-NBAPI-Charged");
         const latestBalance = response.headers.get("X-NBAPI-Balance");
         const asyncTaskId = isAsyncMedia ? (data.task_id || data.taskId || data.id) : "";
