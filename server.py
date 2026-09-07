@@ -487,8 +487,6 @@ def init_db() -> None:
         ):
             if column not in channel_columns:
                 db.execute(f"ALTER TABLE channels ADD COLUMN {column} {definition}")
-        # Keep token hashes usable while removing legacy plaintext copies at rest.
-        db.execute("UPDATE api_tokens SET token_secret='' WHERE token_secret<>''")
         timestamp = now()
         super_admin_row = db.execute(
             "SELECT id, username FROM users WHERE role='super_admin' ORDER BY id LIMIT 1"
@@ -1728,11 +1726,11 @@ class Handler(BaseHTTPRequestHandler):
             if user:
                 with sqlite3.connect(DB_PATH) as db:
                     rows = db.execute(
-                        "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist FROM api_tokens WHERE user_id=? ORDER BY id DESC",
+                        "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist, token_secret FROM api_tokens WHERE user_id=? ORDER BY id DESC",
                         (user[0],),
                     ).fetchall()
                 self.send_json(200, {"items": [{
-                    "id": r[0], "name": r[1], "hint": r[2], "token": None, "canCopyFullToken": False, "active": bool(r[3]),
+                    "id": r[0], "name": r[1], "hint": r[2], "token": r[13] or None, "canCopyFullToken": bool(r[13]), "active": bool(r[3]),
                     "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6], "group": r[7],
                     "quota": micros_to_dollars(r[8]), "unlimitedQuota": bool(r[9]), "usedQuota": micros_to_dollars(r[10]),
                     "allowedModels": split_lines(r[11]), "ipAllowlist": split_lines(r[12])
@@ -2070,8 +2068,8 @@ class Handler(BaseHTTPRequestHandler):
                         item_name = name if count == 1 else f"{name}-{index + 1}"
                         cursor = db.execute(
                             """INSERT INTO api_tokens(user_id, name, token_hash, token_secret, token_hint, active, created_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist)
-                               VALUES (?, ?, ?, '', ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)""",
-                            (user[0], item_name, token_hash, token_hint, now(), expires_at, group_name, quota_micros, 1 if unlimited else 0, "\n".join(allowed_models), "\n".join(ip_allowlist)),
+                               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)""",
+                            (user[0], item_name, token_hash, raw_token, token_hint, now(), expires_at, group_name, quota_micros, 1 if unlimited else 0, "\n".join(allowed_models), "\n".join(ip_allowlist)),
                         )
                         created_items.append({"id": cursor.lastrowid, "name": item_name, "token": raw_token, "hint": token_hint, "active": True, "expiresAt": expires_at})
                 self.send_json(201, {"items": created_items, **(created_items[0] if count == 1 else {})})

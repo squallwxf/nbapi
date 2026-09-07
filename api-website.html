@@ -1549,9 +1549,12 @@ console.log(result.choices[0].message.content);</pre></div></section>
       try {
         const data = await apiRequest("/api/tokens");
         const cachedTokens = readTokenCache();
-        const playgroundTokenOptions = data.items.filter((item) => item.active && cachedTokens[item.id]).map((item) => `<option value="${escapeHtml(cachedTokens[item.id])}">${escapeHtml(item.name)} · ${escapeHtml(item.hint)}</option>`);
-        playgroundToken.innerHTML = playgroundTokenOptions.length ? playgroundTokenOptions.join("") : "<option value=\"\">当前浏览器没有可用完整 Key</option>";
-        tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。新创建的 Key 可直接复制完整值。` : "令牌已安全存储在服务端。";
+        data.items.forEach((item) => { if (item.id && item.token) cachedTokens[item.id] = item.token; });
+        writeTokenCache(cachedTokens);
+        const fullTokenFor = (item) => item.token || cachedTokens[item.id] || "";
+        const playgroundTokenOptions = data.items.filter((item) => item.active && fullTokenFor(item)).map((item) => `<option value="${escapeHtml(fullTokenFor(item))}">${escapeHtml(item.name)} · ${escapeHtml(item.hint)}</option>`);
+        playgroundToken.innerHTML = playgroundTokenOptions.length ? playgroundTokenOptions.join("") : "<option value=\"\">暂无可用完整 Key，请创建或重置令牌</option>";
+        tokenAuthHint.textContent = currentUser ? `${currentUser.username} 的令牌。已保存完整值的 Key 可随时复制，代码更新不会使 Key 失效。` : "令牌已安全存储在服务端。";
         tokenList.innerHTML = data.items.length ? `
           <table class="token-table">
             <thead><tr><th><input type="checkbox" id="selectAllTokens" aria-label="全选令牌" /></th><th>名称</th><th>状态</th><th>剩余额度/总额度</th><th>分组</th><th>密钥</th><th>可用模型</th><th>IP 限制</th><th>创建时间</th><th>最后使用时间</th><th>过期时间</th><th>操作</th></tr></thead>
@@ -1568,7 +1571,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <td>${formatTokenDate(item.createdAt)}</td>
                 <td>${formatTokenDate(item.lastUsedAt)}</td>
                 <td>${item.expiresAt ? formatTokenDate(item.expiresAt) : "永不过期"}</td>
-                <td><div class="token-actions">${cachedTokens[item.id] ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="完整 Key 只在创建时返回，遗失后无法恢复">需重新创建</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : `<button class="btn" type="button" data-enable-token="${item.id}">启用</button>`}<button class="btn" type="button" data-delete-token="${item.id}">删除</button></div></td>
+                <td><div class="token-actions">${fullTokenFor(item) ? `<button class="btn" type="button" data-copy-token-id="${item.id}">复制 Key</button>` : `<button class="btn" type="button" disabled title="旧版本没有保存完整 Key，但已保存过的原 Key 仍可继续使用">仅脱敏显示</button>`}${item.active ? `<button class="btn" type="button" data-disable-token="${item.id}">禁用</button>` : `<button class="btn" type="button" data-enable-token="${item.id}">启用</button>`}<button class="btn" type="button" data-delete-token="${item.id}">删除</button></div></td>
               </tr>`).join("")}</tbody>
           </table>` : "<small>暂无令牌，请点击“添加令牌”。</small>";
         tokenList.querySelectorAll("[data-copy-token-id]").forEach((button) => button.addEventListener("click", () => copyFullToken(cachedTokens[button.dataset.copyTokenId])));
@@ -1618,7 +1621,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       const cache = readTokenCache();
       const keys = ids.map((id) => cache[id]).filter(Boolean);
       if (!ids.length) { alert("请先选择令牌。"); return; }
-      if (!keys.length) { alert("所选令牌的完整 Key 不在当前浏览器中，请重新创建令牌。"); return; }
+      if (!keys.length) { alert("所选令牌没有可复制的完整 Key。旧版本创建的 Key 如果后端未保存完整值，仍可继续使用，但无法从脱敏值恢复。"); return; }
       await copyModelName(keys.join("\n"));
       showToast(`已复制 ${keys.length} 个 Key`);
     });
@@ -2530,7 +2533,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
 
     async function copyFullToken(token) {
       if (!token) {
-        alert("这个令牌创建于旧版本，后端没有保存完整 Key，请重新创建一个新令牌。");
+        alert("这个令牌没有保存完整 Key。旧 Key 本身没有失效，如果你以前保存过仍可继续使用；脱敏值无法反推出完整 Key。");
         return;
       }
       await copyModelName(token);
@@ -2696,7 +2699,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         activeApiKey = items[0].token || "";
         localStorage.setItem("nbapi-active-api-key", activeApiKey);
         closeTokenCreator();
-        alert(`成功创建 ${items.length} 个令牌。完整 Key 仅在本次创建结果中显示，并已支持在当前浏览器列表中复制。\n\n${items.map((item) => `${item.name}: ${item.token}`).join("\n")}`);
+        alert(`成功创建 ${items.length} 个令牌。完整 Key 已保存，可在令牌管理列表中继续复制；不要公开给他人。\n\n${items.map((item) => `${item.name}: ${item.token}`).join("\n")}`);
         loadTokens();
       } catch (error) { alert(error.message); } finally { submitTokenModal.disabled = false; }
     });
