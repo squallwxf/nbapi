@@ -1018,10 +1018,15 @@ def settle_media_task_status(db, user_id: int, token_id: int, task_id: str, payl
         db.execute("UPDATE media_tasks SET status='failed', updated_at=? WHERE id=? AND status='submitted'", (now(), task[0]))
         return False
     amount = ledger[1]
+    timestamp = now()
     db.execute("UPDATE users SET balance_micros=balance_micros+? WHERE id=?", (amount, user_id))
     db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (amount, token_id))
     db.execute("UPDATE ledger SET status='refunded' WHERE id=? AND status='charged'", (ledger[0],))
-    db.execute("UPDATE media_tasks SET status='refunded', error_message=?, updated_at=? WHERE id=? AND status='submitted'", (str(payload.get("error", "task_failed"))[:500] if isinstance(payload, dict) else "task_failed", now(), task[0]))
+    db.execute(
+        "INSERT INTO balance_transactions(user_id, amount_micros, type, reference_id, note, created_at) VALUES (?, ?, 'refund_media_task', ?, '异步媒体任务失败自动退款', ?)",
+        (user_id, amount, ledger[0], timestamp),
+    )
+    db.execute("UPDATE media_tasks SET status='refunded', error_message=?, updated_at=? WHERE id=? AND status='submitted'", (str(payload.get("error", "task_failed"))[:500] if isinstance(payload, dict) else "task_failed", timestamp, task[0]))
     return True
 
 
@@ -1302,15 +1307,17 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
         response_payload = extract_response_payload(decode_upstream_body(resp_body, resp_headers))
-        if method == "GET" and (path.startswith("/v1/images/tasks/") or path.startswith("/v1/videos/")):
+        if method == "GET" and (path.startswith("/v1/images/tasks/") or path.startswith("/v1/videos/") or path.startswith("/v1/video/fetch/")):
             task_id = unquote(path.rstrip("/").rsplit("/", 1)[-1]).strip()
             if task_id:
                 with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                     db.execute("BEGIN IMMEDIATE")
                     refunded = settle_media_task_status(db, api_user[1], api_user[0], task_id, response_payload)
+                    balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (api_user[1],)).fetchone()[0]
                     db.execute("COMMIT")
                 if refunded:
                     resp_headers["X-NBAPI-Refunded"] = "1"
+                    resp_headers["X-NBAPI-Balance"] = micros_to_dollars(balance)
         if model_row:
             billing_unit = model_row[4]
             price_micros = model_row[5]

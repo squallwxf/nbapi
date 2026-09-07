@@ -2240,6 +2240,20 @@ GET https://nbapi.win/v1/videos/{task_id}</pre></div></section>
       playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
     }
 
+    function appendPlaygroundVideo(url) {
+      const message = document.createElement("div");
+      message.className = "playground-message assistant";
+      const label = document.createElement("div");
+      label.textContent = "视频生成成功";
+      const video = document.createElement("video");
+      video.src = url;
+      video.controls = true;
+      video.style.cssText = "display:block;max-width:min(620px,100%);margin-top:8px;border-radius:8px;";
+      message.append(label, video);
+      playgroundMessages.appendChild(message);
+      playgroundMessages.scrollTop = playgroundMessages.scrollHeight;
+    }
+
     const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
     async function pollAsyncTask(apiKey, taskId, taskType, queryPath) {

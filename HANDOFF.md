@@ -9,7 +9,7 @@
 - 服务器域名：`nbapi.win`
 - 对外调用地址：`https://nbapi.win/v1`
 - 服务器项目目录：`/opt/nbapi`
-- 本地项目目录：`D:\ai web`
+- 本地项目目录：`D:\nbapi`
 
 ## 下次换电脑怎么继续
 
@@ -29,10 +29,13 @@
 在 PowerShell 中执行：
 
 ```powershell
-cd "D:\\ai web"
-git add .
-git commit -m "更新网站"
-git push
+cd "D:\\nbapi"
+python -m py_compile server.py
+git diff --check
+git status --short
+git add server.py api-website.html HANDOFF.md README.md
+git commit -m "更新项目"
+git push origin main
 ```
 
 ### 服务器
@@ -41,13 +44,15 @@ SSH 登录服务器后，逐条执行：
 
 ```bash
 cd /opt/nbapi
+python3 tools/backup_db.py
 git pull
 ```
 
 如果修改了 `server.py`：
 
 ```bash
-systemctl restart nbapi
+sudo systemctl restart nbapi
+curl -i https://nbapi.win/health
 ```
 
 如果修改了 `nbapi.nginx`：
@@ -79,6 +84,7 @@ nginx -t && systemctl reload nginx
 - 操练场调用走真实上游代理，会执行令牌限制、余额检查和模型计费；没有可复制的完整 Key 时不能发起测试。
 - 渠道地址可填写站点根地址，也可误填带 `/v1`/`/v1beta` 的地址，后端会自动去除版本后缀，避免重复拼接。
 - 操练场图片模型提交任务后，会轮询 `/v1/images/tasks/{task_id}`，成功时展示图片地址和预览；轮询不会重复计费。
+- 操练场图片和视频任务如果后续轮询到 `failed` / `error` / `cancelled`，后端会自动把本次按次扣费退回，并写入 `balance_transactions`。
 - 操练场调用完成后会读取服务器 `/api/me` 刷新余额，并读取 `X-NBAPI-Charged`/`X-NBAPI-Balance` 显示本次实际扣费和最新余额。
 - 使用日志已改为真实账单页：按时间、令牌、模型、分组、Request ID、计费类型筛选，显示令牌归属、IP、耗时、输入/输出 Token、花费，并支持统计、详情展开、分页和每页数量。
 - `ledger` 会自动增加 `client_ip`、`latency_ms`、`request_path`、`request_id` 字段；旧线上数据库启动时会自动迁移，旧记录的新增字段为空是正常现象。
