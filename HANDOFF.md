@@ -9,8 +9,9 @@
 - 服务器域名：`nbapi.win`
 - 对外调用地址：`https://nbapi.win/v1`
 - 服务器项目目录：`/opt/nbapi`
-- 本地项目目录：`D:\nbapi`
-
+- 本地项目目录：`D:\ai web`
+- Nginx 已开启 443，HTTPS 和 Cloudflare 链路已验证通过
+- 当前供应商测试报错为 `upstream_api_key_not_configured`，说明上游 key 还没在供应商配置里正确填写
 ## 下次换电脑怎么继续
 
 1. 克隆仓库
@@ -19,6 +20,7 @@
 4. 再看这份 `HANDOFF.md`
 5. 需要修改页面就改 `api-website.html`
 6. 需要改接口和计费就改 `server.py`
+7. 如果继续排查供应商测试，先检查 NB 供应商的上游 API Key、上游地址和认证方式是否完整
 
 ## 本地代码上传服务器
 
@@ -125,6 +127,7 @@ nginx -t && systemctl reload nginx
 - 数据库路径可通过 `NBAPI_DB_PATH` 改
 - 备份目录可通过 `NBAPI_BACKUP_DIR` 改
 - 服务器改动后要记得同步到仓库
+- 证书内容不要提交到 GitHub，只保留 Nginx 配置文件
 
 ## 2026-09-04 ZPAY 联调状态
 
@@ -194,3 +197,5 @@ systemctl is-active nbapi
 - 已将 `nbapi.nginx` 增加 `client_max_body_size 50m;`，并将后端 `MAX_REQUEST_BODY` 改为可通过 `NBAPI_MAX_REQUEST_BODY` 环境变量配置，默认 50MB。
 - 服务器更新代码后，还需要把仓库里的 `nbapi.nginx` 同步到 `/etc/nginx/sites-available/nbapi`，执行 `nginx -t`，再 reload Nginx；只重启 `nbapi` 服务不能修复 Nginx 层 413。
 - 如果后续 Codex++ 上下文特别大仍出现 413，可继续把 `client_max_body_size` 和 `NBAPI_MAX_REQUEST_BODY` 提高到 100MB。
+
+
