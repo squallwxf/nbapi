@@ -336,6 +336,16 @@
     .usage-stat { padding:14px 16px; background:var(--surface-2); border:1px solid var(--line); border-radius:8px; }
     .usage-stat span { display:block; color:var(--muted); font-size:12px; }
     .usage-stat strong { display:block; margin-top:5px; font-size:22px; }
+    .wallet-consumption-summary { margin-top: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); font-size: 18px; font-weight: 800; color: var(--text); }
+    .wallet-consumption-summary strong { color: var(--blue); font-size: 24px; }
+    .wallet-model-chart { display: grid; gap: 13px; margin-top: 14px; }
+    .wallet-model-row { display: grid; grid-template-columns: minmax(150px, 220px) minmax(120px, 1fr) 150px; align-items: center; gap: 12px; }
+    .wallet-model-name { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+    .wallet-model-track { height: 18px; overflow: hidden; border-radius: 4px; background: var(--line); }
+    .wallet-model-bar { height: 100%; min-width: 3px; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+    .wallet-model-value { text-align: right; color: var(--muted); font-size: 14px; white-space: nowrap; }
+    .wallet-chart-empty { padding: 16px; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line); border-radius: 8px; }
+    @media (max-width:800px) { .wallet-model-row { grid-template-columns: 1fr; gap: 5px; } .wallet-model-value { text-align: left; } }
     .usage-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; padding:14px; background:var(--surface-2); border:1px solid var(--line); border-radius:8px; }
     .usage-filters .auth-field { min-width:0; }
     .usage-filter-actions { display:flex; align-items:end; gap:8px; }
@@ -1179,7 +1189,9 @@ console.log(result.choices[0].message.content);</pre></div></section>
           <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>商户订单号</th><th>金额</th><th>支付方式</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody id="walletOrders"><tr><td colspan="6" class="muted">暂无充值记录。</td></tr></tbody></table></div>
           <h3>消费统计</h3>
           <div class="auth-actions"><select class="auth-input" id="consumptionPeriod" style="max-width:180px"><option value="today">今日</option><option value="week">本周</option><option value="month">本月</option></select><button class="btn" id="queryConsumption" type="button">查询消费</button></div>
-          <div class="key-box" id="consumptionSummary">选择统计周期后查询消费总额。</div>
+          <div class="wallet-consumption-summary" id="consumptionSummary">选择统计周期后查询消费总额。</div>
+          <h3>模型消费明细</h3>
+          <div class="wallet-model-chart" id="walletModelChart"><div class="wallet-chart-empty">查询后显示各模型消费金额。</div></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="settings">
@@ -1235,6 +1247,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const consumptionPeriod = document.getElementById("consumptionPeriod");
     const queryConsumption = document.getElementById("queryConsumption");
     const consumptionSummary = document.getElementById("consumptionSummary");
+    const walletModelChart = document.getElementById("walletModelChart");
     const docsModelList = document.getElementById("docsModelList");
     const dashboardModels = document.getElementById("dashboardModels");
     const dashboardTodayRequests = document.getElementById("dashboardTodayRequests");
@@ -1435,6 +1448,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       if (walletStatus) walletStatus.textContent = "登录后可提交充值申请。";
       if (walletOrders) walletOrders.innerHTML = '<tr><td colspan="6" class="muted">暂无充值记录。</td></tr>';
       if (consumptionSummary) consumptionSummary.textContent = "选择统计周期后查询消费总额。";
+      if (walletModelChart) walletModelChart.innerHTML = '<div class="wallet-chart-empty">查询后显示各模型消费金额。</div>';
     }
 
     async function performUserLogin(username, password, source = "登录") {
@@ -1516,7 +1530,16 @@ console.log(result.choices[0].message.content);</pre></div></section>
         const data = await apiRequest(`/api/wallet?period=${encodeURIComponent(consumptionPeriod.value)}`);
         if (requestVersion !== authVersion || requestToken !== sessionToken || requestUserId !== currentUser?.id) return;
         walletStatus.textContent = `当前余额：$${Number(data.balance || 0).toFixed(6)}。支付成功后余额会自动到账。`;
-        consumptionSummary.textContent = `${data.consumption?.label || "所选周期"}消费总额：$${Number(data.consumption?.amount || 0).toFixed(6)}，共 ${Number(data.consumption?.requests || 0).toLocaleString()} 次已扣费调用。`;
+        const consumptionAmount = Number(data.consumption?.amount || 0);
+        const consumptionRequests = Number(data.consumption?.requests || 0);
+        consumptionSummary.innerHTML = `${data.consumption?.label || "所选周期"}消费总额：<strong>$${consumptionAmount.toFixed(6)}</strong>，共 ${consumptionRequests.toLocaleString()} 次已扣费调用。`;
+        const models = data.consumption?.models || [];
+        const maxModelAmount = Math.max(...models.map((item) => Number(item.amount || 0)), 0);
+        walletModelChart.innerHTML = models.length ? models.map((item) => {
+          const amount = Number(item.amount || 0);
+          const width = maxModelAmount > 0 ? Math.max(2, amount / maxModelAmount * 100) : 2;
+          return `<div class="wallet-model-row"><div class="wallet-model-name">${escapeHtml(item.model || "未知模型")}</div><div class="wallet-model-track" title="${amount.toFixed(6)}"><div class="wallet-model-bar" style="width:${width.toFixed(2)}%"></div></div><div class="wallet-model-value">$${amount.toFixed(6)} · ${Number(item.requests || 0).toLocaleString()} 次</div></div>`;
+        }).join("") : '<div class="wallet-chart-empty">该统计周期暂无模型消费记录。</div>';
         walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => {
           const canSync = item.status === "pending" && item.paymentProvider === "zpay";
           return `<tr><td><code>${escapeHtml(item.merchantOrderNo || `#${item.id}`)}</code></td><td>¥${Number(item.amount).toFixed(2)}</td><td>${item.paymentMethod === "wxpay" ? "微信支付" : "支付宝"}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待支付"}</td><td>${formatTokenDate(item.createdAt)}</td><td>${canSync ? `<button class="btn" type="button" onclick="syncWalletOrder(${Number(item.id)})">查询支付结果</button>` : "-"}</td></tr>`;
