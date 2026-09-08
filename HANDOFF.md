@@ -99,6 +99,8 @@ nginx -t && systemctl reload nginx
 - 2026-09-09 已完善 ZPAY 订单链路：`POST /api/wallet/orders` 创建 ZPAY 待支付订单并返回标准页面跳转地址；`GET/POST /api/payment/zpay/notify` 接收回调，校验 `pid`、`TRADE_SUCCESS`、支付方式、订单金额和 MD5 签名后才自动入账。回调入账使用 SQLite 事务和订单状态保护，重复通知不会重复充值。待支付订单可通过 `POST /api/wallet/orders/{id}/sync` 由服务器向 ZPAY 查询结果，解决回调延迟或支付完成返回网站后尚未到账的情况；查询不会向浏览器泄露商户密钥，也不会重复入账。
 - 钱包管理页面的充值档位固定为 `10/20/50/100` 元人民币，后端同步强制校验这四个档位；消费统计提供今日、本周、本月三个周期，并由服务器按北京时间计算边界，只计算 `ledger.status='charged'` 的真实调用，不包含充值、预扣和退款。充值采用 1 元人民币 = 1 个账户余额单位，模型余额显示仍沿用美元格式。
 - 使用日志权限：普通用户和普通管理员只能查看自己的日志；超级管理员在日志页可选择“我的日志”或“所有用户”，后端通过 `scope=self/all` 强制过滤，默认重置为“我的日志”。
+- 2026-09-09 Token 计费复核：所有按 Token 模型均按上游响应的真实输入/补全/缓存用量，以每 1M Token 的模型定价结算。已修复 Claude 原生 usage 中 `input_tokens` 不含 `cache_read_input_tokens` 却被二次减除的问题；Claude 现在分别结算普通输入、缓存读取、缓存写入和补全。OpenAI-compatible 与 Gemini 的总输入包含缓存 Token，仍会先剔除缓存部分再按缓存价计算。新增模型的零价格会在服务启动时仅补齐缺失价格，已存在的超级管理员自定义价格不会被覆盖。
+- 已修复切换用户后使用日志沿用旧账号分页页码的问题：切换或退出账号时会重置日志页码、筛选状态、统计卡和列表，日志请求也会校验当前会话和用户 ID，旧账号的延迟响应不能覆盖新账号页面。
 - 生产环境的 `/etc/nbapi.env` 必须自行配置 `NBAPI_ZPAY_PID`、`NBAPI_ZPAY_KEY`、`NBAPI_ZPAY_NOTIFY_URL=https://nbapi.win/api/payment/zpay/notify`、`NBAPI_ZPAY_RETURN_URL=https://nbapi.win/#wallet`、`NBAPI_ZPAY_MIN_TOPUP=1` 和 `NBAPI_ZPAY_MAX_TOPUP=10000`。可选的 `NBAPI_ZPAY_CID` 仅在 ZPAY 后台已确认支付宝渠道 ID 时设置；商户密钥绝不进入仓库。
 - ZPAY 上线前必须在服务器配置 `NBAPI_ZPAY_PID`、`NBAPI_ZPAY_KEY`，并确认 `NBAPI_ZPAY_NOTIFY_URL=https://nbapi.win/api/payment/zpay/notify` 可从公网访问；配置后重启 `nbapi` 服务。未配置商户参数时，充值接口会返回 `zpay_not_configured`。
 - ZPAY 回调还会拒绝已绑定到其他订单的 `trade_no`；数据库对非空商户订单号和上游交易号均建立唯一索引。

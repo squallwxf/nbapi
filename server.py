@@ -563,6 +563,17 @@ def init_db() -> None:
                 input_price, output_price, cache_read, cache_write = (token_prices + [0, 0, 0, 0])[:4]
                 db.execute("UPDATE models SET billing_unit=?, price_micros=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (unit, price, input_price, output_price, cache_read, cache_write, timestamp, name))
             set_setting(db, "pricing_schema_version", "4")
+        # Backfill newly added token models or incomplete token prices without
+        # overwriting prices that a super administrator has already set.
+        if get_setting(db, "pricing_backfill_version") != "1":
+            for name, pricing in MODEL_PRICE_OVERRIDES.items():
+                unit, price, *token_prices = pricing
+                input_price, output_price, cache_read, cache_write = (token_prices + [0, 0, 0, 0])[:4]
+                db.execute(
+                    "UPDATE models SET price_micros=CASE WHEN price_micros=0 THEN ? ELSE price_micros END, input_price_micros=CASE WHEN input_price_micros=0 THEN ? ELSE input_price_micros END, output_price_micros=CASE WHEN output_price_micros=0 THEN ? ELSE output_price_micros END, cache_read_price_micros=CASE WHEN cache_read_price_micros=0 THEN ? ELSE cache_read_price_micros END, cache_write_price_micros=CASE WHEN cache_write_price_micros=0 THEN ? ELSE cache_write_price_micros END, updated_at=? WHERE name=? AND billing_unit=?",
+                    (price, input_price, output_price, cache_read, cache_write, timestamp, name, unit),
+                )
+            set_setting(db, "pricing_backfill_version", "1")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
@@ -760,9 +771,11 @@ def calculate_token_charge_micros(model_row, response_payload):
         or isinstance(usage.get("input_tokens_details"), dict)
         or is_gemini_usage(response_payload)
     )
-    # Gemini's promptTokenCount includes cachedContentTokenCount. Charge cached
-    # input only at its cache-read price instead of charging it twice.
-    billable_input_tokens = max(0, input_tokens - cache_read_tokens) if has_cache_details else input_tokens
+    # OpenAI prompt_tokens and Gemini promptTokenCount include cached input, so
+    # remove it before applying the normal input price. Anthropic's input_tokens
+    # already excludes cache_read_input_tokens and must not be reduced again.
+    includes_cache_in_input = has_cache_details and model_row[2] != "Anthropic"
+    billable_input_tokens = max(0, input_tokens - cache_read_tokens) if includes_cache_in_input else input_tokens
     amount_micros = (
         input_price * billable_input_tokens
         + output_price * output_tokens

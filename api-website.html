@@ -1428,12 +1428,17 @@ console.log(result.choices[0].message.content);</pre></div></section>
       localStorage.removeItem("nbapi-active-api-key");
       localStorage.removeItem("nbapi-balance");
       clearWalletView();
+      clearUsageLogView();
     }
 
     function applyUserSession(user, token) {
       if (!currentUser || currentUser.id !== user.id || sessionToken !== token) {
         authVersion += 1;
         clearWalletView();
+        clearUsageLogView();
+        [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { if (input) input.value = ""; });
+        if (logType) logType.value = "";
+        if (logScope) logScope.value = "self";
       }
       sessionToken = token;
       currentUser = user;
@@ -1451,6 +1456,17 @@ console.log(result.choices[0].message.content);</pre></div></section>
       if (walletOrders) walletOrders.innerHTML = '<tr><td colspan="6" class="muted">暂无充值记录。</td></tr>';
       if (consumptionSummary) consumptionSummary.textContent = "选择统计周期后查询消费总额。";
       if (walletModelChart) walletModelChart.innerHTML = '<div class="wallet-chart-empty">查询后显示各模型消费金额。</div>';
+    }
+
+    function clearUsageLogView() {
+      usageLogsPage = 1;
+      usageLogsTotalPages = 1;
+      if (usageAmount) usageAmount.textContent = "$0.000000";
+      if (usageRequests) usageRequests.textContent = "0";
+      if (usageInputTokens) usageInputTokens.textContent = "0";
+      if (usageOutputTokens) usageOutputTokens.textContent = "0";
+      if (usagePageInfo) usagePageInfo.textContent = "共 0 条";
+      if (usageLogBody) usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr>';
     }
 
     async function performUserLogin(username, password, source = "登录") {
@@ -1582,9 +1598,19 @@ console.log(result.choices[0].message.content);</pre></div></section>
     }
 
     async function loadUsageLogs() {
-      if (!sessionToken) { usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">请先登录后查看使用日志。</td></tr>'; return; }
+      if (!sessionToken || !currentUser) { clearUsageLogView(); return; }
+      const requestVersion = authVersion;
+      const requestToken = sessionToken;
+      const requestUserId = currentUser.id;
       usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">正在加载真实账单记录...</td></tr>';
-      try { renderUsageLogs(await apiRequest(`/api/ledger?${usageLogQuery()}`)); } catch (error) { usageLogBody.innerHTML = `<tr><td colspan="12" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`; }
+      try {
+        const data = await apiRequest(`/api/ledger?${usageLogQuery()}`);
+        if (requestVersion !== authVersion || requestToken !== sessionToken || requestUserId !== currentUser?.id) return;
+        usageLogsPage = Number(data.page || 1);
+        renderUsageLogs(data);
+      } catch (error) {
+        if (requestVersion === authVersion && requestToken === sessionToken && requestUserId === currentUser?.id) usageLogBody.innerHTML = `<tr><td colspan="12" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`;
+      }
     }
 
     function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; logScope.value = "self"; usageLogsPage = 1; loadUsageLogs(); }
