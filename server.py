@@ -50,6 +50,7 @@ ZPAY_RETURN_URL = os.environ.get("NBAPI_ZPAY_RETURN_URL", "https://nbapi.win/#wa
 ZPAY_CID = os.environ.get("NBAPI_ZPAY_CID", "").strip()
 ZPAY_MIN_TOPUP = Decimal(os.environ.get("NBAPI_ZPAY_MIN_TOPUP", "1"))
 ZPAY_MAX_TOPUP = Decimal(os.environ.get("NBAPI_ZPAY_MAX_TOPUP", "10000"))
+FIXED_TOPUP_AMOUNTS = frozenset(Decimal(value) for value in ("10", "20", "50", "100"))
 _rate_limit_lock = threading.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 HOP_BY_HOP_HEADERS = {
@@ -1180,6 +1181,15 @@ def beijing_period_starts(timestamp=None):
     return int(week_start.timestamp()), int(month_start.timestamp())
 
 
+def parse_beijing_date(value: str, end: bool = False):
+    try:
+        date_value = datetime.strptime(str(value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    boundary = datetime.combine(date_value, datetime.max.time() if end else datetime.min.time(), ZoneInfo("Asia/Shanghai"))
+    return int(boundary.timestamp())
+
+
 def serialize_channel(row):
     return {
         "id": row[0],
@@ -1694,10 +1704,25 @@ class Handler(BaseHTTPRequestHandler):
             user = self.require_user()
             if not user:
                 return
+            query = parse_qs(urlparse(self.path).query)
+            from_date = str(query.get("from", [""])[0]).strip()
+            to_date = str(query.get("to", [""])[0]).strip()
+            start_time = parse_beijing_date(from_date) if from_date else None
+            end_time = parse_beijing_date(to_date, end=True) if to_date else None
+            if (from_date and start_time is None) or (to_date and end_time is None) or (start_time is not None and end_time is not None and start_time > end_time):
+                self.send_json(400, {"error": "invalid_date_range"})
+                return
+            consumption_filters = ["user_id=?", "status='charged'"]
+            consumption_params = [user[0]]
+            if start_time is not None:
+                consumption_filters.append("created_at>=?"); consumption_params.append(start_time)
+            if end_time is not None:
+                consumption_filters.append("created_at<=?"); consumption_params.append(end_time)
             with sqlite3.connect(DB_PATH) as db:
                 orders = db.execute("SELECT id, amount_micros, status, payment_method, payment_provider, merchant_order_no, note, created_at, updated_at FROM wallet_orders WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
                 transactions = db.execute("SELECT id, amount_micros, type, reference_id, note, created_at FROM balance_transactions WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
-            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions]})
+                consumption = db.execute(f"SELECT COALESCE(SUM(amount_micros),0), COUNT(*) FROM ledger WHERE {' AND '.join(consumption_filters)}", consumption_params).fetchone()
+            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions], "consumption": {"amount": micros_to_dollars(consumption[0]), "requests": consumption[1], "from": from_date, "to": to_date}})
             return
         if path == "/api/admin/managers":
             admin = self.require_user(admin=True)
@@ -2040,6 +2065,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if amount_micros < dollars_to_micros(ZPAY_MIN_TOPUP):
                     self.send_json(400, {"error": "minimum_topup_not_met", "minimum": str(ZPAY_MIN_TOPUP)})
+                    return
+                try:
+                    selected_amount = Decimal(str(payload.get("amount", "")).strip())
+                except (InvalidOperation, ValueError):
+                    selected_amount = Decimal("-1")
+                if selected_amount not in FIXED_TOPUP_AMOUNTS or amount_micros != dollars_to_micros(selected_amount):
+                    self.send_json(400, {"error": "topup_amount_not_available", "available": ["10", "20", "50", "100"]})
                     return
                 if amount_micros > dollars_to_micros(ZPAY_MAX_TOPUP):
                     self.send_json(400, {"error": "maximum_topup_exceeded", "maximum": str(ZPAY_MAX_TOPUP)})
