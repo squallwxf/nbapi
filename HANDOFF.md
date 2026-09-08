@@ -209,6 +209,14 @@ systemctl is-active nbapi
 - `cachedContentTokenCount` 已从普通输入 Token 中剔除，并只按模型的缓存读取价格结算，避免 Codex++ 长上下文命中缓存时被普通输入价和缓存价重复扣费。
 - 使用日志仍保留上游完整输入、补全、缓存读取 Token，便于将 NBAPI 日志与 KRAPI 的上游账单逐条核对。
 
+## 2026-09-09 Claude 流式 Token 用量对账修复
+
+- 已确认 `claude-fable-5` 的差异根因：Claude SSE 会在 `message_start` 返回输入 Token 和占位的 `output_tokens=0`，在最终 `message_delta` 才返回真实输出 Token。旧代理只抽取一段 usage，导致可把有实际输出的调用记成输出 0。
+- `server.py` 现在合并整段 SSE 的 usage：保留开始事件的输入/缓存字段，并采用结束事件的非零输出字段后再结算。例如上游的输入 6、补全 626 将按 6/626 落入 NBAPI 使用日志和余额账单。
+- 已兼容 OpenAI Responses API 的嵌套 `response.usage`；使用日志会明确标识 `anthropic`、`gemini`、`openai_responses` 或 `openai_compatible` 用量来源。
+- 当响应已经含有文本、推理或工具调用等生成内容，但上游仍未给出可信的正数补全 Token，NBAPI 不再按补全 0 少扣：会触发既有 `upstream_usage_unavailable` 自动退款路径并留下退款日志，等待上游返回可审计 usage 后再允许结算。
+- 新增 `tools/test_usage_parsing.py`，覆盖 Claude SSE 合并、输出 0 防低扣、OpenAI Responses、Gemini 思考 Token 与 Claude/OpenAI 缓存计费。执行：`python -m unittest tools.test_usage_parsing -v`。
+
 ## 2026-09-09 供应商管理运营化
 
 - 超级管理员的“供应商对接”现在可为每个渠道维护支持模型列表；每行一个模型名，留空表示该渠道支持所有模型。

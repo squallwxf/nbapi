@@ -631,7 +631,7 @@ def extract_model_name(path: str, payload) -> str:
 
 
 def extract_response_payload(body: bytes):
-    """Extract the final JSON response, including usage from streaming SSE."""
+    """Extract response usage, merging the start and end events of SSE streams."""
     payload = try_parse_json_bytes(body)
     if isinstance(payload, dict):
         return payload
@@ -639,8 +639,9 @@ def extract_response_payload(body: bytes):
         lines = body.decode("utf-8", "replace").splitlines()
     except Exception:
         return None
-    fallback = None
-    for line in reversed(lines):
+
+    events = []
+    for line in lines:
         line = line.strip()
         if not line.startswith("data:"):
             continue
@@ -652,11 +653,44 @@ def extract_response_payload(body: bytes):
         except json.JSONDecodeError:
             continue
         if isinstance(candidate, dict):
-            if extract_usage_object(candidate) is not None:
-                return candidate
-            if fallback is None:
-                fallback = candidate
-    return fallback
+            events.append(candidate)
+    if not events:
+        return None
+
+    usage_events = [event for event in events if extract_usage_object(event) is not None]
+    if not usage_events:
+        return events[-1]
+
+    # Claude streams report input usage in message_start and the authoritative
+    # output usage in message_delta. Taking only the last event loses input;
+    # taking only the first event incorrectly records output as zero.
+    merged_usage = {}
+    for event in usage_events:
+        usage = extract_usage_object(event) or {}
+        for key, value in usage.items():
+            if isinstance(value, dict):
+                merged_usage[key] = value
+                continue
+            if key not in merged_usage:
+                merged_usage[key] = value
+                continue
+            try:
+                # A later non-zero value is the terminal usage. Do not let a
+                # placeholder zero replace a value already reported by a later
+                # complete event.
+                if int(value) != 0 or int(merged_usage[key]) == 0:
+                    merged_usage[key] = value
+            except (TypeError, ValueError):
+                merged_usage[key] = value
+
+    result = dict(usage_events[-1])
+    if any(is_gemini_usage(event) for event in usage_events):
+        result.pop("usage", None)
+        result["usageMetadata"] = merged_usage
+    else:
+        result["usage"] = merged_usage
+    result["_nbapi_generated_content"] = any(response_has_generated_content(event) for event in events)
+    return result
 
 
 def extract_usage_object(payload):
@@ -666,11 +700,91 @@ def extract_usage_object(payload):
         return payload["usage"]
     if isinstance(payload.get("usageMetadata"), dict):
         return payload["usageMetadata"]
+    # OpenAI Responses completion events carry usage below `response`; some
+    # compatible upstreams additionally wrap their final response in data/result.
+    for key in ("response", "data", "result", "message"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            if isinstance(nested.get("usage"), dict):
+                return nested["usage"]
+            if isinstance(nested.get("usageMetadata"), dict):
+                return nested["usageMetadata"]
     return None
 
 
 def is_gemini_usage(payload) -> bool:
-    return isinstance(payload, dict) and isinstance(payload.get("usageMetadata"), dict)
+    if not isinstance(payload, dict):
+        return False
+    if isinstance(payload.get("usageMetadata"), dict):
+        return True
+    for key in ("response", "data", "result", "message"):
+        nested = payload.get(key)
+        if isinstance(nested, dict) and isinstance(nested.get("usageMetadata"), dict):
+            return True
+    return False
+
+
+def response_has_generated_content(payload) -> bool:
+    """Return whether a successful model response contains generated output."""
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("_nbapi_generated_content"):
+        return True
+
+    def nonempty(value):
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, dict)):
+            return bool(value)
+        return value is not None
+
+    def content_blocks_have_output(value):
+        if isinstance(value, str):
+            return bool(value.strip())
+        if not isinstance(value, list):
+            return False
+        for block in value:
+            if not isinstance(block, dict):
+                if nonempty(block):
+                    return True
+                continue
+            if any(nonempty(block.get(field)) for field in ("text", "thinking", "input", "tool_use", "function_call", "functionCall")):
+                return True
+        return False
+
+    # OpenAI chat completions, including tool-call-only completions.
+    for choice in payload.get("choices", []) if isinstance(payload.get("choices"), list) else []:
+        if not isinstance(choice, dict):
+            continue
+        for key in ("message", "delta"):
+            item = choice.get(key)
+            if isinstance(item, dict) and any(nonempty(item.get(field)) for field in ("content", "reasoning_content", "tool_calls", "function_call")):
+                return True
+
+    # Anthropic native messages and deltas. A structural start/stop event is
+    # not itself generated content.
+    if content_blocks_have_output(payload.get("content")):
+        return True
+    delta = payload.get("delta")
+    if isinstance(delta, dict) and any(nonempty(delta.get(field)) for field in ("text", "thinking", "partial_json", "input_json_delta")):
+        return True
+    for candidate in payload.get("candidates", []) if isinstance(payload.get("candidates"), list) else []:
+        if isinstance(candidate, dict) and isinstance(candidate.get("content"), dict):
+            parts = candidate["content"].get("parts")
+            if content_blocks_have_output(parts):
+                return True
+        elif isinstance(candidate, dict) and content_blocks_have_output(candidate.get("content")):
+            return True
+
+    # OpenAI Responses API may place final content under response.output.
+    for key in ("output",):
+        if nonempty(payload.get(key)):
+            return True
+    for key in ("response", "data", "result"):
+        nested = payload.get(key)
+        if isinstance(nested, dict) and response_has_generated_content(nested):
+            return True
+    return False
 
 
 def extract_usage_counts(payload) -> tuple[int, int]:
@@ -754,7 +868,13 @@ def has_separate_usage_counts(payload) -> bool:
                 return False
         return False
 
-    return has_valid_value(input_keys) and has_valid_value(output_keys)
+    if not (has_valid_value(input_keys) and has_valid_value(output_keys)):
+        return False
+    _, output_tokens = extract_usage_counts(payload)
+    # A response containing text, a tool call, or another generated output must
+    # not be settled as zero completion tokens. This is an incomplete usage
+    # report, not a free response; the caller refunds the pre-authorisation.
+    return output_tokens > 0 or not response_has_generated_content(payload)
 
 
 def calculate_token_charge_micros(model_row, response_payload):
@@ -1514,7 +1634,14 @@ class Handler(BaseHTTPRequestHandler):
                     }, refund_headers)
                     return True
                 amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens = calculate_token_charge_micros(model_row, response_payload)
-                usage_source = "gemini" if extract_usage_object(response_payload) is response_payload.get("usageMetadata") else "openai_compatible"
+                if model_row[2] == "Anthropic":
+                    usage_source = "anthropic"
+                elif is_gemini_usage(response_payload):
+                    usage_source = "gemini"
+                elif isinstance(response_payload, dict) and isinstance(response_payload.get("response"), dict):
+                    usage_source = "openai_responses"
+                else:
+                    usage_source = "openai_compatible"
             else:
                 amount_micros = price_micros
                 cache_read_tokens = 0
