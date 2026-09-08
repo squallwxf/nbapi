@@ -1847,7 +1847,7 @@ class Handler(BaseHTTPRequestHandler):
                         f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,''), COALESCE(u.username,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id LEFT JOIN users u ON u.id=l.user_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
                         [*params, page_size, (page - 1) * page_size],
                     ).fetchall()
-                self.send_json(200, {"items": [{
+                self.send_json(200, {"scope": log_scope, "items": [{
                     "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-", "userName": r[21] or "-"
                 } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
@@ -1859,7 +1859,7 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist, token_secret FROM api_tokens WHERE user_id=? ORDER BY id DESC",
                         (user[0],),
                     ).fetchall()
-                self.send_json(200, {"scope": log_scope, "items": [{
+                self.send_json(200, {"items": [{
                     "id": r[0], "name": r[1], "hint": r[2], "token": r[13] or None, "canCopyFullToken": bool(r[13]), "active": bool(r[3]),
                     "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6], "group": r[7],
                     "quota": micros_to_dollars(r[8]), "unlimitedQuota": bool(r[9]), "usedQuota": micros_to_dollars(r[10]),
