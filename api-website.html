@@ -1167,6 +1167,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
             <div class="usage-stat"><span>输出 Token</span><strong id="usageOutputTokens">0</strong></div>
           </div>
           <div class="usage-filters">
+            <div class="auth-field super-admin-only"><label for="logScope">查看范围</label><select class="auth-input" id="logScope"><option value="self">我的日志</option><option value="all">所有用户</option></select></div>
             <div class="auth-field"><label for="logFrom">开始时间</label><input class="auth-input" id="logFrom" type="datetime-local" /></div>
             <div class="auth-field"><label for="logTo">结束时间</label><input class="auth-input" id="logTo" type="datetime-local" /></div>
             <div class="auth-field"><label for="logToken">令牌名称</label><input class="auth-input" id="logToken" placeholder="搜索令牌" /></div>
@@ -1363,6 +1364,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const logGroup = document.getElementById("logGroup");
     const logRequestId = document.getElementById("logRequestId");
     const logType = document.getElementById("logType");
+    const logScope = document.getElementById("logScope");
     const API_BASE = location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
     let usageLogsPage = 1;
     let usageLogsTotalPages = 1;
@@ -1493,7 +1495,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     }
 
     function usageLogQuery() {
-      const values = { from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, group: logGroup.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
+      const values = { scope: isSuperAdmin ? logScope.value : "self", from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, group: logGroup.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
       return Object.entries(values).filter(([, value]) => value !== "" && value != null).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
     }
 
@@ -1585,7 +1587,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       try { renderUsageLogs(await apiRequest(`/api/ledger?${usageLogQuery()}`)); } catch (error) { usageLogBody.innerHTML = `<tr><td colspan="12" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`; }
     }
 
-    function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; usageLogsPage = 1; loadUsageLogs(); }
+    function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; logScope.value = "self"; usageLogsPage = 1; loadUsageLogs(); }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -2811,6 +2813,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     refreshChannels?.addEventListener("click", loadAdminChannels);
     refreshUsageLogs.addEventListener("click", loadUsageLogs);
     queryUsageLogs.addEventListener("click", () => { usageLogsPage = 1; loadUsageLogs(); });
+    logScope.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
     resetUsageLogs.addEventListener("click", resetLogFilters);
     usagePageSize.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
     usagePrevPage.addEventListener("click", () => { if (usageLogsPage > 1) { usageLogsPage -= 1; loadUsageLogs(); } });

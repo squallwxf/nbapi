@@ -1794,8 +1794,13 @@ class Handler(BaseHTTPRequestHandler):
                         return default
                 page = as_int("page", 1, 1, 1000000)
                 page_size = as_int("pageSize", 10, 1, 100)
-                filters = ["1=1"] if user[2] == "super_admin" else ["l.user_id=?"]
-                params = [] if user[2] == "super_admin" else [user[0]]
+                requested_scope = get_filter("scope") or "self"
+                if user[2] == "super_admin" and requested_scope not in ("self", "all"):
+                    self.send_json(400, {"error": "invalid_log_scope"})
+                    return
+                log_scope = requested_scope if user[2] == "super_admin" else "self"
+                filters = ["1=1"] if log_scope == "all" else ["l.user_id=?"]
+                params = [] if log_scope == "all" else [user[0]]
                 for key, expression in (("model", "lower(l.model_name) LIKE ?"), ("requestId", "lower(COALESCE(l.request_id, l.idempotency_key)) LIKE ?"), ("token", "(lower(COALESCE(t.name, '')) LIKE ? OR lower(COALESCE(t.token_hint, '')) LIKE ?)") , ("group", "lower(COALESCE(t.token_group, '')) LIKE ?")):
                     value = get_filter(key).lower()
                     if value:
@@ -1841,7 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT id, name, token_hint, active, created_at, last_used_at, expires_at, token_group, quota_micros, quota_unlimited, used_micros, allowed_models, ip_allowlist, token_secret FROM api_tokens WHERE user_id=? ORDER BY id DESC",
                         (user[0],),
                     ).fetchall()
-                self.send_json(200, {"items": [{
+                self.send_json(200, {"scope": log_scope, "items": [{
                     "id": r[0], "name": r[1], "hint": r[2], "token": r[13] or None, "canCopyFullToken": bool(r[13]), "active": bool(r[3]),
                     "createdAt": r[4], "lastUsedAt": r[5], "expiresAt": r[6], "group": r[7],
                     "quota": micros_to_dollars(r[8]), "unlimitedQuota": bool(r[9]), "usedQuota": micros_to_dollars(r[10]),
