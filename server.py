@@ -1181,6 +1181,16 @@ def beijing_period_starts(timestamp=None):
     return int(week_start.timestamp()), int(month_start.timestamp())
 
 
+def beijing_consumption_period(period: str, timestamp=None):
+    current = datetime.fromtimestamp(timestamp or now(), ZoneInfo("Asia/Shanghai"))
+    today = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    labels = {"today": "今日", "week": "本周", "month": "本月"}
+    if period not in labels:
+        raise ValueError("invalid_consumption_period")
+    start = today if period == "today" else today - timedelta(days=today.weekday()) if period == "week" else today.replace(day=1)
+    return int(start.timestamp()), int(current.timestamp()), labels[period]
+
+
 def parse_beijing_date(value: str, end: bool = False):
     try:
         date_value = datetime.strptime(str(value or "").strip(), "%Y-%m-%d").date()
@@ -1705,24 +1715,21 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 return
             query = parse_qs(urlparse(self.path).query)
-            from_date = str(query.get("from", [""])[0]).strip()
-            to_date = str(query.get("to", [""])[0]).strip()
-            start_time = parse_beijing_date(from_date) if from_date else None
-            end_time = parse_beijing_date(to_date, end=True) if to_date else None
-            if (from_date and start_time is None) or (to_date and end_time is None) or (start_time is not None and end_time is not None and start_time > end_time):
-                self.send_json(400, {"error": "invalid_date_range"})
+            period = str(query.get("period", ["today"])[0]).strip().lower()
+            try:
+                start_time, end_time, period_label = beijing_consumption_period(period)
+            except ValueError:
+                self.send_json(400, {"error": "invalid_consumption_period"})
                 return
             consumption_filters = ["user_id=?", "status='charged'"]
             consumption_params = [user[0]]
-            if start_time is not None:
-                consumption_filters.append("created_at>=?"); consumption_params.append(start_time)
-            if end_time is not None:
-                consumption_filters.append("created_at<=?"); consumption_params.append(end_time)
+            consumption_filters.append("created_at>=?"); consumption_params.append(start_time)
+            consumption_filters.append("created_at<=?"); consumption_params.append(end_time)
             with sqlite3.connect(DB_PATH) as db:
                 orders = db.execute("SELECT id, amount_micros, status, payment_method, payment_provider, merchant_order_no, note, created_at, updated_at FROM wallet_orders WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
                 transactions = db.execute("SELECT id, amount_micros, type, reference_id, note, created_at FROM balance_transactions WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[0],)).fetchall()
                 consumption = db.execute(f"SELECT COALESCE(SUM(amount_micros),0), COUNT(*) FROM ledger WHERE {' AND '.join(consumption_filters)}", consumption_params).fetchone()
-            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions], "consumption": {"amount": micros_to_dollars(consumption[0]), "requests": consumption[1], "from": from_date, "to": to_date}})
+            self.send_json(200, {"balance": micros_to_dollars(user[3]), "orders": [{"id": r[0], "amount": micros_to_dollars(r[1]), "status": r[2], "paymentMethod": r[3], "paymentProvider": r[4], "merchantOrderNo": r[5], "note": r[6], "createdAt": r[7], "updatedAt": r[8]} for r in orders], "transactions": [{"id": r[0], "amount": micros_to_dollars(r[1]), "type": r[2], "referenceId": r[3], "note": r[4], "createdAt": r[5]} for r in transactions], "consumption": {"amount": micros_to_dollars(consumption[0]), "requests": consumption[1], "period": period, "label": period_label, "startAt": start_time, "endAt": end_time}})
             return
         if path == "/api/admin/managers":
             admin = self.require_user(admin=True)
