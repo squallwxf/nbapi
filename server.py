@@ -366,6 +366,7 @@ def init_db() -> None:
               last_success_at INTEGER,
               last_failure_at INTEGER,
               last_error TEXT NOT NULL DEFAULT '',
+              allowed_models TEXT NOT NULL DEFAULT '',
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
@@ -484,6 +485,7 @@ def init_db() -> None:
             ("last_success_at", "INTEGER"),
             ("last_failure_at", "INTEGER"),
             ("last_error", "TEXT NOT NULL DEFAULT ''"),
+            ("allowed_models", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in channel_columns:
                 db.execute(f"ALTER TABLE channels ADD COLUMN {column} {definition}")
@@ -731,13 +733,20 @@ def calculate_token_charge_micros(model_row, response_payload):
     return amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 
 
-def get_upstream_routes(db):
+def channel_allows_model(allowed_models: str, model_name: str) -> bool:
+    models = split_lines(allowed_models)
+    return not models or not model_name or model_name in models
+
+
+def get_upstream_routes(db, model_name: str = ""):
     rows = db.execute(
-        "SELECT id, name, upstream_base_url, upstream_api_key FROM channels WHERE active=1 AND (consecutive_failures<3 OR last_failure_at<?) ORDER BY priority ASC, id ASC",
+        "SELECT id, name, upstream_base_url, upstream_api_key, allowed_models FROM channels WHERE active=1 AND (consecutive_failures<3 OR last_failure_at<?) ORDER BY priority ASC, id ASC",
         (now() - 300,),
     ).fetchall()
     routes = []
     for row in rows:
+        if not channel_allows_model(row[4], model_name):
+            continue
         base_url = str(row[2] or "").strip() or UPSTREAM
         if base_url.lower().endswith("/v1") or base_url.lower().endswith("/v1beta"):
             base_url = base_url.rsplit("/", 1)[0]
@@ -745,8 +754,8 @@ def get_upstream_routes(db):
     return routes
 
 
-def get_upstream_route(db):
-    routes = get_upstream_routes(db)
+def get_upstream_route(db, model_name: str = ""):
+    routes = get_upstream_routes(db, model_name)
     if routes:
         return routes[0]
     return {
@@ -1150,6 +1159,7 @@ def serialize_channel(row):
         "lastSuccessAt": row[12],
         "lastFailureAt": row[13],
         "lastError": row[14],
+        "allowedModels": split_lines(row[15]),
     }
 
 
@@ -1267,9 +1277,16 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
         with sqlite3.connect(DB_PATH) as db:
-            routes = get_upstream_routes(db)
+            routes = get_upstream_routes(db, model_name)
+            # Preserve legacy single-upstream behavior only before any channel
+            # records exist. Once channels are configured, an explicit model
+            # allowlist must never be bypassed by a fallback route.
+            configured_channel_count = db.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
+            if not routes and not configured_channel_count:
+                routes = [get_upstream_route(db, model_name)]
             if not routes:
-                routes = [get_upstream_route(db)]
+                self.send_json(503, {"error": "no_eligible_upstream_channel", "message": "没有启用且支持该模型的上游渠道。"})
+                return True
             if not any(route["api_key"] for route in routes):
                 self.send_json(503, {"error": "upstream_api_key_not_configured"})
                 return True
@@ -1593,7 +1610,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(403, {"error": "super_admin_only"})
                 return
             with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels ORDER BY priority ASC, id ASC").fetchall()
+                rows = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error, allowed_models FROM channels ORDER BY priority ASC, id ASC").fetchall()
             self.send_json(200, {"items": [serialize_channel(row) for row in rows]})
             return
         if path == "/api/models":
@@ -2105,6 +2122,49 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(410, {"error": "billing_endpoint_removed", "message": "请直接调用 /v1 接口，系统会依据上游返回的真实用量自动计费。"})
                 return
 
+            if path.startswith("/api/admin/channels/") and path.endswith("/test"):
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+                try:
+                    channel_id = int(path[len("/api/admin/channels/"):-len("/test")].rstrip("/"))
+                except ValueError:
+                    self.send_json(400, {"error": "invalid_channel_id"})
+                    return
+                with sqlite3.connect(DB_PATH) as db:
+                    row = db.execute("SELECT upstream_base_url, upstream_api_key FROM channels WHERE id=?", (channel_id,)).fetchone()
+                if not row:
+                    self.send_json(404, {"error": "channel_not_found"})
+                    return
+                base_url = str(row[0] or "").rstrip("/")
+                if base_url.lower().endswith(("/v1", "/v1beta")):
+                    base_url = base_url.rsplit("/", 1)[0]
+                api_key = str(row[1] or "").strip()
+                if not api_key:
+                    update_channel_health(channel_id, False, "上游 API Key 未配置")
+                    self.send_json(400, {"error": "upstream_api_key_not_configured"})
+                    return
+                started_at = time.perf_counter()
+                try:
+                    request = Request(f"{base_url}/v1/models", headers={"Authorization": f"Bearer {api_key}"}, method="GET")
+                    with urlopen(request, timeout=min(30, UPSTREAM_TIMEOUT)) as response:
+                        response.read(1024)
+                        status = response.status
+                    update_channel_health(channel_id, True)
+                    self.send_json(200, {"ok": True, "status": status, "latencyMs": round((time.perf_counter() - started_at) * 1000)})
+                except HTTPError as exc:
+                    body = (exc.read() or b"").decode("utf-8", "replace")[:300]
+                    update_channel_health(channel_id, False, f"HTTP {exc.code}: {body}")
+                    self.send_json(502, {"ok": False, "status": exc.code, "error": "upstream_test_failed", "detail": body})
+                except (URLError, TimeoutError, OSError) as exc:
+                    detail = str(getattr(exc, "reason", exc))[:300]
+                    update_channel_health(channel_id, False, detail)
+                    self.send_json(502, {"ok": False, "error": "upstream_test_failed", "detail": detail})
+                return
+
             if path == "/api/admin/channels":
                 admin = self.require_user(admin=True)
                 if not admin:
@@ -2119,20 +2179,21 @@ class Handler(BaseHTTPRequestHandler):
                     api_key = str(payload.get("upstreamApiKey", "")).strip()
                     priority = int(payload.get("priority", 100))
                     note = str(payload.get("note", "")).strip()
+                    allowed_models = "\n".join(split_lines(payload.get("allowedModels", "")))
                     active = 1 if payload.get("active", True) else 0
                     if not name or len(name) > 80:
                         raise ValueError("channel_name_required")
                     if not base_url.startswith(("http://", "https://")):
                         raise ValueError("invalid_upstream_url")
-                    if priority < 0:
+                    if priority < 0 or len(split_lines(allowed_models)) > 200:
                         raise ValueError("invalid_priority")
                 except (ValueError, json.JSONDecodeError) as exc:
                     self.send_json(400, {"error": str(exc)})
                     return
                 try:
                     with sqlite3.connect(DB_PATH) as db:
-                        cursor = db.execute("INSERT INTO channels(name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (name, base_url, api_key, active, priority, note, now(), now()))
-                        row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?", (cursor.lastrowid,)).fetchone()
+                        cursor = db.execute("INSERT INTO channels(name, upstream_base_url, upstream_api_key, active, priority, note, allowed_models, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (name, base_url, api_key, active, priority, note, allowed_models, now(), now()))
+                        row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error, allowed_models FROM channels WHERE id=?", (cursor.lastrowid,)).fetchone()
                 except sqlite3.IntegrityError:
                     self.send_json(409, {"error": "channel_name_exists"})
                     return
@@ -2278,12 +2339,13 @@ class Handler(BaseHTTPRequestHandler):
                 base_url = str(payload.get("upstreamBaseUrl", "")).strip().rstrip("/")
                 priority = int(payload.get("priority", 100))
                 note = str(payload.get("note", "")).strip()
+                allowed_models = "\n".join(split_lines(payload.get("allowedModels", "")))
                 active = 1 if payload.get("active", True) else 0
                 if not name or len(name) > 80:
                     raise ValueError("channel_name_required")
                 if not base_url.startswith(("http://", "https://")):
                     raise ValueError("invalid_upstream_url")
-                if priority < 0:
+                if priority < 0 or len(split_lines(allowed_models)) > 200:
                     raise ValueError("invalid_priority")
             except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"error": str(exc)})
@@ -2295,11 +2357,11 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 api_key = str(payload.get("upstreamApiKey", "")).strip() or current[0]
                 try:
-                    db.execute("UPDATE channels SET name=?, upstream_base_url=?, upstream_api_key=?, active=?, priority=?, note=?, updated_at=? WHERE id=?", (name, base_url, api_key, active, priority, note, now(), channel_id))
+                    db.execute("UPDATE channels SET name=?, upstream_base_url=?, upstream_api_key=?, active=?, priority=?, note=?, allowed_models=?, updated_at=? WHERE id=?", (name, base_url, api_key, active, priority, note, allowed_models, now(), channel_id))
                 except sqlite3.IntegrityError:
                     self.send_json(409, {"error": "channel_name_exists"})
                     return
-                row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error FROM channels WHERE id=?", (channel_id,)).fetchone()
+                row = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error, allowed_models FROM channels WHERE id=?", (channel_id,)).fetchone()
             self.send_json(200, {"channel": serialize_channel(row)})
             return
         self.send_json(404, {"error": "not_found"})

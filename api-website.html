@@ -1135,7 +1135,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <h3 style="margin:0;">供应商对接</h3>
                 <button class="btn" id="refreshChannels" type="button">刷新渠道</button>
               </div>
-              <p class="muted">配置上游供应商地址和 API Key。保存后，新请求会按优先级使用启用的供应商渠道。</p>
+              <p class="muted">配置上游地址、API Key 和支持模型。请求只会路由到支持当前模型的启用渠道，再按优先级切换。</p>
               <div class="management-card">
                 <strong>新增供应商渠道</strong>
                 <div class="management-fields">
@@ -1147,6 +1147,10 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <div class="auth-field">
                   <label for="newChannelNote">备注</label>
                   <input class="auth-input" id="newChannelNote" placeholder="渠道说明" />
+                </div>
+                <div class="auth-field">
+                  <label for="newChannelModels">支持模型</label>
+                  <textarea class="auth-input" id="newChannelModels" rows="3" placeholder="每行一个模型名；留空表示支持全部模型"></textarea>
                 </div>
                 <div class="auth-actions">
                   <button class="btn primary" id="createChannel" type="button">创建渠道</button>
@@ -1337,6 +1341,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const newChannelKey = document.getElementById("newChannelKey");
     const newChannelPriority = document.getElementById("newChannelPriority");
     const newChannelNote = document.getElementById("newChannelNote");
+    const newChannelModels = document.getElementById("newChannelModels");
     const refreshUsageLogs = document.getElementById("refreshUsageLogs");
     const queryUsageLogs = document.getElementById("queryUsageLogs");
     const resetUsageLogs = document.getElementById("resetUsageLogs");
@@ -1887,9 +1892,14 @@ console.log(result.choices[0].message.content);</pre></div></section>
             <label>备注</label>
             <input class="auth-input" value="${channel.note.replace(/"/g, "&quot;")}" data-channel-note />
           </div>
+          <div class="auth-field">
+            <label>支持模型</label>
+            <textarea class="auth-input" rows="3" placeholder="留空表示支持全部模型" data-channel-models>${(channel.allowedModels || []).map(escapeHtml).join("\n")}</textarea>
+          </div>
           <small class="muted">连续失败：${Number(channel.consecutiveFailures || 0)}；${escapeHtml(errorText)}</small>
           <div class="auth-actions">
             <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" ${channel.active ? "checked" : ""} data-channel-active /> 启用渠道</label>
+            <button class="btn" type="button" data-test-channel>测试渠道</button>
             <button class="btn primary" type="button" data-save-channel>保存修改</button>
           </div>
         </div>`;
@@ -1912,6 +1922,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
               upstreamBaseUrl: card.querySelector("[data-channel-url]").value.trim(),
               priority: card.querySelector("[data-channel-priority]").value,
               note: card.querySelector("[data-channel-note]").value.trim(),
+              allowedModels: card.querySelector("[data-channel-models]").value,
               active: card.querySelector("[data-channel-active]").checked
             };
             const keyValue = card.querySelector("[data-channel-key]").value;
@@ -1925,6 +1936,21 @@ console.log(result.choices[0].message.content);</pre></div></section>
               await loadAdminChannels();
             } catch (error) {
               alert(error.message);
+            }
+          });
+        });
+        channelList.querySelectorAll("[data-test-channel]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-channel-id]");
+            button.disabled = true;
+            try {
+              const result = await apiRequest(`/api/admin/channels/${card.dataset.channelId}/test`, { method: "POST" });
+              showToast(`渠道连接正常，${result.latencyMs}ms`);
+            } catch (error) {
+              alert(`渠道测试失败：${error.message}`);
+            } finally {
+              button.disabled = false;
+              await loadAdminChannels();
             }
           });
         });
@@ -1947,6 +1973,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
             upstreamApiKey: newChannelKey.value,
             priority: newChannelPriority.value,
             note: newChannelNote.value.trim(),
+            allowedModels: newChannelModels.value,
             active: true
           })
         });
@@ -1955,6 +1982,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         newChannelKey.value = "";
         newChannelPriority.value = "100";
         newChannelNote.value = "";
+        newChannelModels.value = "";
         showToast("渠道已创建");
         await loadAdminChannels();
       } catch (error) {
