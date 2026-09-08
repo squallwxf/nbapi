@@ -616,6 +616,10 @@ def extract_usage_object(payload):
     return None
 
 
+def is_gemini_usage(payload) -> bool:
+    return isinstance(payload, dict) and isinstance(payload.get("usageMetadata"), dict)
+
+
 def extract_usage_counts(payload) -> tuple[int, int]:
     usage = extract_usage_object(payload)
     if usage is None:
@@ -640,6 +644,19 @@ def extract_usage_counts(payload) -> tuple[int, int]:
     output_tokens = pick(candidates[1])
     if input_tokens is None or output_tokens is None:
         return 0, 0
+    # Gemini's native usageMetadata splits tool context and reasoning from the
+    # regular prompt/candidate counts. New API settles Gemini as:
+    # input = promptTokenCount + toolUsePromptTokenCount;
+    # completion = candidatesTokenCount + thoughtsTokenCount.
+    if is_gemini_usage(payload):
+        try:
+            input_tokens += max(0, int(usage.get("toolUsePromptTokenCount", 0) or 0))
+        except (TypeError, ValueError):
+            pass
+        try:
+            output_tokens += max(0, int(usage.get("thoughtsTokenCount", 0) or 0))
+        except (TypeError, ValueError):
+            pass
     return input_tokens, output_tokens
 
 
@@ -696,8 +713,14 @@ def calculate_token_charge_micros(model_row, response_payload):
     input_price = model_row[7] if model_row[7] > 0 else model_row[5]
     output_price = model_row[8] if model_row[8] > 0 else input_price
     usage = extract_usage_object(response_payload) or {}
-    has_openai_cache_details = isinstance(usage.get("prompt_tokens_details"), dict) or isinstance(usage.get("input_tokens_details"), dict)
-    billable_input_tokens = max(0, input_tokens - cache_read_tokens) if has_openai_cache_details else input_tokens
+    has_cache_details = (
+        isinstance(usage.get("prompt_tokens_details"), dict)
+        or isinstance(usage.get("input_tokens_details"), dict)
+        or is_gemini_usage(response_payload)
+    )
+    # Gemini's promptTokenCount includes cachedContentTokenCount. Charge cached
+    # input only at its cache-read price instead of charging it twice.
+    billable_input_tokens = max(0, input_tokens - cache_read_tokens) if has_cache_details else input_tokens
     amount_micros = (
         input_price * billable_input_tokens
         + output_price * output_tokens

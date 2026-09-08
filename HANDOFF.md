@@ -198,4 +198,10 @@ systemctl is-active nbapi
 - 服务器更新代码后，还需要把仓库里的 `nbapi.nginx` 同步到 `/etc/nginx/sites-available/nbapi`，执行 `nginx -t`，再 reload Nginx；只重启 `nbapi` 服务不能修复 Nginx 层 413。
 - 如果后续 Codex++ 上下文特别大仍出现 413，可继续把 `client_max_body_size` 和 `NBAPI_MAX_REQUEST_BODY` 提高到 100MB。
 
+## 2026-09-09 Gemini 3.1 Pro 计费修复
+
+- 已对照 New API 的 Gemini `usageMetadata` 口径修复 `gemini-3.1-pro-preview` 的真实 Token 结算：输入按 `promptTokenCount + toolUsePromptTokenCount`，补全按 `candidatesTokenCount + thoughtsTokenCount`。
+- `cachedContentTokenCount` 已从普通输入 Token 中剔除，并只按模型的缓存读取价格结算，避免 Codex++ 长上下文命中缓存时被普通输入价和缓存价重复扣费。
+- 使用日志仍保留上游完整输入、补全、缓存读取 Token，便于将 NBAPI 日志与 KRAPI 的上游账单逐条核对。
+
 
