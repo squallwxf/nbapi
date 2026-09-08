@@ -96,7 +96,8 @@ nginx -t && systemctl reload nginx
 - 登录和注册接口按客户端 IP 做基础限流（每分钟最多 10 次），跨域响应只允许 `NBAPI_ALLOWED_ORIGINS` 中的来源。
 - `GET /api/dashboard` 返回实时模型数、启用渠道数，以及当前登录用户的今日调用、本月消耗、平均延迟和余额；首页统计不再使用硬编码演示数字。
 - 上游调用会按渠道优先级依次尝试最多 `NBAPI_UPSTREAM_MAX_ATTEMPTS` 个渠道（默认 2）；网络错误、超时和 5xx 会记录失败并自动尝试下一渠道，3 次连续失败的渠道会熔断 5 分钟后再试。可通过 `NBAPI_UPSTREAM_TIMEOUT` 调整单次上游超时（默认 90 秒）。渠道管理页会显示真实健康状态和最近错误。
-- 2026-09-03 已接入 ZPAY 订单基础链路：`POST /api/wallet/orders` 创建 ZPAY 待支付订单并返回支付地址；`GET/POST /api/payment/zpay/notify` 接收回调，校验 `pid`、`TRADE_SUCCESS`、订单金额和 MD5 签名后才自动入账。回调入账使用 SQLite 事务和订单状态保护，重复通知不会重复充值。ZPAY 参数通过 `NBAPI_ZPAY_*` 环境变量配置，商户密钥不进入仓库。
+- 2026-09-09 已完善 ZPAY 订单链路：`POST /api/wallet/orders` 创建 ZPAY 待支付订单并返回标准页面跳转地址；`GET/POST /api/payment/zpay/notify` 接收回调，校验 `pid`、`TRADE_SUCCESS`、支付方式、订单金额和 MD5 签名后才自动入账。回调入账使用 SQLite 事务和订单状态保护，重复通知不会重复充值。待支付订单可通过 `POST /api/wallet/orders/{id}/sync` 由服务器向 ZPAY 查询结果，解决回调延迟或支付完成返回网站后尚未到账的情况；查询不会向浏览器泄露商户密钥，也不会重复入账。
+- 生产环境的 `/etc/nbapi.env` 必须自行配置 `NBAPI_ZPAY_PID`、`NBAPI_ZPAY_KEY`、`NBAPI_ZPAY_NOTIFY_URL=https://nbapi.win/api/payment/zpay/notify`、`NBAPI_ZPAY_RETURN_URL=https://nbapi.win/#wallet`、`NBAPI_ZPAY_MIN_TOPUP=1` 和 `NBAPI_ZPAY_MAX_TOPUP=10000`。可选的 `NBAPI_ZPAY_CID` 仅在 ZPAY 后台已确认支付宝渠道 ID 时设置；商户密钥绝不进入仓库。
 - ZPAY 上线前必须在服务器配置 `NBAPI_ZPAY_PID`、`NBAPI_ZPAY_KEY`，并确认 `NBAPI_ZPAY_NOTIFY_URL=https://nbapi.win/api/payment/zpay/notify` 可从公网访问；配置后重启 `nbapi` 服务。未配置商户参数时，充值接口会返回 `zpay_not_configured`。
 - ZPAY 回调还会拒绝已绑定到其他订单的 `trade_no`；数据库对非空商户订单号和上游交易号均建立唯一索引。
 - 当前 ZPAY 商户仅开通支付宝，充值页面已隐藏微信选项，后端也会拒绝非支付宝支付方式。

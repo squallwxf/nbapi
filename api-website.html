@@ -1193,7 +1193,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
           <p class="muted">通过 ZPAY 支付后，系统会在异步通知验签成功时自动到账。</p>
           <div class="auth-actions"><input class="auth-input" id="topupAmount" type="number" min="1" step="0.01" placeholder="充值金额（美元，最低 $1）" style="max-width:260px" /><select class="auth-input" id="topupPaymentMethod" style="max-width:150px" disabled><option value="alipay">支付宝</option></select><button class="btn primary" id="submitTopup" type="button">立即支付</button></div>
           <div class="key-box" id="walletStatus">登录后可使用支付宝充值；支付平台验签成功后自动到账。</div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>商户订单号</th><th>金额</th><th>支付方式</th><th>状态</th><th>时间</th></tr></thead><tbody id="walletOrders"><tr><td colspan="5" class="muted">暂无充值记录。</td></tr></tbody></table></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>商户订单号</th><th>金额</th><th>支付方式</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody id="walletOrders"><tr><td colspan="6" class="muted">暂无充值记录。</td></tr></tbody></table></div>
         </section>
 
         <section class="panel detail-card route-placeholder" id="settings">
@@ -1510,8 +1510,22 @@ console.log(result.choices[0].message.content);</pre></div></section>
       try {
         const data = await apiRequest("/api/wallet");
         walletStatus.textContent = `当前余额：$${Number(data.balance || 0).toFixed(6)}。支付成功后余额会自动到账。`;
-        walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => `<tr><td><code>${escapeHtml(item.merchantOrderNo || `#${item.id}`)}</code></td><td>$${Number(item.amount).toFixed(2)}</td><td>${item.paymentMethod === "wxpay" ? "微信支付" : "支付宝"}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待支付"}</td><td>${formatTokenDate(item.createdAt)}</td></tr>`).join("") : '<tr><td colspan="5" class="muted">暂无充值记录。</td></tr>';
+        walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => {
+          const canSync = item.status === "pending" && item.paymentProvider === "zpay";
+          return `<tr><td><code>${escapeHtml(item.merchantOrderNo || `#${item.id}`)}</code></td><td>$${Number(item.amount).toFixed(2)}</td><td>${item.paymentMethod === "wxpay" ? "微信支付" : "支付宝"}</td><td>${item.status === "paid" ? "已到账" : item.status === "rejected" ? "已拒绝" : "待支付"}</td><td>${formatTokenDate(item.createdAt)}</td><td>${canSync ? `<button class="btn" type="button" onclick="syncWalletOrder(${Number(item.id)})">查询支付结果</button>` : "-"}</td></tr>`;
+        }).join("") : '<tr><td colspan="6" class="muted">暂无充值记录。</td></tr>';
       } catch (error) { walletStatus.textContent = `加载失败：${error.message}`; }
+    }
+
+    async function syncWalletOrder(orderId) {
+      try {
+        walletStatus.textContent = "正在向支付平台查询订单状态...";
+        const result = await apiRequest(`/api/wallet/orders/${orderId}/sync`, { method: "POST", body: "{}" });
+        await Promise.all([loadWallet(), loadDashboard(), loadCurrentSession()]);
+        showToast(result.status === "paid" ? "充值已到账" : "暂未收到支付结果");
+      } catch (error) {
+        walletStatus.textContent = `查询失败：${error.message}`;
+      }
     }
 
     function renderUsageLogs(data) {
@@ -2830,12 +2844,19 @@ console.log(result.choices[0].message.content);</pre></div></section>
     });
     submitTopup.addEventListener("click", async () => {
       if (!currentUser) { alert("请先登录。"); return; }
+      submitTopup.disabled = true;
+      walletStatus.textContent = "正在创建支付订单...";
       try {
         const data = await apiRequest("/api/wallet/orders", { method: "POST", body: JSON.stringify({ amount: topupAmount.value, paymentMethod: topupPaymentMethod.value }) });
         topupAmount.value = "";
         if (!data.paymentUrl) throw new Error("支付地址生成失败");
+        walletStatus.textContent = "正在跳转支付宝...";
         window.location.href = data.paymentUrl;
-      } catch (error) { alert(error.message); }
+      } catch (error) {
+        walletStatus.textContent = `创建订单失败：${error.message}`;
+        alert(error.message);
+        submitTopup.disabled = false;
+      }
     });
 
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
