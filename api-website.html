@@ -783,22 +783,6 @@
         </section>
 
         <section class="auth-shell" id="signup">
-          <div class="auth-card auth-hero">
-            <div class="auth-brand">
-              <div class="logo">NB</div>
-              <div><strong>NBAPI</strong><span>注册入口</span></div>
-            </div>
-            <div class="auth-copy">
-              <h1>创建账号后进入控制台。</h1>
-              <p>注册信息会写入后端数据库，新用户默认是普通用户且余额为 0，充值或赠送额度由管理员控制。</p>
-            </div>
-            <div class="auth-list">
-              <div class="auth-mini"><strong>账号体系</strong><small>用户名、邮箱、角色和余额都会保存到后端</small></div>
-              <div class="auth-mini"><strong>安全策略</strong><small>密码使用哈希存储，后台不保存明文密码</small></div>
-              <div class="auth-mini"><strong>余额安全</strong><small>新用户不会自动获得余额，必须充值或由管理员分配额度</small></div>
-              <div class="auth-mini"><strong>后续扩展</strong><small>可继续接入工单、充值和订阅方案</small></div>
-            </div>
-          </div>
           <div class="auth-card auth-form">
             <div>
               <h2>注册</h2>
@@ -823,7 +807,6 @@
             <div class="auth-field">
               <label for="signupDesignatedAdmin"><input id="signupDesignatedAdminEnabled" type="checkbox" /> 指定管理员（选填）</label>
               <input class="auth-input" id="signupDesignatedAdmin" placeholder="勾选后填写管理员用户名" disabled />
-              <small>填写后，系统会在注册完成时自动匹配管理员客户关系。</small>
             </div>
             <div class="auth-actions">
               <button class="btn primary" id="signupSubmit" type="button">注册</button>
@@ -833,7 +816,6 @@
               <span>已有账户？</span>
               <a href="#login">直接登录</a>
             </div>
-            <div class="auth-note">注册成功后会自动登录。新账号初始余额为 $0.000000，管理员可在“用户管理”里充值或调整额度。</div>
           </div>
         </section>
 
