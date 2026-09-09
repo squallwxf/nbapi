@@ -2538,18 +2538,46 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError) as exc:
                 self.send_json(400, {"error": str(exc)})
                 return
+            requested_role = payload.get("role")
             balance_value = payload.get("balance")
-            if balance_value is None:
+            if requested_role is not None:
+                requested_role = str(requested_role).strip()
+                if requested_role not in ("user", "admin"):
+                    self.send_json(400, {"error": "invalid_user_role"})
+                    return
+            if balance_value is None and requested_role is None:
                 self.send_json(400, {"error": "balance_required"})
                 return
-            with sqlite3.connect(DB_PATH) as db:
-                current = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
-                if not current:
-                    self.send_json(404, {"error": "user_not_found"})
-                    return
-                new_balance = dollars_to_micros(balance_value)
-                db.execute("UPDATE users SET balance_micros=? WHERE id=?", (new_balance, user_id))
-                updated = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+            try:
+                with sqlite3.connect(DB_PATH) as db:
+                    current = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+                    if not current:
+                        self.send_json(404, {"error": "user_not_found"})
+                        return
+                    if requested_role is not None:
+                        if current[2] == "super_admin":
+                            self.send_json(403, {"error": "super_admin_role_protected"})
+                            return
+                        if user_id == admin[0]:
+                            self.send_json(403, {"error": "cannot_change_own_role"})
+                            return
+                    assignments = []
+                    if balance_value is not None:
+                        assignments.append(("balance_micros", dollars_to_micros(balance_value)))
+                    if requested_role is not None and requested_role != current[3]:
+                        assignments.append(("role", requested_role))
+                        # A demoted administrator must not retain managed customers.
+                        if requested_role == "user":
+                            db.execute("UPDATE users SET manager_id=NULL WHERE manager_id=?", (user_id,))
+                        else:
+                            db.execute("UPDATE users SET manager_id=NULL WHERE id=?", (user_id,))
+                    if assignments:
+                        columns = ", ".join(f"{column}=?" for column, _ in assignments)
+                        db.execute(f"UPDATE users SET {columns} WHERE id=?", [value for _, value in assignments] + [user_id])
+                    updated = db.execute("SELECT id, username, email, role, active, balance_micros, created_at FROM users WHERE id=?", (user_id,)).fetchone()
+            except ValueError as exc:
+                self.send_json(400, {"error": str(exc)})
+                return
             self.send_json(200, {"user": serialize_user(updated)})
             return
         prefix = "/api/admin/models/"

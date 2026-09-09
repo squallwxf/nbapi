@@ -1092,7 +1092,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <h3 style="margin:0;">用户管理</h3>
                 <button class="btn" id="refreshUsers" type="button">刷新用户</button>
               </div>
-              <p class="muted">管理员可查看用户并创建普通用户；超级管理员可额外设置用户余额。</p>
+              <p class="muted">管理员可查看用户并创建普通用户；超级管理员可设置余额和调整普通用户、管理员的权限。</p>
               <div class="management-card">
                 <strong>添加用户</strong>
                 <div class="management-fields">
@@ -1880,6 +1880,9 @@ console.log(result.choices[0].message.content);</pre></div></section>
     }
 
     function renderUserCard(user) {
+      const roleAction = isSuperAdmin && user.role !== "super_admin" && user.id !== currentUser?.id
+        ? `<div class="auth-field"><label>权限</label><div class="auth-actions"><span class="tag ${user.role === "admin" ? "blue" : "gray"}">${roleLabel(user.role)}</span><button class="btn" type="button" data-toggle-user-role="${user.role === "admin" ? "user" : "admin"}">${user.role === "admin" ? "降为普通用户" : "升级为管理员"}</button></div></div>`
+        : "";
       const assignment = isSuperAdmin && user.role === "user"
         ? `<div class="auth-field full"><label>客户归属</label><div class="auth-actions"><select class="auth-input" data-user-manager><option value="">未分配</option>${managerAccounts.map((manager) => `<option value="${manager.id}" ${String(user.managerId || "") === String(manager.id) ? "selected" : ""}>${escapeHtml(manager.username)}（${roleLabel(manager.role)}）</option>`).join("")}</select><button class="btn" type="button" data-save-user-manager>保存归属</button></div></div>`
         : "";
@@ -1893,6 +1896,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
             <div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div>
             ${user.role === "user" ? `<div class="auth-field"><label>本周充值</label><input class="auth-input" value="$${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="$${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div>` : ""}
             ${isSuperAdmin ? `<div class="auth-field"><label>账户余额（美元）</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>` : ""}
+            ${roleAction}
             ${assignment}
           </div>
           <small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small>
@@ -1939,6 +1943,17 @@ console.log(result.choices[0].message.content);</pre></div></section>
           const card = button.closest("[data-user-id]");
           const managerId = card.querySelector("[data-user-manager]").value;
           updateCustomerAssignment(card.dataset.userId, managerId ? "assign" : "unassign", managerId || null);
+        }));
+        userManagementList.querySelectorAll("[data-toggle-user-role]").forEach((button) => button.addEventListener("click", async () => {
+          const card = button.closest("[data-user-id]");
+          const nextRole = button.dataset.toggleUserRole;
+          const label = nextRole === "admin" ? "升级为管理员" : "降为普通用户";
+          if (!confirm(`确定将该用户${label}吗？`)) return;
+          try {
+            await apiRequest(`/api/admin/users/${card.dataset.userId}`, { method: "PUT", body: JSON.stringify({ role: nextRole }) });
+            showToast(`用户已${label}`);
+            await loadAdminUsers();
+          } catch (error) { alert(error.message); }
         }));
       } catch (error) {
         userManagementList.innerHTML = `<small>${error.message}</small>`;
