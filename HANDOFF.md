@@ -11,7 +11,7 @@
 - 服务器项目目录：`/opt/nbapi`
 - 本地项目目录：`D:\ai web`
 - Nginx 已开启 443，HTTPS 和 Cloudflare 链路已验证通过
-- 当前供应商测试报错为 `upstream_api_key_not_configured`，说明上游 key 还没在供应商配置里正确填写
+- 供应商管理已完成并可运营；当前是否可调用由各渠道的地址、Key、支持模型列表和健康状态共同决定。
 ## 下次换电脑怎么继续
 
 1. 克隆仓库
@@ -226,12 +226,12 @@ systemctl is-active nbapi
 
 ## 2026-09-09 当前接力状态
 
-### 2026-09-09 Claude 操练场 502 修复（本地待部署）
+### 2026-09-09 Claude 操练场 502 修复
 
 - 已确认操练场之前把 Claude 模型错误发送到 `/v1/chat/completions`，导致上游返回 502；Claude 必须使用原生 `/v1/messages` 和 `messages/max_tokens` 请求结构。
 - `api-website.html` 现在会按 Anthropic 模型走 `/v1/messages`，并读取返回的 `content[].text`。
 - `server.py` 现在对 `/v1/messages` 补充 `x-api-key` 和默认 `anthropic-version: 2023-06-01`，同时不再向上游转发下游用户的 `X-NBAPI-Key` 和 `Idempotency-Key`。
-- 已通过 `python3 -m unittest tools.test_usage_parsing -v` 和前端 JavaScript 语法检查；修改尚未部署到服务器。
+- 已通过 `python3 -m unittest tools.test_usage_parsing -v` 和前端 JavaScript 语法检查；代码已进入 GitHub `main`，服务器部署后即可生效。
 
 ### 已完成的用户与权限功能
 
@@ -259,18 +259,18 @@ systemctl is-active nbapi
 - 消费统计支持“今日 / 本周 / 本月”，服务器按北京时间计算自然日、周一到周日自然周和自然月；统计只计算当前用户 `ledger.status='charged'` 的真实消费。
 - 钱包消费统计已增加按模型横向条形图，显示当前用户在所选周期内每个模型的消费金额和调用次数。
 - ZPAY 已实现支付宝标准页面支付、MD5 签名校验、金额核对、支付方式核对、异步回调幂等和服务端查单。商户 PID、KEY、回调地址必须只配置在服务器 `/etc/nbapi.env`，不能提交仓库。
-- ZPAY 当前仍需要完成商户审核通过后的真实支付宝小额联调；重点验证订单创建、支付跳转、异步回调、查单入账、余额变化和重复通知不重复到账。
+- ZPAY 已完成 3 次真实支付宝支付联调并确认正常：订单创建、支付跳转、异步回调、查单入账、余额变化和重复通知幂等均已验证。当前无需重复支付测试，后续重点转向运营安全和异常场景。
 
 ### 当前最新代码与部署
 
-- 当前接力文档对应的最新代码包含上述全部修复；最近一次计费和日志修复提交为 `48f5658`。本次文档更新后会生成新的文档提交并推送到 `main`。
+- 当前接力文档对应的最新代码包含上述全部修复；仓库 `main` 最新提交为 `302f1f9`，包含 Claude 原生消息修复、超级管理员角色调整和公告管理。Token 扣费已完成真实对账验证，支付已完成 3 次真实支付宝测试。
 - GitHub 仓库：`https://github.com/squallwxf/nbapi.git`。本地项目目录：`D:\ai web`。服务器目录：`/opt/nbapi`。
 - 直接从本地上传服务器时，至少同步 `server.py`、`api-website.html` 和 `HANDOFF.md`。数据库 `nbapi.sqlite3`、服务器环境文件 `/etc/nbapi.env` 和证书目录不能覆盖或提交。
 - 后端代码更新后在服务器执行 `python3 -m py_compile /opt/nbapi/server.py`、`systemctl restart nbapi`、`systemctl is-active nbapi`。只改页面时无需重启，使用 `Ctrl+F5` 刷新。
 
 ### 下一步建议
 
-1. 用新用户分别调用 Claude、OpenAI、Gemini Token 模型，记录 NBAPI 日志中的输入、补全、缓存 Token 和扣费金额。
-2. 将同一请求的 Token 明细与上游 KRAPI 账单逐项对照，尤其检查 Claude 缓存读写场景。
-3. ZPAY 审核通过后，用 10 元档位完成一次真实支付宝支付，核对订单状态、余额、回调和查单。
-4. 支付联调稳定后，再考虑退款、套餐、订阅有效期和运营报表。
+1. 完成一次生产环境部署后的健康检查，确认服务器运行的是仓库 `main` 最新版本，并备份线上数据库。
+2. 继续做运营前安全检查：余额不足、重复幂等键、上游失败自动退款、异步图片/视频失败退款、令牌额度和隐藏模型调用限制。
+3. 检查超级管理员公告、角色调整、供应商管理、模型定价和客户归属在不同角色下的可见性与权限边界。
+4. 基础运营稳定后，再规划退款、套餐、订阅有效期、充值对账和运营报表等扩展功能。
