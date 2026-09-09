@@ -844,9 +844,7 @@
           </section>
           <aside class="panel notice">
             <h2>系统公告</h2>
-            <div class="row"><div><strong>模型价格同步完成</strong><small>GPT、Claude、Gemini、DeepSeek 已更新</small></div><span class="tag green">正常</span></div>
-            <div class="row"><div><strong>渠道监控开启</strong><small>异常渠道会自动降权并重试</small></div><span class="tag blue">实时</span></div>
-            <div class="row"><div><strong>新用户注册</strong><small>新账号初始余额为 $0，额度由管理员分配</small></div><span class="tag blue">开放</span></div>
+            <div id="announcementList"><div class="row"><div><strong>模型价格同步完成</strong><small>GPT、Claude、Gemini、DeepSeek 已更新</small></div><span class="tag green">正常</span></div><div class="row"><div><strong>渠道监控开启</strong><small>异常渠道会自动降权并重试</small></div><span class="tag blue">实时</span></div></div>
           </aside>
         </div>
 
@@ -1197,7 +1195,13 @@ console.log(result.choices[0].message.content);</pre></div></section>
 
         <section class="panel detail-card route-placeholder" id="settings">
           <h2>系统设置</h2>
-          <p class="muted">账户和界面偏好将逐步在此提供。上游渠道、密钥和充值审核不再属于管理员权限。</p>
+          <p class="muted">账户和界面偏好将逐步在此提供。</p>
+          <div class="management-card super-admin-only" id="announcementSettings">
+            <div class="management-top"><strong>系统公告管理</strong><button class="btn" id="addAnnouncement" type="button">新增公告</button></div>
+            <p class="muted">仅超级管理员可编辑。关闭的公告不会展示给用户。</p>
+            <div class="management-grid" id="announcementEditorList"></div>
+            <div class="auth-actions"><button class="btn primary" id="saveAnnouncements" type="button">保存公告</button></div>
+          </div>
         </section>
       </section>
     </main>
@@ -1365,6 +1369,11 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const logRequestId = document.getElementById("logRequestId");
     const logType = document.getElementById("logType");
     const logScope = document.getElementById("logScope");
+    const announcementList = document.getElementById("announcementList");
+    const announcementSettings = document.getElementById("announcementSettings");
+    const announcementEditorList = document.getElementById("announcementEditorList");
+    const addAnnouncement = document.getElementById("addAnnouncement");
+    const saveAnnouncements = document.getElementById("saveAnnouncements");
     const API_BASE = location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
     let usageLogsPage = 1;
     let usageLogsTotalPages = 1;
@@ -1374,6 +1383,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     let canManage = false;
     let isSuperAdmin = false;
     let activeApiKey = localStorage.getItem("nbapi-active-api-key") || "";
+    let announcements = [];
 
     function tokenCacheKey() {
       return currentUser ? `nbapi-token-cache:${currentUser.username}` : "nbapi-token-cache:guest";
@@ -1481,7 +1491,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       });
       applyUserSession(data.user, data.token);
       await loadManagerAccounts();
-      await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog(), loadWallet()]);
+      await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog(), loadWallet(), loadAnnouncements()]);
       location.hash = "console";
       applyRoute();
       showToast(`${source}成功`);
@@ -1497,7 +1507,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         const me = await apiRequest("/api/me");
         applyUserSession(me, sessionToken);
         await loadManagerAccounts();
-        await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog(), loadWallet()]);
+        await Promise.all([loadTokens(), loadAdminUsers(), loadModelCatalog(), loadWallet(), loadAnnouncements()]);
       } catch {
         clearSessionState();
         syncAuthState();
@@ -1617,6 +1627,50 @@ console.log(result.choices[0].message.content);</pre></div></section>
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+
+    function renderAnnouncements() {
+      const activeItems = announcements.filter((item) => item.active);
+      announcementList.innerHTML = activeItems.length ? activeItems.map((item) => `<div class="row"><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></div><span class="tag ${escapeHtml(item.tone)}">${escapeHtml(item.badge)}</span></div>`).join("") : '<div class="row"><small>暂无公告。</small></div>';
+    }
+
+    function renderAnnouncementEditor() {
+      if (!announcementEditorList || !isSuperAdmin) return;
+      announcementEditorList.innerHTML = announcements.map((item, index) => `<div class="management-card" data-announcement-index="${index}">
+        <div class="management-fields">
+          <div class="auth-field"><label>标题</label><input class="auth-input" data-announcement-title value="${escapeHtml(item.title)}" maxlength="80" /></div>
+          <div class="auth-field"><label>状态标签</label><input class="auth-input" data-announcement-badge value="${escapeHtml(item.badge)}" maxlength="20" /></div>
+          <div class="auth-field"><label>标签颜色</label><select class="auth-input" data-announcement-tone><option value="green" ${item.tone === "green" ? "selected" : ""}>绿色</option><option value="blue" ${item.tone === "blue" ? "selected" : ""}>蓝色</option><option value="orange" ${item.tone === "orange" ? "selected" : ""}>橙色</option><option value="gray" ${item.tone === "gray" ? "selected" : ""}>灰色</option></select></div>
+          <div class="auth-field" style="align-content:end;"><label><input type="checkbox" data-announcement-active ${item.active ? "checked" : ""} /> 启用展示</label></div>
+        </div>
+        <div class="auth-field"><label>公告内容</label><textarea class="auth-input" data-announcement-detail rows="2" maxlength="240">${escapeHtml(item.detail)}</textarea></div>
+        <div class="auth-actions"><button class="btn" type="button" data-remove-announcement>删除此公告</button></div>
+      </div>`).join("") || '<small>暂无公告，点击“新增公告”创建。</small>';
+      announcementEditorList.querySelectorAll("[data-remove-announcement]").forEach((button) => button.addEventListener("click", () => {
+        const card = button.closest("[data-announcement-index]");
+        announcements.splice(Number(card.dataset.announcementIndex), 1);
+        renderAnnouncementEditor();
+      }));
+    }
+
+    async function loadAnnouncements() {
+      try {
+        const data = await apiRequest("/api/announcements");
+        announcements = Array.isArray(data.items) ? data.items : [];
+        renderAnnouncements();
+      } catch {
+        renderAnnouncements();
+      }
+      if (isSuperAdmin && sessionToken) {
+        try {
+          const data = await apiRequest("/api/admin/announcements");
+          announcements = Array.isArray(data.items) ? data.items : announcements;
+          renderAnnouncementEditor();
+          renderAnnouncements();
+        } catch (error) {
+          if (announcementEditorList) announcementEditorList.innerHTML = `<small>${escapeHtml(error.message)}</small>`;
+        }
+      }
     }
 
     async function loadTokens() {
@@ -2853,6 +2907,29 @@ console.log(result.choices[0].message.content);</pre></div></section>
       if (!confirm("确定要清空服务器里保存的上游 API Key 吗？")) return;
       await saveUpstreamKey("");
     });
+    addAnnouncement?.addEventListener("click", () => {
+      if (!isSuperAdmin) return;
+      announcements.push({ title: "", detail: "", badge: "新", tone: "blue", active: true });
+      renderAnnouncementEditor();
+      announcementEditorList?.querySelector("[data-announcement-title]")?.focus();
+    });
+    saveAnnouncements?.addEventListener("click", async () => {
+      if (!isSuperAdmin || !sessionToken) return;
+      const items = Array.from(announcementEditorList?.querySelectorAll("[data-announcement-index]") || []).map((card) => ({
+        title: card.querySelector("[data-announcement-title]").value.trim(),
+        detail: card.querySelector("[data-announcement-detail]").value.trim(),
+        badge: card.querySelector("[data-announcement-badge]").value.trim(),
+        tone: card.querySelector("[data-announcement-tone]").value,
+        active: card.querySelector("[data-announcement-active]").checked
+      }));
+      try {
+        const data = await apiRequest("/api/admin/announcements", { method: "PUT", body: JSON.stringify({ items }) });
+        announcements = data.items || [];
+        renderAnnouncementEditor();
+        renderAnnouncements();
+        showToast("公告已保存");
+      } catch (error) { alert(error.message); }
+    });
     refreshUsers.addEventListener("click", loadAdminUsers);
     customerManagerSelect?.addEventListener("change", loadManagerCustomers);
     refreshManagerCustomers?.addEventListener("click", loadManagerCustomers);
@@ -2948,6 +3025,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     setTheme(localStorage.getItem(storageKeys.theme) || "light");
     updateBalance();
     renderPrices();
+    loadAnnouncements();
     loadModelCatalog();
     renderDocsModelList();
     loadDashboard();

@@ -10,6 +10,13 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_announcement_validation_keeps_only_supported_fields(self):
+        items = server.normalize_announcements([{"title": "维护通知", "detail": "今晚维护", "badge": "提醒", "tone": "orange", "active": True}])
+        self.assertEqual(items[0]["title"], "维护通知")
+        self.assertEqual(items[0]["tone"], "orange")
+        with self.assertRaises(ValueError):
+            server.normalize_announcements([{"title": "", "detail": "", "badge": "", "tone": "red"}])
+
     def test_claude_headers_use_provider_key_and_hide_downstream_key(self):
         headers = server.build_upstream_headers(
             {

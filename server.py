@@ -585,6 +585,13 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES ('upstream_api_key', '', ?)",
             (timestamp,),
         )
+        db.execute(
+            "INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES ('announcements', ?, ?)",
+            (json.dumps([
+                {"title": "模型价格同步完成", "detail": "GPT、Claude、Gemini、DeepSeek 已更新", "badge": "正常", "tone": "green", "active": True},
+                {"title": "渠道监控开启", "detail": "异常渠道会自动降权并重试", "badge": "实时", "tone": "blue", "active": True},
+            ], ensure_ascii=False), timestamp),
+        )
 
 
 def json_bytes(payload) -> bytes:
@@ -1307,6 +1314,32 @@ def set_setting(db, key: str, value: str) -> None:
     )
 
 
+def normalize_announcements(value) -> list[dict]:
+    if not isinstance(value, list) or len(value) > 20:
+        raise ValueError("invalid_announcements")
+    items = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("invalid_announcement")
+        title = str(item.get("title", "")).strip()
+        detail = str(item.get("detail", "")).strip()
+        badge = str(item.get("badge", "")).strip()
+        tone = str(item.get("tone", "blue")).strip().lower()
+        if not title or len(title) > 80 or len(detail) > 240 or len(badge) > 20 or tone not in ("green", "blue", "orange", "gray"):
+            raise ValueError("invalid_announcement")
+        items.append({"title": title, "detail": detail, "badge": badge, "tone": tone, "active": bool(item.get("active", True))})
+    return items
+
+
+def read_announcements(db, active_only: bool = True) -> list[dict]:
+    raw = get_setting(db, "announcements", "[]")
+    try:
+        items = normalize_announcements(json.loads(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        items = []
+    return [item for item in items if item["active"]] if active_only else items
+
+
 def serialize_user(row):
     result = {
         "id": row[0],
@@ -1770,6 +1803,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"status": "ok", "service": "nbapi", "timestamp": now()})
             except sqlite3.Error:
                 self.send_json(503, {"status": "error", "service": "nbapi"})
+            return
+        if path == "/api/announcements":
+            with sqlite3.connect(DB_PATH) as db:
+                items = read_announcements(db)
+            self.send_json(200, {"items": items})
+            return
+        if path == "/api/admin/announcements":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                items = read_announcements(db, active_only=False)
+            self.send_json(200, {"items": items})
             return
         if self._proxy_upstream("GET"):
             return
@@ -2514,6 +2563,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/admin/config":
             self.send_json(403, {"error": "permission_removed"})
+            return
+        if path == "/api/admin/announcements":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            try:
+                payload = self.read_json()
+                items = normalize_announcements(payload.get("items"))
+            except (ValueError, json.JSONDecodeError) as exc:
+                self.send_json(400, {"error": str(exc)})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                set_setting(db, "announcements", json.dumps(items, ensure_ascii=False))
+            self.send_json(200, {"items": items})
             return
         if path == "/api/admin/users":
             admin = self.require_user(admin=True)
