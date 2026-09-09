@@ -94,6 +94,7 @@ nginx -t && systemctl reload nginx
 - 生产环境建议设置 `NBAPI_SUPER_ADMIN_PASSWORD`（仅首次初始化新数据库时使用）和 `NBAPI_ALLOWED_ORIGINS`；已有超级管理员密码不会在每次启动时被重置。
 - `GET /health` 可用于 Nginx、systemd 或监控探针；登录用户可通过 `POST /api/auth/password` 修改自己的密码，新密码至少 12 位。
 - 登录和注册接口按客户端 IP 做基础限流（每分钟最多 10 次），跨域响应只允许 `NBAPI_ALLOWED_ORIGINS` 中的来源。
+- 密码找回功能已加入：用户通过注册邮箱申请一次性重置链接，令牌只保存 SHA-256 哈希、默认 30 分钟有效且只能使用一次；重置成功会撤销该账号所有现有登录会话。SMTP 配置仅放服务器 `/etc/nbapi.env`：`NBAPI_SMTP_HOST`、`NBAPI_SMTP_PORT`、`NBAPI_SMTP_USERNAME`、`NBAPI_SMTP_PASSWORD`、`NBAPI_SMTP_FROM`，如使用 465 端口需设置 `NBAPI_SMTP_USE_SSL=1`；网站地址可由 `NBAPI_PUBLIC_BASE_URL` 配置。未配置邮件服务时接口会明确返回未配置，未知邮箱不会被枚举。
 - `GET /api/dashboard` 返回实时模型数、启用渠道数，以及当前登录用户的今日调用、本月消耗、平均延迟和余额；首页统计不再使用硬编码演示数字。
 - 上游调用会按渠道优先级依次尝试最多 `NBAPI_UPSTREAM_MAX_ATTEMPTS` 个渠道（默认 2）；网络错误、超时和 5xx 会记录失败并自动尝试下一渠道，3 次连续失败的渠道会熔断 5 分钟后再试。可通过 `NBAPI_UPSTREAM_TIMEOUT` 调整单次上游超时（默认 90 秒）。渠道管理页会显示真实健康状态和最近错误。
 - 2026-09-09 已完善 ZPAY 订单链路：`POST /api/wallet/orders` 创建 ZPAY 待支付订单并返回标准页面跳转地址；`GET/POST /api/payment/zpay/notify` 接收回调，校验 `pid`、`TRADE_SUCCESS`、支付方式、订单金额和 MD5 签名后才自动入账。回调入账使用 SQLite 事务和订单状态保护，重复通知不会重复充值。待支付订单可通过 `POST /api/wallet/orders/{id}/sync` 由服务器向 ZPAY 查询结果，解决回调延迟或支付完成返回网站后尚未到账的情况；查询不会向浏览器泄露商户密钥，也不会重复入账。

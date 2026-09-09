@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import secrets
+import smtplib
 import sqlite3
 import threading
 import time
@@ -11,6 +12,7 @@ import traceback
 import zlib
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -51,6 +53,14 @@ ZPAY_CID = os.environ.get("NBAPI_ZPAY_CID", "").strip()
 ZPAY_MIN_TOPUP = Decimal(os.environ.get("NBAPI_ZPAY_MIN_TOPUP", "1"))
 ZPAY_MAX_TOPUP = Decimal(os.environ.get("NBAPI_ZPAY_MAX_TOPUP", "10000"))
 FIXED_TOPUP_AMOUNTS = frozenset(Decimal(value) for value in ("10", "20", "50", "100"))
+PASSWORD_RESET_TTL = int(os.environ.get("NBAPI_PASSWORD_RESET_TTL", "1800"))
+PASSWORD_RESET_BASE_URL = os.environ.get("NBAPI_PUBLIC_BASE_URL", "https://nbapi.win").rstrip("/")
+SMTP_HOST = os.environ.get("NBAPI_SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("NBAPI_SMTP_PORT", "587"))
+SMTP_USERNAME = os.environ.get("NBAPI_SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.environ.get("NBAPI_SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("NBAPI_SMTP_FROM", SMTP_USERNAME).strip()
+SMTP_USE_SSL = os.environ.get("NBAPI_SMTP_USE_SSL", "0").strip().lower() in ("1", "true", "yes")
 _rate_limit_lock = threading.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 HOP_BY_HOP_HEADERS = {
@@ -149,6 +159,36 @@ def verify_password(password: str, stored: str) -> bool:
         return secrets.compare_digest(actual, expected)
     except ValueError:
         return False
+
+
+def password_reset_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_FROM)
+
+
+def send_password_reset_email(recipient: str, reset_url: str) -> None:
+    message = EmailMessage()
+    message["Subject"] = "NBAPI 密码找回"
+    message["From"] = SMTP_FROM
+    message["To"] = recipient
+    message.set_content(
+        "您好，\n\n"
+        "我们收到了您的 NBAPI 密码找回请求。请点击下面的链接设置新密码：\n"
+        f"{reset_url}\n\n"
+        f"该链接 {PASSWORD_RESET_TTL // 60} 分钟内有效，且只能使用一次。若不是您本人操作，请忽略此邮件。\n"
+    )
+    if SMTP_USE_SSL:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+            smtp.send_message(message)
 
 
 def dollars_to_micros(value) -> int:
@@ -308,6 +348,14 @@ def init_db() -> None:
               token TEXT PRIMARY KEY,
               user_id INTEGER NOT NULL REFERENCES users(id),
               expires_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              token_hash TEXT NOT NULL UNIQUE,
+              expires_at INTEGER NOT NULL,
+              used_at INTEGER,
+              created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS api_tokens (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2130,6 +2178,67 @@ class Handler(BaseHTTPRequestHandler):
                         "createdAt": row[7],
                     },
                 })
+                return
+
+            if path == "/api/auth/password-reset/request":
+                if self._rate_limited("password_reset"):
+                    self.send_json(429, {"error": "rate_limited"})
+                    return
+                email = str(payload.get("email", "")).strip().lower()
+                if "@" not in email or len(email) > 120:
+                    self.send_json(400, {"error": "email_invalid"})
+                    return
+                # Always return the same response for unknown addresses to avoid
+                # exposing which email addresses have accounts.
+                response = {"requested": True, "message": "如果该邮箱已注册，找回邮件将发送到该邮箱。"}
+                if not password_reset_configured():
+                    self.send_json(503, {"error": "password_reset_not_configured", **response})
+                    return
+                with sqlite3.connect(DB_PATH) as db:
+                    user = db.execute("SELECT id FROM users WHERE lower(email)=lower(?) AND email<>'' AND active=1", (email,)).fetchone()
+                    if not user:
+                        self.send_json(200, response)
+                        return
+                    raw_token = secrets.token_urlsafe(48)
+                    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                    timestamp = now()
+                    db.execute("DELETE FROM password_reset_tokens WHERE user_id=? OR expires_at<?", (user[0], timestamp))
+                    db.execute("INSERT INTO password_reset_tokens(user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)", (user[0], token_hash, timestamp + max(300, PASSWORD_RESET_TTL), timestamp))
+                reset_url = f"{PASSWORD_RESET_BASE_URL}/#reset-password?token={quote(raw_token)}"
+                try:
+                    send_password_reset_email(email, reset_url)
+                except (OSError, smtplib.SMTPException) as exc:
+                    with sqlite3.connect(DB_PATH) as db:
+                        db.execute("DELETE FROM password_reset_tokens WHERE token_hash=?", (token_hash,))
+                    print(f"password reset email failed: {exc}")
+                    self.send_json(503, {"error": "password_reset_delivery_failed"})
+                    return
+                self.send_json(200, response)
+                return
+
+            if path == "/api/auth/password-reset/confirm":
+                raw_token = str(payload.get("token", "")).strip()
+                new_password = str(payload.get("newPassword", ""))
+                if len(new_password) < 12:
+                    self.send_json(400, {"error": "password_too_short"})
+                    return
+                if len(raw_token) < 32 or len(raw_token) > 256:
+                    self.send_json(400, {"error": "reset_token_invalid"})
+                    return
+                token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+                timestamp = now()
+                with sqlite3.connect(DB_PATH) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    token_row = db.execute("SELECT id, user_id FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>?", (token_hash, timestamp)).fetchone()
+                    if not token_row:
+                        db.execute("ROLLBACK")
+                        self.send_json(400, {"error": "reset_token_invalid_or_expired"})
+                        return
+                    db.execute("UPDATE users SET password_hash=? WHERE id=? AND active=1", (hash_password(new_password), token_row[1]))
+                    db.execute("UPDATE password_reset_tokens SET used_at=? WHERE id=?", (timestamp, token_row[0]))
+                    db.execute("DELETE FROM sessions WHERE user_id=?", (token_row[1],))
+                    db.execute("COMMIT")
+                self.send_json(200, {"reset": True, "message": "密码已重置，请使用新密码登录。"})
                 return
 
             if path == "/api/auth/password":

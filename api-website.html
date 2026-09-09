@@ -82,7 +82,7 @@
     .btn.success { background: var(--green); color: white; border-color: var(--green); }
 
     .content { padding: 24px; display: grid; gap: 18px; }
-    .content > #login, .content > #signup { display: none; }
+    .content > #login, .content > #signup, .content > #forgot-password, .content > #reset-password { display: none; }
     .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) 360px; gap: 18px; }
     .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
     .welcome { padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 18px; overflow: hidden; position: relative; }
@@ -113,7 +113,7 @@
     .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
     #models, #models + .workspace > .table-card { display: none; }
     .workspace:has(> .table-card) { grid-template-columns: 1fr; }
-    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #pricing, .content > #login, .content > #signup { display: none; }
+    .content > .hero, .content > .stats, .content > #console, .content > #square, .content > #playground, .content > .workspace, .content > #logs, .content > #wallet, .content > #settings, .content > #users, .content > #pricing, .content > #login, .content > #signup, .content > #forgot-password, .content > #reset-password { display: none; }
     body:not(.logged-in) .auth-required { display: none !important; }
     body.route-console .content > .hero, body.route-console .content > .stats, body.route-console .content > #console { display: grid; }
     body.route-square .content > #square { display: grid; }
@@ -124,6 +124,7 @@
     body.route-logs .content > #logs, body.route-wallet .content > #wallet, body.route-settings .content > #settings { display: block; }
     body.route-pricing .content > #pricing { display: block; }
     body.route-login .content > #login, body.route-signup .content > #signup { display: grid; }
+    body.route-forgot-password .content > #forgot-password, body.route-reset-password .content > #reset-password { display: grid; }
     body.route-login .content > .hero, body.route-login .content > .stats, body.route-login .content > #console, body.route-login .content > #square, body.route-login .content > #playground, body.route-login .content > .workspace, body.route-login .content > #logs, body.route-login .content > #wallet, body.route-login .content > #settings, body.route-login .content > #users, body.route-login .content > #pricing, body.route-login .content > #signup { display: none; }
     body.route-signup .content > .hero, body.route-signup .content > .stats, body.route-signup .content > #console, body.route-signup .content > #square, body.route-signup .content > #playground, body.route-signup .content > .workspace, body.route-signup .content > #logs, body.route-signup .content > #wallet, body.route-signup .content > #settings, body.route-signup .content > #users, body.route-signup .content > #pricing, body.route-signup .content > #login { display: none; }
     .playground-shell { width: min(100%, 1500px); max-width: 1500px; margin: 0; display: grid; grid-template-columns: minmax(300px, 340px) minmax(0, 1080px); justify-content: start; gap: 18px; align-items: stretch; }
@@ -784,11 +785,31 @@
               <button class="btn primary" id="loginSubmit" type="button">继续</button>
               <a class="btn" href="#signup">注册</a>
             </div>
+            <div class="auth-links"><a href="#forgot-password">忘记密码？</a></div>
             <div class="auth-links">
               <span>没有账户？</span>
               <a href="#signup">去注册</a>
             </div>
             <div class="auth-note">请使用管理员分配或自行注册的账号登录。</div>
+          </div>
+        </section>
+
+        <section class="auth-shell" id="forgot-password">
+          <div class="auth-card auth-form">
+            <div><h2>找回密码</h2><p>输入注册邮箱，我们会发送一次性密码重置链接。</p></div>
+            <div class="auth-field"><label for="resetEmail">注册邮箱</label><input class="auth-input" id="resetEmail" type="email" autocomplete="email" placeholder="请输入注册时使用的邮箱" /></div>
+            <div class="auth-actions"><button class="btn primary" id="requestReset" type="button">发送找回邮件</button><a class="btn" href="#login">返回登录</a></div>
+            <div class="auth-note" id="resetRequestStatus">找回链接有效期为 30 分钟，且只能使用一次。</div>
+          </div>
+        </section>
+
+        <section class="auth-shell" id="reset-password">
+          <div class="auth-card auth-form">
+            <div><h2>设置新密码</h2><p>请设置至少 12 位的新密码。</p></div>
+            <div class="auth-field"><label for="newResetPassword">新密码</label><input class="auth-input" id="newResetPassword" type="password" autocomplete="new-password" placeholder="请输入新密码" /></div>
+            <div class="auth-field"><label for="confirmResetPassword">确认新密码</label><input class="auth-input" id="confirmResetPassword" type="password" autocomplete="new-password" placeholder="请再次输入新密码" /></div>
+            <div class="auth-actions"><button class="btn primary" id="confirmReset" type="button">重置密码</button><a class="btn" href="#login">返回登录</a></div>
+            <div class="auth-note" id="resetConfirmStatus">请勿将密码告诉他人。</div>
           </div>
         </section>
 
@@ -1309,6 +1330,13 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const loginUsername = document.getElementById("loginUsername");
     const loginPassword = document.getElementById("loginPassword");
     const loginSubmit = document.getElementById("loginSubmit");
+    const resetEmail = document.getElementById("resetEmail");
+    const requestReset = document.getElementById("requestReset");
+    const resetRequestStatus = document.getElementById("resetRequestStatus");
+    const newResetPassword = document.getElementById("newResetPassword");
+    const confirmResetPassword = document.getElementById("confirmResetPassword");
+    const confirmReset = document.getElementById("confirmReset");
+    const resetConfirmStatus = document.getElementById("resetConfirmStatus");
     const signupSubmit = document.getElementById("signupSubmit");
     const signupUsername = document.getElementById("signupUsername");
     const signupEmail = document.getElementById("signupEmail");
@@ -2210,10 +2238,16 @@ console.log(result.choices[0].message.content);</pre></div></section>
     let usersTotalPages = 1;
     let managerAccounts = [];
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup"];
+    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup", "forgot-password", "reset-password"];
 
     function applyRoute() {
-      let route = (location.hash || "#console").slice(1) || "console";
+      const hashValue = (location.hash || "#console").slice(1) || "console";
+      const [routeName, queryString = ""] = hashValue.split("?");
+      let route = routeName;
+      if (route === "reset-password") {
+        const token = new URLSearchParams(queryString).get("token") || "";
+        window.resetPasswordToken = token;
+      }
       if (route === "models") route = "square";
       if (!routes.includes(route)) route = "console";
       const privateRoutes = ["console", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings"];
@@ -2784,6 +2818,42 @@ console.log(result.choices[0].message.content);</pre></div></section>
         submitLogin();
       }
     }));
+
+    requestReset?.addEventListener("click", async () => {
+      const email = resetEmail?.value.trim() || "";
+      if (!email) { alert("请输入注册邮箱。"); return; }
+      requestReset.disabled = true;
+      resetRequestStatus.textContent = "正在发送，请稍候...";
+      try {
+        const data = await fetch(`${API_BASE}/api/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "发送失败");
+          return result;
+        });
+        resetRequestStatus.textContent = data.message || "如果该邮箱已注册，找回邮件将发送到该邮箱。";
+      } catch (error) {
+        resetRequestStatus.textContent = error.message === "password_reset_not_configured" ? "密码找回服务尚未配置，请联系管理员。" : "邮件发送失败，请稍后再试。";
+      } finally { requestReset.disabled = false; }
+    });
+
+    confirmReset?.addEventListener("click", async () => {
+      const token = window.resetPasswordToken || "";
+      const password = newResetPassword?.value || "";
+      if (!token) { resetConfirmStatus.textContent = "找回链接无效，请重新申请。"; return; }
+      if (password.length < 12) { alert("新密码至少 12 位。"); return; }
+      if (password !== confirmResetPassword.value) { alert("两次密码不一致。"); return; }
+      confirmReset.disabled = true;
+      try {
+        const data = await fetch(`${API_BASE}/api/auth/password-reset/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, newPassword: password }) }).then(async (response) => {
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "重置失败");
+          return result;
+        });
+        resetConfirmStatus.textContent = data.message || "密码已重置，请使用新密码登录。";
+        window.setTimeout(() => { location.hash = "login"; }, 900);
+      } catch (error) { resetConfirmStatus.textContent = error.message === "reset_token_invalid_or_expired" ? "链接已失效，请重新申请。" : "密码重置失败，请稍后再试。"; }
+      finally { confirmReset.disabled = false; }
+    });
 
     signupSubmit.addEventListener("click", async () => {
       const username = signupUsername?.value?.trim() || "";
