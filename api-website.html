@@ -700,6 +700,94 @@
       .plaza-grid { grid-template-columns: 1fr; }
       .plaza-toolbar { align-items: stretch; flex-direction: column; }
     }
+
+    /* AI Neural Grid visual layer: presentation-only, keeps application behavior intact. */
+    :root {
+      --ai-blue: #246bfe;
+      --ai-cyan: #00b9c8;
+      --ai-violet: #7957f7;
+      --ai-ink: #101a2e;
+      --ai-grid: rgba(36, 107, 254, .075);
+      --ai-glow: rgba(36, 107, 254, .22);
+      --ai-panel: rgba(255, 255, 255, .9);
+      --ai-panel-strong: #f9fbff;
+    }
+    body.dark {
+      --ai-blue: #5d91ff;
+      --ai-cyan: #41d9df;
+      --ai-violet: #a78bfa;
+      --ai-ink: #edf5ff;
+      --ai-grid: rgba(112, 161, 255, .10);
+      --ai-glow: rgba(65, 217, 223, .18);
+      --ai-panel: rgba(16, 27, 49, .86);
+      --ai-panel-strong: #121f36;
+    }
+    body.route-console, body.route-playground, body.route-square { background-image: linear-gradient(var(--ai-grid) 1px, transparent 1px), linear-gradient(90deg, var(--ai-grid) 1px, transparent 1px); background-size: 28px 28px; }
+    .brand .logo { position: relative; overflow: hidden; background: linear-gradient(135deg, var(--ai-blue), var(--ai-violet) 52%, var(--ai-cyan)); }
+    .brand .logo::after { content: ""; position: absolute; inset: 7px; border: 1px solid rgba(255,255,255,.56); border-radius: 5px; transform: rotate(45deg); }
+    .topbar { box-shadow: 0 8px 28px rgba(30, 59, 105, .04); }
+    body.dark .topbar { box-shadow: 0 8px 28px rgba(0, 0, 0, .2); }
+    .top-nav a { position: relative; }
+    .top-nav a.active::after { content: ""; position: absolute; height: 2px; left: 13px; right: 13px; bottom: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--ai-blue), var(--ai-cyan)); }
+    .hero { grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; }
+    .welcome { min-height: 278px; padding: 28px; grid-template-columns: minmax(0, 1fr) minmax(310px, .72fr); border-color: color-mix(in srgb, var(--ai-blue) 18%, var(--line)); background: var(--ai-panel); isolation: isolate; }
+    .welcome::after { content: ""; z-index: -1; inset: 0; right: auto; bottom: auto; width: 58%; height: 100%; color: transparent; font-size: 0; background: radial-gradient(circle at 14% 22%, var(--ai-glow), transparent 38%); opacity: .8; }
+    .welcome h1 { max-width: 16ch; font-size: clamp(27px, 2.4vw, 38px); line-height: 1.13; }
+    .welcome h1 .accent { color: var(--ai-blue); }
+    .welcome p { max-width: 58ch; font-size: 14px; line-height: 1.8; }
+    .hero-actions { margin-top: 22px; }
+    .hero-actions .btn.primary { background: linear-gradient(100deg, var(--ai-blue), #436bff); border-color: transparent; }
+    .neural-visual { min-height: 215px; position: relative; display: grid; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--ai-blue) 22%, var(--line)); border-radius: 10px; background: linear-gradient(145deg, color-mix(in srgb, var(--ai-panel-strong) 88%, var(--ai-blue)), var(--ai-panel-strong)); }
+    .neural-visual::before, .neural-visual::after { content: ""; position: absolute; width: 180px; height: 1px; background: linear-gradient(90deg, transparent, var(--ai-cyan), transparent); transform: rotate(-28deg); opacity: .7; }
+    .neural-visual::after { transform: rotate(28deg); }
+    .neural-core { width: 86px; height: 86px; position: relative; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--ai-cyan) 62%, transparent); border-radius: 25px; background: radial-gradient(circle, color-mix(in srgb, var(--ai-blue) 38%, transparent), transparent 66%); box-shadow: 0 0 42px var(--ai-glow), inset 0 0 26px color-mix(in srgb, var(--ai-cyan) 14%, transparent); transform: rotate(45deg); animation: neuralFloat 6s ease-in-out infinite; }
+    .neural-core b { transform: rotate(-45deg); color: var(--ai-ink); font-size: 19px; letter-spacing: 0; }
+    .neural-node { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--ai-cyan); box-shadow: 0 0 14px var(--ai-cyan); animation: neuralPulse 2.8s ease-in-out infinite; }
+    .neural-node.n1 { top: 26px; left: 36px; } .neural-node.n2 { top: 40px; right: 30px; animation-delay: .6s; } .neural-node.n3 { bottom: 35px; left: 24px; animation-delay: 1.2s; } .neural-node.n4 { bottom: 22px; right: 66px; animation-delay: 1.8s; }
+    .neural-caption { position: absolute; left: 16px; bottom: 14px; display: flex; align-items: center; gap: 7px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .neural-caption i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+    .notice { background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-violet) 16%, var(--line)); }
+    .notice h2::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--ai-cyan); box-shadow: 0 0 12px var(--ai-cyan); }
+    .stats { gap: 16px; }
+    .stat { position: relative; overflow: hidden; min-height: 128px; background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 13%, var(--line)); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+    .stat::before { content: ""; position: absolute; width: 54px; height: 54px; right: -13px; bottom: -18px; border: 1px solid color-mix(in srgb, var(--ai-blue) 35%, transparent); border-radius: 17px; transform: rotate(45deg); }
+    .stat:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--ai-cyan) 45%, var(--line)); box-shadow: 0 14px 30px var(--ai-glow); }
+    .stat .label { align-items: center; } .stat .label::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ai-blue); box-shadow: 0 0 10px var(--ai-blue); }
+    .stat:nth-child(2) .label::before { background: var(--ai-cyan); box-shadow: 0 0 10px var(--ai-cyan); } .stat:nth-child(3) .label::before { background: var(--ai-violet); box-shadow: 0 0 10px var(--ai-violet); } .stat:nth-child(4) .label::before { background: var(--green); box-shadow: 0 0 10px var(--green); }
+    .stat .value { color: var(--ai-ink); font-size: 30px; }
+    .console-card { background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 13%, var(--line)); }
+    .console-head { background: color-mix(in srgb, var(--ai-panel-strong) 88%, transparent); }
+    .console-metric { position: relative; background: color-mix(in srgb, var(--ai-panel-strong) 92%, transparent); overflow: hidden; }
+    .console-metric::after { content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 52%; background: linear-gradient(90deg, var(--ai-blue), transparent); }
+    .playground-shell { gap: 16px; }
+    .playground-panel { background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 14%, var(--line)); }
+    .playground-panel > h3 { display: flex; align-items: center; gap: 8px; } .playground-panel > h3::before { content: "AI"; display: grid; place-items: center; width: 28px; height: 28px; color: #fff; border-radius: 8px; background: linear-gradient(135deg, var(--ai-blue), var(--ai-violet)); font-size: 10px; letter-spacing: 0; }
+    .playground-control { padding: 10px; border: 1px solid transparent; border-radius: 9px; background: color-mix(in srgb, var(--ai-panel-strong) 78%, transparent); transition: border-color .2s ease, background .2s ease; }
+    .playground-control:focus-within { border-color: color-mix(in srgb, var(--ai-cyan) 55%, var(--line)); background: color-mix(in srgb, var(--ai-panel-strong) 98%, transparent); }
+    .playground-chat { background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 18%, var(--line)); }
+    .playground-chat-head { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .playground-chat-head h2::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 11px var(--green); }
+    .playground-messages { padding: 16px; border-radius: 9px; background-image: linear-gradient(var(--ai-grid) 1px, transparent 1px), linear-gradient(90deg, var(--ai-grid) 1px, transparent 1px); background-size: 22px 22px; }
+    .playground-message.assistant { border-color: color-mix(in srgb, var(--ai-blue) 18%, var(--line)); box-shadow: 0 8px 20px rgba(25, 60, 110, .05); }
+    .playground-message.user { background: linear-gradient(120deg, var(--ai-blue), #5477fe); box-shadow: 0 8px 20px var(--ai-glow); }
+    .playground-composer { padding: 12px; border: 1px solid color-mix(in srgb, var(--ai-blue) 16%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--ai-panel-strong) 93%, transparent); }
+    .plaza-shell { padding: 16px; background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 14%, var(--line)); }
+    .plaza-filter { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb, var(--ai-panel-strong) 76%, transparent); }
+    .filter-button.active { background: color-mix(in srgb, var(--ai-blue) 12%, var(--surface)); border-color: color-mix(in srgb, var(--ai-blue) 42%, var(--line)); color: var(--ai-blue); }
+    .plaza-banner { min-height: 148px; padding: 24px; background: linear-gradient(120deg, #142a59, #1c4b9a 52%, #146d88); isolation: isolate; }
+    .plaza-banner::before { content: ""; position: absolute; inset: 0; z-index: -1; background-image: radial-gradient(circle at 76% 35%, rgba(86, 238, 236, .42) 0 2px, transparent 3px), radial-gradient(circle at 63% 69%, rgba(133, 151, 255, .52) 0 3px, transparent 4px), linear-gradient(32deg, transparent 48%, rgba(115, 240, 236, .45) 49% 50%, transparent 51%); background-size: 130px 100px, 175px 130px, 260px 170px; opacity: .75; }
+    .plaza-banner::after { font-size: 128px; color: rgba(202, 251, 255, .12); }
+    .plaza-banner h3 { font-size: 25px; } .plaza-banner p { max-width: 60ch; }
+    .plaza-card { position: relative; min-height: 178px; background: var(--ai-panel); border-color: color-mix(in srgb, var(--ai-blue) 14%, var(--line)); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+    .plaza-card::before { content: ""; position: absolute; left: 0; top: 18px; bottom: 18px; width: 2px; background: linear-gradient(var(--ai-blue), var(--ai-cyan)); opacity: 0; transition: opacity .2s ease; }
+    .plaza-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--ai-cyan) 58%, var(--line)); box-shadow: 0 16px 28px var(--ai-glow); }
+    .plaza-card:hover::before { opacity: 1; }
+    .plaza-card-top .avatar { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent); }
+    @keyframes neuralFloat { 50% { transform: rotate(45deg) translate(-4px, -4px); } }
+    @keyframes neuralPulse { 50% { transform: scale(1.6); opacity: .45; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    @media (max-width: 1100px) { .welcome { grid-template-columns: 1fr; } .neural-visual { min-height: 165px; } }
+    @media (max-width: 720px) { .welcome { padding: 21px; min-height: 0; } .welcome h1 { font-size: 28px; } .neural-visual { min-height: 148px; } .plaza-banner { min-height: 132px; padding: 18px; } .plaza-banner h3 { font-size: 21px; } .stat .value { font-size: 27px; } }
   </style>
 </head>
 <body>
@@ -853,15 +941,16 @@
         <div class="hero">
           <section class="panel welcome">
             <div>
-              <h1>欢迎使用 NBAPI 模型聚合分发系统</h1>
-              <p>统一管理 OpenAI、Anthropic Claude、Google Gemini、DeepSeek、通义千问、豆包、Sora 等模型渠道，并转换为 OpenAI / Claude / Gemini 兼容接口。</p>
+              <span class="tag blue">NBAPI / AI GATEWAY</span>
+              <h1>统一连接你的 <span class="accent">AI 模型能力</span></h1>
+              <p>面向开发者的统一 AI 模型网关。通过一套令牌和兼容接口，接入对话、图像与视频模型调用。</p>
               <div class="hero-actions"><a class="btn primary" href="#tokens">创建令牌</a><a class="btn" href="#docs">查看 API 文档</a><a class="btn" href="#square">模型广场</a></div>
             </div>
-            <pre class="mini-console"><span class="green">$</span> curl https://nbapi.win/v1/chat/completions \
-  -H "Authorization: Bearer nb_sk_xxx" \
-  -H "Content-Type: application/json"
-
-<span class="blue">200 OK</span> unified model gateway ready</pre>
+            <div class="neural-visual" aria-label="NBAPI AI 核心视觉">
+              <span class="neural-node n1"></span><span class="neural-node n2"></span><span class="neural-node n3"></span><span class="neural-node n4"></span>
+              <div class="neural-core"><b>NB</b></div>
+              <div class="neural-caption"><i></i> UNIFIED AI GATEWAY</div>
+            </div>
           </section>
           <aside class="panel notice">
             <h2>系统公告</h2>
