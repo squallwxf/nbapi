@@ -10,6 +10,24 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_claude_headers_use_provider_key_and_hide_downstream_key(self):
+        headers = server.build_upstream_headers(
+            {
+                "Authorization": "Bearer nb_sk_customer",
+                "X-NBAPI-Key": "nb_sk_customer",
+                "Idempotency-Key": "request-1",
+                "anthropic-beta": "prompt-caching-2024-07-31",
+            },
+            {"api_key": "sk_provider"},
+            "/v1/messages",
+        )
+        self.assertEqual(headers["Authorization"], "Bearer sk_provider")
+        self.assertEqual(headers["x-api-key"], "sk_provider")
+        self.assertEqual(headers["anthropic-version"], "2023-06-01")
+        self.assertEqual(headers["anthropic-beta"], "prompt-caching-2024-07-31")
+        self.assertNotIn("X-NBAPI-Key", headers)
+        self.assertNotIn("Idempotency-Key", headers)
+
     def assert_usage(self, body, expected_counts, expected_billable):
         payload = server.extract_response_payload(body.encode("utf-8"))
         self.assertEqual(server.extract_usage_counts(payload), expected_counts)

@@ -2408,6 +2408,11 @@ console.log(result.choices[0].message.content);</pre></div></section>
       const content = data?.choices?.[0]?.message?.content;
       if (Array.isArray(content)) return content.map((part) => part?.text || "").join("");
       if (typeof content === "string") return content;
+      const anthropicContent = data?.content;
+      if (Array.isArray(anthropicContent)) {
+        const text = anthropicContent.map((part) => part?.text || "").join("");
+        if (text) return text;
+      }
       const geminiText = data?.candidates?.[0]?.content?.parts?.map((part) => part?.text || "").join("");
       if (geminiText) return geminiText;
       if (data?.data?.[0]?.url) return `图片地址：${data.data[0].url}`;
@@ -2423,6 +2428,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       const model = playgroundModel.value;
       const modelMeta = getModelMeta(getPlaygroundModelRows().find((item) => item[0] === model));
       const isGemini = modelMeta.endpoint.includes("generateContent");
+      const isClaude = modelMeta.provider === "Anthropic" || modelMeta.endpoint.includes("/v1/messages");
       const isGeminiImage = isGemini && modelMeta.kind === "图片生成";
       const isAsyncMedia = modelMeta.kind === "图片生成" || modelMeta.kind.includes("视频");
       const userMessage = { role: "user", content: prompt };
@@ -2431,7 +2437,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       playgroundPrompt.value = "";
       playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
       try {
-        const endpoint = isGemini ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
+        const endpoint = isGemini ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : isClaude ? "/v1/messages" : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
         const selectedVideoResolution = playgroundVideoResolution.value;
         const resolvedVideoModel = modelMeta.kind.includes("视频") ? resolveVideoModel(model, selectedVideoResolution) : model;
         const requestBody = isGeminiImage
@@ -2440,13 +2446,15 @@ console.log(result.choices[0].message.content);</pre></div></section>
             ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value) } }
           : modelMeta.kind === "图片生成"
             ? { model, prompt, n: 1, size: playgroundImageAspect.value, image_size: playgroundImageSize.value, quality: "auto", response_format: "url" }
-            : modelMeta.kind.includes("视频")
+          : modelMeta.kind.includes("视频")
               ? endpoint.includes("submit/generate")
                 ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
                 : model.startsWith("sora-v4-")
                   ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
                   : { model: resolvedVideoModel, prompt, ...(model.startsWith("veo-") ? {} : { seconds: String(playgroundVideoDuration.value) }), aspect_ratio: playgroundVideoRatio.value, n: 1 }
-              : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
+              : isClaude
+                ? { model, messages: playgroundConversation.map((message) => ({ role: message.role, content: message.content })), temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), max_tokens: Number(playgroundMaxTokens.value), stream: false }
+                : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
         const requestId = `playground-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
         const response = await fetch(`${API_BASE}${endpoint}`, {
           method: "POST",

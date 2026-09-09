@@ -226,6 +226,13 @@ systemctl is-active nbapi
 
 ## 2026-09-09 当前接力状态
 
+### 2026-09-09 Claude 操练场 502 修复（本地待部署）
+
+- 已确认操练场之前把 Claude 模型错误发送到 `/v1/chat/completions`，导致上游返回 502；Claude 必须使用原生 `/v1/messages` 和 `messages/max_tokens` 请求结构。
+- `api-website.html` 现在会按 Anthropic 模型走 `/v1/messages`，并读取返回的 `content[].text`。
+- `server.py` 现在对 `/v1/messages` 补充 `x-api-key` 和默认 `anthropic-version: 2023-06-01`，同时不再向上游转发下游用户的 `X-NBAPI-Key` 和 `Idempotency-Key`。
+- 已通过 `python3 -m unittest tools.test_usage_parsing -v` 和前端 JavaScript 语法检查；修改尚未部署到服务器。
+
 ### 已完成的用户与权限功能
 
 - 普通用户和普通管理员的使用日志严格限定为当前账号；超级管理员可在“使用日志”中选择“我的日志”或“所有用户”。后端通过 `scope=self/all` 校验权限，普通账号即使手动传入 `scope=all` 也只能查询自己的记录。
@@ -265,5 +272,4 @@ systemctl is-active nbapi
 2. 将同一请求的 Token 明细与上游 KRAPI 账单逐项对照，尤其检查 Claude 缓存读写场景。
 3. ZPAY 审核通过后，用 10 元档位完成一次真实支付宝支付，核对订单状态、余额、回调和查单。
 4. 支付联调稳定后，再考虑退款、套餐、订阅有效期和运营报表。
-
 

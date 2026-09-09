@@ -939,6 +939,27 @@ def get_upstream_route(db, model_name: str = ""):
     }
 
 
+def build_upstream_headers(incoming_headers, route: dict, path: str) -> dict[str, str]:
+    """Build provider headers without forwarding a customer's NBAPI token."""
+    excluded = HOP_BY_HOP_HEADERS | {
+        "host",
+        "content-length",
+        "authorization",
+        "x-nbapi-key",
+        "idempotency-key",
+    }
+    headers = {key: value for key, value in incoming_headers.items() if key.lower() not in excluded}
+    headers["Authorization"] = f"Bearer {route['api_key']}"
+    if path.startswith("/v1/messages"):
+        # New API's Claude adaptor uses native Anthropic headers. Keep
+        # Authorization for compatible gateways, but also provide the native
+        # header and never forward the downstream NBAPI token.
+        headers["x-api-key"] = route["api_key"]
+        if "anthropic-version" not in {key.lower() for key in headers}:
+            headers["anthropic-version"] = "2023-06-01"
+    return headers
+
+
 def update_channel_health(channel_id: int | None, success: bool, error: str = "") -> None:
     if channel_id is None:
         return
@@ -1535,8 +1556,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
         for attempt, route in enumerate(routes):
             upstream_url = f"{route['base_url']}{path}" + (f"?{parsed.query}" if parsed.query else "")
-            upstream_headers = {key: value for key, value in self.headers.items() if key.lower() not in HOP_BY_HOP_HEADERS | {"host", "content-length", "authorization"}}
-            upstream_headers["Authorization"] = f"Bearer {route['api_key']}"
+            upstream_headers = build_upstream_headers(self.headers, route, path)
             if body and "content-type" not in {key.lower() for key in upstream_headers}:
                 upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
             try:
