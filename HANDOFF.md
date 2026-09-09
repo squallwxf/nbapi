@@ -283,3 +283,18 @@ systemctl is-active nbapi
 - 统计、公告、操练场参数/对话区、模型广场筛选和模型卡片统一了边框、层级、状态点和交互悬停效果。
 - 动效仅包含轻量节点呼吸、悬停和过渡，并支持 `prefers-reduced-motion`；未修改后端接口、数据库、计费、支付、权限、令牌或任何业务事件逻辑。
 - 本次仅修改 `api-website.html`，服务器部署后刷新页面即可；当前代码已推送到 GitHub `main`。
+
+## 2026-09-10 最新接力状态
+
+- 已移除控制台首页右侧的“快捷信息”展示卡片；该区域不包含业务操作、接口请求或事件监听。
+- 为避免移除右栏后留下空白，`.console-shell` 已改为单列布局；控制台数据、菜单入口、权限判断和业务逻辑均未修改。
+- 最新 GitHub 提交为 `7b60c40 移除控制台快捷信息面板`，已推送到 `https://github.com/squallwxf/nbapi.git` 的 `main` 分支。
+- 本地未跟踪的 `api-website.html.before-ai-redesign.bak` 是视觉改版备份，`zhengshu/` 是证书目录；两者均未上传，也不要加入 Git。
+
+### 明天换电脑继续
+
+1. 克隆仓库或进入已有项目目录。
+2. 阅读 `README.md` 和本文件，确认线上 `/etc/nbapi.env` 与数据库不从仓库覆盖。
+3. 如需更新服务器，在服务器 `/opt/nbapi` 执行 `git pull --ff-only origin main`。
+4. 本次仅改前端页面，拉取后浏览器执行 `Ctrl+F5`；若后续修改 `server.py`，再执行 `systemctl restart nbapi` 并检查服务状态。
+5. 下一步优先做生产环境回归：登录/注册、密码找回、令牌、操练场文本/图片/视频、计费日志、钱包支付、供应商和超级管理员权限。
