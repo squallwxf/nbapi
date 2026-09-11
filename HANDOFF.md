@@ -2,6 +2,14 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 最新：首 Token 已按 New API FRT 口径对齐
+
+- 已下载并查阅 QuantumNous/new-api 提交 `74629e29f83f506bb523c5542aa851947bd423eb`。`relay/helper/stream_scanner.go:272` 在第一条非空且非 [DONE] 的 data 事件处调用 SetFirstResponseTime；`relay/common/relay_info.go:935` 仅记录一次；`service/log_info_generate.go:107` 写入 frt 毫秒，前端除以 1000 显示秒。
+- NBAPI 现在同样记录首个 data 事件，不再等待正文/推理/工具调用增量。之前文档中“只有生成内容才计时”的口径已被此项替代。首 Token 标签表示首响应时间，可能由 response.created 等结构事件触发。
+- 诊断日志同时保留 firstDataMs、firstContentMs、endMs，用于区分首响应与首正文。非流式与暂不支持的压缩流仍显示 `-`；历史时间无法还原，不改写旧账单。
+- 15 项测试通过，包含真实本地 HTTP 分段传输。仍未取得 KRAPI 线上原始时序，不能保证所有请求的首响应一定小于总耗时很多；若上游集中返回，两者确实可能接近。
+- 本轮网络曾连接重置，随后恢复并成功读取源码；下文下载失败记录仅为历史过程。
+
 ## 现在的状态
 
 - 前端页面：`api-website.html`

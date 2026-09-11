@@ -77,11 +77,29 @@ class UsageParsingTests(unittest.TestCase):
         self.assertEqual(received, body)
         self.assertEqual(first_ms, 2500)
 
-    def test_final_response_is_not_a_first_token(self):
+    def test_final_only_stream_still_counts_as_first_data_like_new_api(self):
         class Response(BytesIO):
             headers = {"Content-Type": "text/event-stream"}
         body = b'data: {"type":"response.completed","response":{"output":[{"text":"hello"}]}}\n\n'
-        self.assertEqual(server.read_upstream_response(Response(body), 0), (body, 0))
+        with patch.object(server.time, "perf_counter", return_value=12.5):
+            self.assertEqual(server.read_upstream_response(Response(body), 10), (body, 2500))
+
+    def test_new_api_frt_counts_created_event_before_content(self):
+        class Response(BytesIO):
+            headers = {"Content-Type": "text/event-stream"}
+        body = (
+            b': ping\n'
+            b'data: \n'
+            b'data: {"type":"response.created"}\n'
+            b'data: {"type":"response.output_text.delta","delta":"hello"}\n'
+        )
+        timing = {}
+        with patch.object(server.time, "perf_counter", side_effect=[10, 11, 12, 13, 15, 16]):
+            received, first_ms = server.read_upstream_response(Response(body), 10, timing)
+        self.assertEqual(received, body)
+        self.assertEqual(first_ms, 3000)
+        self.assertEqual(timing["firstContentMs"], 5000)
+        self.assertEqual(timing["endMs"], 6000)
 
     def test_first_token_protocol_events(self):
         for event in (

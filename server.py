@@ -703,12 +703,12 @@ def is_first_token_event(event) -> bool:
 
 
 def read_upstream_response(response, started_at: float, timing: dict | None = None) -> tuple[bytes, int]:
-    """Read an upstream response and measure first generated SSE content."""
+    """Measure the first nonempty SSE data event, matching New API's FRT."""
     headers = {key.lower(): value for key, value in response.headers.items()}
     content_type = str(headers.get("content-type", "")).lower()
     if timing is not None:
         timing.update(headersMs=round((time.perf_counter() - started_at) * 1000),
-                      firstLineMs=None, firstDataMs=None, firstTokenMs=None,
+                      firstLineMs=None, firstDataMs=None, firstTokenMs=None, firstContentMs=None,
                       endMs=None, events=[], parseErrors=0)
     if "text/event-stream" not in content_type or headers.get("content-encoding", "identity").lower() not in ("", "identity"):
         if timing is not None:
@@ -731,6 +731,8 @@ def read_upstream_response(response, started_at: float, timing: dict | None = No
         data = line[5:].strip()
         if not data or data == b"[DONE]":
             continue
+        if not first_token_ms:
+            first_token_ms = elapsed_ms
         if timing is not None and timing["firstDataMs"] is None:
             timing["firstDataMs"] = elapsed_ms
         try:
@@ -753,12 +755,12 @@ def read_upstream_response(response, started_at: float, timing: dict | None = No
             elif "candidates" in event:
                 label = "gemini"
             timing["events"].append({"ms": elapsed_ms, "event": label, "generated": generated})
-        if not first_token_ms and generated:
-            first_token_ms = elapsed_ms
+        if timing is not None and timing["firstContentMs"] is None and generated:
+            timing["firstContentMs"] = elapsed_ms
     if timing is not None:
         timing.update(firstTokenMs=first_token_ms or None,
                       endMs=round((time.perf_counter() - started_at) * 1000),
-                      measurement="upstream_content" if first_token_ms else "no_recognized_delta")
+                      measurement="first_upstream_data" if first_token_ms else "no_data_event")
     return b"".join(chunks), first_token_ms
 
 
