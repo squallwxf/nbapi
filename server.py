@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import gzip
 import ipaddress
 import json
@@ -17,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPHandler, HTTPSHandler
 from zoneinfo import ZoneInfo
 
 
@@ -672,6 +673,39 @@ def decode_upstream_body(body: bytes, headers: dict[str, str]) -> bytes:
     except (OSError, zlib.error):
         return body
     return body
+
+
+def open_timed_upstream(request, started_at: float, timing: dict):
+    """Observe connection and upload phases without changing request contents."""
+    class TimedConnection:
+        def connect(self):
+            began = time.perf_counter()
+            try:
+                return super().connect()
+            finally:
+                timing["connectionMs"] = timing.get("connectionMs", 0) + round((time.perf_counter() - began) * 1000)
+
+        def request(self, *args, **kwargs):
+            result = super().request(*args, **kwargs)
+            timing["requestSentMs"] = round((time.perf_counter() - started_at) * 1000)
+            return result
+
+    class HTTPConnection(TimedConnection, http.client.HTTPConnection):
+        pass
+
+    class HTTPSConnection(TimedConnection, http.client.HTTPSConnection):
+        pass
+
+    class TimedHTTPHandler(HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(HTTPConnection, req)
+
+    class TimedHTTPSHandler(HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(HTTPSConnection, req, context=self._context)
+
+    # Default proxy, redirect and certificate verification behavior is retained.
+    return build_opener(TimedHTTPHandler(), TimedHTTPSHandler()).open(request, timeout=UPSTREAM_TIMEOUT)
 
 
 def is_first_token_event(event) -> bool:
@@ -1648,6 +1682,7 @@ class Handler(BaseHTTPRequestHandler):
         if method in ("POST", "PUT", "PATCH", "DELETE"):
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length else b""
+        body_read_ms = round((time.perf_counter() - started_at) * 1000)
         payload = try_parse_json_bytes(body)
         model_name = extract_model_name(path, payload)
         idempotency_key = (
@@ -1726,6 +1761,7 @@ class Handler(BaseHTTPRequestHandler):
                     return True
 
         resp_status, resp_headers, resp_body, first_token_ms = 502, {}, b"", 0
+        prepared_ms = round((time.perf_counter() - started_at) * 1000)
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
         for attempt, route in enumerate(routes):
             upstream_url = f"{route['base_url']}{path}" + (f"?{parsed.query}" if parsed.query else "")
@@ -1734,13 +1770,20 @@ class Handler(BaseHTTPRequestHandler):
                 upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
             try:
                 request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
-                with urlopen(request, timeout=UPSTREAM_TIMEOUT) as response:
+                upstream_start_ms = round((time.perf_counter() - started_at) * 1000)
+                transport_timing = {}
+                with open_timed_upstream(request, started_at, transport_timing) as response:
                     resp_status, resp_headers = response.status, dict(response.headers.items())
                     stream_timing = {}
                     resp_body, first_token_ms = read_upstream_response(response, started_at, stream_timing)
                     print("NBAPI_STREAM_TIMING " + json.dumps({
                         "requestId": idempotency_key, "channelId": route["channel_id"],
-                        "attempt": attempt + 1, **stream_timing,
+                        "attempt": attempt + 1, "requestBytes": len(body),
+                        "bodyReadMs": body_read_ms, "preparedMs": prepared_ms,
+                        "upstreamStartMs": upstream_start_ms,
+                        "upstreamWaitHeadersMs": stream_timing["headersMs"] - upstream_start_ms,
+                        **transport_timing,
+                        **stream_timing,
                     }), flush=True)
                 update_channel_health(route["channel_id"], True)
                 break

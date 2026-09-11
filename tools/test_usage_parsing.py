@@ -6,7 +6,6 @@ import time
 import unittest
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.request import urlopen
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -53,7 +52,8 @@ class UsageParsingTests(unittest.TestCase):
             try:
                 started = time.perf_counter()
                 with patch.object(server, "is_first_token_event", side_effect=detect):
-                    with urlopen(f"http://127.0.0.1:{upstream.server_port}/", timeout=5) as response:
+                    transport = {}
+                    with server.open_timed_upstream(server.Request(f"http://127.0.0.1:{upstream.server_port}/"), started, transport) as response:
                         timing = {}
                         body, first_ms = server.read_upstream_response(response, started, timing)
                 self.assertEqual(acknowledged, [True])
@@ -61,6 +61,8 @@ class UsageParsingTests(unittest.TestCase):
                 self.assertGreaterEqual(timing["endMs"] - first_ms, 100)
                 self.assertEqual(timing["firstTokenMs"], first_ms)
                 self.assertNotIn("hello", json.dumps(timing))
+                self.assertGreaterEqual(transport["connectionMs"], 0)
+                self.assertLessEqual(transport["requestSentMs"], timing["headersMs"])
             finally:
                 thread.join(timeout=5)
 

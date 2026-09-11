@@ -2,6 +2,14 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 最新：KRAPI 对账与耗时标签
+
+- 用户两站截图可按模型和输入/补全 Token 匹配：95646/171 的 gpt-6-astra，KRAPI 总 10s、首字 4.7s，NBAPI 总 22.940s、首响应 17.211s。两指标增量约 12.94s/12.511s，表明额外延迟主要在首响应前。KRAPI 总用时显示有舍入，不能用差值算出精确网络耗时。
+- 当前不能单凭截图认定是 DNS、TLS、上传、数据库或上游排队。自动 SSH 读取被服务器关闭，尚未在生产环境取得细分时序。
+- NBAPI_STREAM_TIMING 新增 bodyReadMs（读完下游正文）、preparedMs（解析/路由/预扣完成）、upstreamStartMs、connectionMs（连接阶段累计含 DNS/TCP/TLS）、requestSentMs（发送完成）、upstreamWaitHeadersMs。其余时间为从请求起点累计毫秒。默认代理、HTTPS 证书校验和重定向保留；不改计费或篡改耗时。
+- 日志两列已合并为“用时/首字”：绿色总用时、首字按 <3s 绿色/<10s 黄色/其余红色分级，有可测首流式数据时显示蓝色“流”。精度显示 1 位秒，悬停查看 3 位秒；未知首字显示 -。历史没有首字不据此断言非流式。
+- 15 项后端测试通过，真实 HTTP 分段测试覆盖新的传输计时封装；前端 JS 语法和深浅色窄屏标签渲染检查通过。下一步部署后用同一条请求的两站记录和新增时序定位延迟，当前不能宣称已消除线上延迟。
+
 ## 最新：首 Token 已按 New API FRT 口径对齐
 
 - 已下载并查阅 QuantumNous/new-api 提交 `74629e29f83f506bb523c5542aa851947bd423eb`。`relay/helper/stream_scanner.go:272` 在第一条非空且非 [DONE] 的 data 事件处调用 SetFirstResponseTime；`relay/common/relay_info.go:935` 仅记录一次；`service/log_info_generate.go:107` 写入 frt 毫秒，前端除以 1000 显示秒。

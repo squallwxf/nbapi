@@ -354,6 +354,17 @@
     .usage-table { min-width:1180px; }
     .usage-table td { font-size:12px; }
     .usage-table code { color:var(--muted); font-size:11px; }
+    .usage-timing { display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:146px; font-variant-numeric:tabular-nums; }
+    .timing-badge { display:inline-flex; align-items:center; padding:3px 7px; border-radius:999px; font-size:12px; line-height:1.3; }
+    .timing-green { background:#e4f3e9; color:#21633b; }
+    .timing-amber { background:#fff0d8; color:#81520d; }
+    .timing-red { background:#fbe7e4; color:#9c3730; }
+    .timing-blue { background:#e5effa; color:#285e91; }
+    .timing-muted { background:var(--surface); color:var(--muted); }
+    body.dark .timing-green { background:#293e33; color:#b4d8bd; }
+    body.dark .timing-amber { background:#493d2c; color:#e5c597; }
+    body.dark .timing-red { background:#4c302f; color:#ecc0ba; }
+    body.dark .timing-blue { background:#2a3b4d; color:#afcdea; }
     .usage-detail { white-space:normal!important; min-width:260px; color:var(--muted); background:var(--surface-2); }
     .usage-pagination { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding-top:14px; }
     .usage-pagination .page-actions { display:flex; align-items:center; gap:8px; }
@@ -1270,7 +1281,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
             <div class="auth-field"><label for="logType">类型</label><select class="auth-input" id="logType"><option value="">全部类型</option><option value="per_task">按次计费</option><option value="per_token">按 Token</option></select></div>
             <div class="usage-filter-actions"><button class="btn primary" id="queryUsageLogs" type="button">查询</button><button class="btn" id="resetUsageLogs" type="button">重置</button></div>
           </div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>用户</th><th>令牌</th><th>类型</th><th>模型</th><th>用时（秒）</th><th>首 Token（秒）</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>用户</th><th>令牌</th><th>类型</th><th>模型</th><th>用时/首字</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="11" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
           <div class="usage-pagination"><span class="muted" id="usagePageInfo">共 0 条</span><div class="page-actions"><select class="auth-input" id="usagePageSize" style="width:92px;height:34px"><option>10</option><option>20</option><option>50</option></select><button class="btn" id="usagePrevPage" type="button">上一页</button><button class="btn" id="usageNextPage" type="button">下一页</button></div></div>
         </section>
 
@@ -1577,7 +1588,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       if (usageInputTokens) usageInputTokens.textContent = "0";
       if (usageOutputTokens) usageOutputTokens.textContent = "0";
       if (usagePageInfo) usagePageInfo.textContent = "共 0 条";
-      if (usageLogBody) usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr>';
+      if (usageLogBody) usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">登录后加载真实日志。</td></tr>';
     }
 
     async function performUserLogin(username, password, source = "登录") {
@@ -1699,10 +1710,10 @@ console.log(result.choices[0].message.content);</pre></div></section>
       usagePageInfo.textContent = data.total ? `显示第 ${(data.page - 1) * data.pageSize + 1} 条到第 ${Math.min(data.page * data.pageSize, data.total)} 条，共 ${data.total} 条` : "共 0 条";
       usagePrevPage.disabled = usageLogsPage <= 1;
       usageNextPage.disabled = usageLogsPage >= usageLogsTotalPages;
-      if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
+      if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
       usageLogBody.innerHTML = data.items.map((item) => `<tr>
         <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.userName || "-")}</strong></td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td>
-        <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${formatDurationSeconds(item.latencyMs)}</td><td>${formatDurationSeconds(item.firstTokenMs)}</td>
+        <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${renderTimingBadges(item)}</td>
         <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>$${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
         <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}<br>计费来源：${escapeHtml(item.usageSource || "-")}<br>预扣：$${Number(item.reserved || 0).toFixed(6)}<br>结算差额：$${Number(item.adjustment || 0).toFixed(6)}<br>缓存读：${Number(item.cacheReadTokens || 0).toLocaleString()} · 缓存写：${Number(item.cacheWriteTokens || 0).toLocaleString()}</div></td></tr>`).join("");
       usageLogBody.querySelectorAll("[data-log-detail]").forEach((button) => button.addEventListener("click", () => { const detail = document.getElementById(`log-detail-${button.dataset.logDetail}`); detail.hidden = !detail.hidden; button.textContent = detail.hidden ? "查看" : "收起"; }));
@@ -1713,14 +1724,14 @@ console.log(result.choices[0].message.content);</pre></div></section>
       const requestVersion = authVersion;
       const requestToken = sessionToken;
       const requestUserId = currentUser.id;
-      usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">正在加载真实账单记录...</td></tr>';
+      usageLogBody.innerHTML = '<tr><td colspan="11" class="muted">正在加载真实账单记录...</td></tr>';
       try {
         const data = await apiRequest(`/api/ledger?${usageLogQuery()}`);
         if (requestVersion !== authVersion || requestToken !== sessionToken || requestUserId !== currentUser?.id) return;
         usageLogsPage = Number(data.page || 1);
         renderUsageLogs(data);
       } catch (error) {
-        if (requestVersion === authVersion && requestToken === sessionToken && requestUserId === currentUser?.id) usageLogBody.innerHTML = `<tr><td colspan="12" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`;
+        if (requestVersion === authVersion && requestToken === sessionToken && requestUserId === currentUser?.id) usageLogBody.innerHTML = `<tr><td colspan="11" class="muted">加载失败：${escapeHtml(error.message)}</td></tr>`;
       }
     }
 
@@ -1729,6 +1740,14 @@ console.log(result.choices[0].message.content);</pre></div></section>
     function formatDurationSeconds(milliseconds) {
       const value = Number(milliseconds || 0);
       return value > 0 ? `${(value / 1000).toFixed(3)} 秒` : "-";
+    }
+
+    function renderTimingBadges(item) {
+      const first = Number(item.firstTokenMs || 0);
+      const total = Number(item.latencyMs || 0);
+      const seconds = (ms) => Number.isFinite(ms) && ms > 0 ? `${Number((ms / 1000).toFixed(1))} s` : "-";
+      const firstColor = first <= 0 ? "muted" : first < 3000 ? "green" : first < 10000 ? "amber" : "red";
+      return `<div class="usage-timing"><span class="timing-badge timing-green" tabindex="0" title="总用时：${formatDurationSeconds(total)}">${seconds(total)}</span><span class="timing-badge timing-${firstColor}" tabindex="0" title="首个上游流式响应：${formatDurationSeconds(first)}">${seconds(first)}</span>${first > 0 ? '<span class="timing-badge timing-blue" title="流式响应">流</span>' : ''}</div>`;
     }
 
     function escapeHtml(value) {
