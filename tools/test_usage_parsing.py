@@ -4,6 +4,9 @@ import json
 import sys
 import time
 import unittest
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.request import urlopen
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +16,54 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_real_http_stream_records_delta_before_end(self):
+        token_seen = threading.Event()
+        acknowledged = []
+        payload = (
+            b'data: {"type":"response.created","response":{}}\n\n',
+            b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n',
+            b'data: {"type":"response.completed","response":{"output":[]}}\n\n',
+        )
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(payload[0] + payload[1])
+                self.wfile.flush()
+                acknowledged.append(token_seen.wait(2))
+                time.sleep(0.15)
+                self.wfile.write(payload[2])
+
+        original = server.is_first_token_event
+
+        def detect(event):
+            result = original(event)
+            if result:
+                token_seen.set()
+            return result
+
+        with HTTPServer(("127.0.0.1", 0), Upstream) as upstream:
+            thread = threading.Thread(target=upstream.handle_request)
+            thread.start()
+            try:
+                started = time.perf_counter()
+                with patch.object(server, "is_first_token_event", side_effect=detect):
+                    with urlopen(f"http://127.0.0.1:{upstream.server_port}/", timeout=5) as response:
+                        timing = {}
+                        body, first_ms = server.read_upstream_response(response, started, timing)
+                self.assertEqual(acknowledged, [True])
+                self.assertEqual(body, b"".join(payload))
+                self.assertGreaterEqual(timing["endMs"] - first_ms, 100)
+                self.assertEqual(timing["firstTokenMs"], first_ms)
+                self.assertNotIn("hello", json.dumps(timing))
+            finally:
+                thread.join(timeout=5)
+
     def test_responses_first_token_precedes_completion(self):
         class Response(BytesIO):
             headers = {"content-type": "text/event-stream"}

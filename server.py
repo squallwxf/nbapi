@@ -702,11 +702,17 @@ def is_first_token_event(event) -> bool:
     return bool(event.get("candidates")) and response_has_generated_content(event)
 
 
-def read_upstream_response(response, started_at: float) -> tuple[bytes, int]:
+def read_upstream_response(response, started_at: float, timing: dict | None = None) -> tuple[bytes, int]:
     """Read an upstream response and measure first generated SSE content."""
     headers = {key.lower(): value for key, value in response.headers.items()}
     content_type = str(headers.get("content-type", "")).lower()
+    if timing is not None:
+        timing.update(headersMs=round((time.perf_counter() - started_at) * 1000),
+                      firstLineMs=None, firstDataMs=None, firstTokenMs=None,
+                      endMs=None, events=[], parseErrors=0)
     if "text/event-stream" not in content_type or headers.get("content-encoding", "identity").lower() not in ("", "identity"):
+        if timing is not None:
+            timing["measurement"] = "unsupported_encoding" if "text/event-stream" in content_type else "non_stream"
         return response.read(), 0
 
     chunks = []
@@ -716,20 +722,43 @@ def read_upstream_response(response, started_at: float) -> tuple[bytes, int]:
         if not chunk:
             break
         chunks.append(chunk)
-        if first_token_ms:
-            continue
+        elapsed_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+        if timing is not None and timing["firstLineMs"] is None:
+            timing["firstLineMs"] = elapsed_ms
         line = chunk.strip()
         if not line.startswith(b"data:"):
             continue
         data = line[5:].strip()
         if not data or data == b"[DONE]":
             continue
+        if timing is not None and timing["firstDataMs"] is None:
+            timing["firstDataMs"] = elapsed_ms
         try:
             event = json.loads(data)
         except (json.JSONDecodeError, UnicodeDecodeError):
+            if timing is not None:
+                timing["parseErrors"] += 1
             continue
-        if is_first_token_event(event):
-            first_token_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+        generated = is_first_token_event(event)
+        if timing is not None and isinstance(event, dict) and len(timing["events"]) < 12:
+            # Only protocol labels and field names; never record generated content.
+            kind = event.get("type")
+            known_types = {"response.created", "response.in_progress", "response.completed",
+                           "response.output_text.delta", "response.reasoning_summary_text.delta",
+                           "response.function_call_arguments.delta", "response.output_item.added",
+                           "content_block_delta", "message_start", "message_delta"}
+            label = kind if isinstance(kind, str) and kind in known_types else "other"
+            if "choices" in event:
+                label = "chat"
+            elif "candidates" in event:
+                label = "gemini"
+            timing["events"].append({"ms": elapsed_ms, "event": label, "generated": generated})
+        if not first_token_ms and generated:
+            first_token_ms = elapsed_ms
+    if timing is not None:
+        timing.update(firstTokenMs=first_token_ms or None,
+                      endMs=round((time.perf_counter() - started_at) * 1000),
+                      measurement="upstream_content" if first_token_ms else "no_recognized_delta")
     return b"".join(chunks), first_token_ms
 
 
@@ -1705,7 +1734,12 @@ class Handler(BaseHTTPRequestHandler):
                 request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
                 with urlopen(request, timeout=UPSTREAM_TIMEOUT) as response:
                     resp_status, resp_headers = response.status, dict(response.headers.items())
-                    resp_body, first_token_ms = read_upstream_response(response, started_at)
+                    stream_timing = {}
+                    resp_body, first_token_ms = read_upstream_response(response, started_at, stream_timing)
+                    print("NBAPI_STREAM_TIMING " + json.dumps({
+                        "requestId": idempotency_key, "channelId": route["channel_id"],
+                        "attempt": attempt + 1, **stream_timing,
+                    }), flush=True)
                 update_channel_health(route["channel_id"], True)
                 break
             except HTTPError as exc:
