@@ -45,7 +45,6 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
 UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
-UPSTREAM_REQUEST_GZIP = os.environ.get("NBAPI_UPSTREAM_REQUEST_GZIP", "auto").strip().lower()
 ZPAY_SUBMIT_URL = os.environ.get("NBAPI_ZPAY_SUBMIT_URL", "https://zpayz.cn/submit.php")
 ZPAY_PID = os.environ.get("NBAPI_ZPAY_PID", "").strip()
 ZPAY_KEY = os.environ.get("NBAPI_ZPAY_KEY", "").strip()
@@ -674,23 +673,6 @@ def decode_upstream_body(body: bytes, headers: dict[str, str]) -> bytes:
     except (OSError, zlib.error):
         return body
     return body
-
-
-def prepare_upstream_body(body: bytes, headers: dict, base_url: str) -> tuple[bytes, dict]:
-    """Losslessly compress large JSON uploads to New API-compatible upstreams."""
-    enabled = UPSTREAM_REQUEST_GZIP in ("1", "true", "yes") or (
-        UPSTREAM_REQUEST_GZIP == "auto" and urlparse(base_url).hostname == "ai.krapi.cn"
-    )
-    normalized = {key.lower(): value for key, value in headers.items()}
-    if (not enabled or len(body) < 65536 or normalized.get("content-encoding")
-            or normalized.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json"):
-        return body, headers
-    compressed = gzip.compress(body, compresslevel=3, mtime=0)
-    if len(compressed) >= len(body) * 0.9:
-        return body, headers
-    result = {key: value for key, value in headers.items() if key.lower() != "content-length"}
-    result["Content-Encoding"] = "gzip"
-    return compressed, result
 
 
 def open_timed_upstream(request, started_at: float, timing: dict):
@@ -1786,9 +1768,8 @@ class Handler(BaseHTTPRequestHandler):
             upstream_headers = build_upstream_headers(self.headers, route, path)
             if body and "content-type" not in {key.lower() for key in upstream_headers}:
                 upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
-            wire_body, upstream_headers = prepare_upstream_body(body, upstream_headers, route["base_url"])
             try:
-                request = Request(upstream_url, data=wire_body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
+                request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
                 upstream_start_ms = round((time.perf_counter() - started_at) * 1000)
                 transport_timing = {}
                 with open_timed_upstream(request, started_at, transport_timing) as response:
@@ -1798,7 +1779,7 @@ class Handler(BaseHTTPRequestHandler):
                     print("NBAPI_STREAM_TIMING " + json.dumps({
                         "requestId": idempotency_key, "channelId": route["channel_id"],
                         "attempt": attempt + 1, "requestBytes": len(body),
-                        "wireBytes": len(wire_body),
+                        "wireBytes": len(body),
                         "requestEncoding": upstream_headers.get("Content-Encoding", "identity"),
                         "bodyReadMs": body_read_ms, "preparedMs": prepared_ms,
                         "upstreamStartMs": upstream_start_ms,
