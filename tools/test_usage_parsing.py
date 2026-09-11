@@ -1,6 +1,7 @@
 """Regression checks for authoritative upstream usage parsing."""
 
 import json
+import gzip
 import sys
 import time
 import unittest
@@ -15,6 +16,30 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_gzip_upload_preserves_exact_body_and_headers(self):
+        body = json.dumps({"model": "test", "input": "long context " * 30000}).encode()
+        headers = {"Content-Type": "application/json", "content-length": str(len(body)), "Authorization": "Bearer test"}
+        with patch.object(server, "UPSTREAM_REQUEST_GZIP", "auto"):
+            wire, sent_headers = server.prepare_upstream_body(body, headers, "https://ai.krapi.cn")
+        self.assertEqual(gzip.decompress(wire), body)
+        self.assertLess(len(wire), len(body) / 10)
+        self.assertEqual(sent_headers["Content-Encoding"], "gzip")
+        self.assertEqual(sent_headers["Authorization"], headers["Authorization"])
+        self.assertNotIn("content-length", sent_headers)
+        self.assertNotIn("Content-Encoding", headers)
+
+    def test_gzip_is_scoped_and_can_be_disabled(self):
+        body = b"x" * 100000
+        for mode, url, headers, data in (
+            ("auto", "https://other.example", {"Content-Type": "application/json"}, body),
+            ("0", "https://ai.krapi.cn", {"Content-Type": "application/json"}, body),
+            ("auto", "https://ai.krapi.cn", {"Content-Type": "multipart/form-data"}, body),
+            ("auto", "https://ai.krapi.cn", {"Content-Type": "application/json", "Content-Encoding": "gzip"}, body),
+            ("auto", "https://ai.krapi.cn", {"Content-Type": "application/json"}, b"{}"),
+        ):
+            with patch.object(server, "UPSTREAM_REQUEST_GZIP", mode):
+                self.assertEqual(server.prepare_upstream_body(data, headers, url), (data, headers))
+
     def test_real_http_stream_records_delta_before_end(self):
         token_seen = threading.Event()
         acknowledged = []

@@ -2,6 +2,15 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 2026-09-12 最新定位：长上下文上传耗时
+
+- 用户生产时序（23:50:32）：requestBytes=2538454，bodyReadMs=9，preparedMs=330，upstreamStartMs=331，connectionMs=305，requestSentMs=21098，headersMs=27697，firstDataMs=27775，endMs=30817。连接后发送正文阶段约 20.46 秒，是这次额外等待的主要来源；本地读取/预扣很快，不能再把原因归为 SSE 漏判。
+- 对应 KRAPI 为输入 106610、输出 84，总 8 秒、首字 5.3 秒。两站时钟起点不同，NBAPI 包含向 KRAPI 上传请求的等待，不应人为减小计时。
+- 查阅 New API 提交 74629e29 的 middleware/gzip.go 与 router/relay-router.go，转发入口有 gzip 请求解压。新增大 JSON 请求无损 gzip 压缩（>=64KiB，压缩后至少节省 10%），默认 auto 仅对 ai.krapi.cn 使用。原始 payload 仍用于模型与计费，线上用户 Key 和上下文不更改。
+- NBAPI_UPSTREAM_REQUEST_GZIP=0 可关闭；auto 为默认；1 可对已确认支持 gzip 的其他供应商开启。不会因压缩被拒绝自动改为原文重发，避免重复调用。KRAPI 当前部署兼容性与实际加速尚未验证，不能保证具体秒数；若出现拒绝压缩，需要关闭此配置并查上游支持情况。
+- 时序日志新增 wireBytes/requestEncoding，用同一请求的 requestSentMs、upstreamStartMs、connectionMs 判断上传改善。17 项测试通过，包括逐字节解压还原、供应商范围和开关检查、真实分段 HTTP 计时测试。
+- SSH BatchMode 重试仍被服务器关闭；代码待通过 GitHub 拉取部署，不能宣称已经部署或线上已修复。部署重启后再做新调用并查看 NBAPI_STREAM_TIMING。
+
 ## 最新：KRAPI 对账与耗时标签
 
 - 用户两站截图可按模型和输入/补全 Token 匹配：95646/171 的 gpt-6-astra，KRAPI 总 10s、首字 4.7s，NBAPI 总 22.940s、首响应 17.211s。两指标增量约 12.94s/12.511s，表明额外延迟主要在首响应前。KRAPI 总用时显示有舍入，不能用差值算出精确网络耗时。
