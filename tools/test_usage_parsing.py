@@ -6,12 +6,48 @@ import time
 import unittest
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_responses_first_token_precedes_completion(self):
+        class Response(BytesIO):
+            headers = {"content-type": "text/event-stream"}
+        body = (
+            b'data: {"type":"response.created","response":{}}\n\n'
+            b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+            b'data: {"type":"response.completed","response":{"output":[{"text":"hello"}]}}\n\n'
+        )
+        with patch.object(server.time, "perf_counter", return_value=12.5):
+            received, first_ms = server.read_upstream_response(Response(body), 10)
+        self.assertEqual(received, body)
+        self.assertEqual(first_ms, 2500)
+
+    def test_final_response_is_not_a_first_token(self):
+        class Response(BytesIO):
+            headers = {"Content-Type": "text/event-stream"}
+        body = b'data: {"type":"response.completed","response":{"output":[{"text":"hello"}]}}\n\n'
+        self.assertEqual(server.read_upstream_response(Response(body), 0), (body, 0))
+
+    def test_first_token_protocol_events(self):
+        for event in (
+            {"type": "response.function_call_arguments.delta", "delta": "{"},
+            {"type": "response.reasoning_summary_text.delta", "delta": "thinking"},
+            {"choices": [{"delta": {"content": "hello"}}]},
+            {"candidates": [{"content": {"parts": [{"text": "hello"}]}}]},
+        ):
+            self.assertTrue(server.is_first_token_event(event), event)
+        for event in (
+            {"choices": [{"delta": {"role": "assistant"}}]},
+            {"type": "response.output_text.done", "text": "hello"},
+            {"type": "response.output_text.delta", "delta": ""},
+            {"type": "message_start", "message": {"content": []}},
+        ):
+            self.assertFalse(server.is_first_token_event(event), event)
+
     def test_stream_first_token_time_uses_first_generated_sse_event(self):
         class Response(BytesIO):
             headers = {"Content-Type": "text/event-stream"}

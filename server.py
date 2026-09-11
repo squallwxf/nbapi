@@ -674,11 +674,39 @@ def decode_upstream_body(body: bytes, headers: dict[str, str]) -> bytes:
     return body
 
 
+def is_first_token_event(event) -> bool:
+    """Recognize generated stream deltas, never final response snapshots."""
+    if not isinstance(event, dict):
+        return False
+    event_type = event.get("type", "")
+    if event_type.startswith("response."):
+        return event_type in (
+            "response.output_text.delta", "response.refusal.delta",
+            "response.reasoning_text.delta", "response.reasoning_summary_text.delta",
+            "response.function_call_arguments.delta", "response.custom_tool_call_input.delta",
+        ) and isinstance(event.get("delta"), str) and bool(event["delta"])
+    if event_type == "content_block_delta":
+        delta = event.get("delta")
+        return isinstance(delta, dict) and any(
+            isinstance(delta.get(key), str) and bool(delta[key])
+            for key in ("text", "thinking", "partial_json")
+        )
+    for choice in event.get("choices", []) or []:
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if isinstance(delta, dict) and any(delta.get(key) for key in (
+            "content", "reasoning_content", "reasoning", "refusal", "tool_calls", "function_call"
+        )):
+            return True
+    return bool(event.get("candidates")) and response_has_generated_content(event)
+
+
 def read_upstream_response(response, started_at: float) -> tuple[bytes, int]:
     """Read an upstream response and measure first generated SSE content."""
-    headers = dict(response.headers.items())
-    content_type = str(headers.get("Content-Type", "")).lower()
-    if "text/event-stream" not in content_type:
+    headers = {key.lower(): value for key, value in response.headers.items()}
+    content_type = str(headers.get("content-type", "")).lower()
+    if "text/event-stream" not in content_type or headers.get("content-encoding", "identity").lower() not in ("", "identity"):
         return response.read(), 0
 
     chunks = []
@@ -700,8 +728,8 @@ def read_upstream_response(response, started_at: float) -> tuple[bytes, int]:
             event = json.loads(data)
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
-        if response_has_generated_content(event):
-            first_token_ms = round((time.perf_counter() - started_at) * 1000)
+        if is_first_token_event(event):
+            first_token_ms = max(1, round((time.perf_counter() - started_at) * 1000))
     return b"".join(chunks), first_token_ms
 
 
