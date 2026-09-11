@@ -1771,11 +1771,12 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
                 upstream_start_ms = round((time.perf_counter() - started_at) * 1000)
+                first_response_started_at = time.perf_counter()
                 transport_timing = {}
-                with open_timed_upstream(request, started_at, transport_timing) as response:
+                with open_timed_upstream(request, first_response_started_at, transport_timing) as response:
                     resp_status, resp_headers = response.status, dict(response.headers.items())
                     stream_timing = {}
-                    resp_body, first_token_ms = read_upstream_response(response, started_at, stream_timing)
+                    resp_body, first_token_ms = read_upstream_response(response, first_response_started_at, stream_timing)
                     print("NBAPI_STREAM_TIMING " + json.dumps({
                         "requestId": idempotency_key, "channelId": route["channel_id"],
                         "attempt": attempt + 1, "requestBytes": len(body),
