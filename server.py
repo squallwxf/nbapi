@@ -402,6 +402,7 @@ def init_db() -> None:
               created_at INTEGER NOT NULL,
               client_ip TEXT NOT NULL DEFAULT '',
               latency_ms INTEGER NOT NULL DEFAULT 0,
+              first_token_ms INTEGER NOT NULL DEFAULT 0,
               request_path TEXT NOT NULL DEFAULT '',
               request_id TEXT NOT NULL DEFAULT '',
               reserved_micros INTEGER NOT NULL DEFAULT 0,
@@ -533,6 +534,7 @@ def init_db() -> None:
         for column, definition in (
             ("client_ip", "TEXT NOT NULL DEFAULT ''"),
             ("latency_ms", "INTEGER NOT NULL DEFAULT 0"),
+            ("first_token_ms", "INTEGER NOT NULL DEFAULT 0"),
             ("request_path", "TEXT NOT NULL DEFAULT ''"),
             ("request_id", "TEXT NOT NULL DEFAULT ''"),
             ("reserved_micros", "INTEGER NOT NULL DEFAULT 0"),
@@ -670,6 +672,37 @@ def decode_upstream_body(body: bytes, headers: dict[str, str]) -> bytes:
     except (OSError, zlib.error):
         return body
     return body
+
+
+def read_upstream_response(response, started_at: float) -> tuple[bytes, int]:
+    """Read an upstream response and measure first generated SSE content."""
+    headers = dict(response.headers.items())
+    content_type = str(headers.get("Content-Type", "")).lower()
+    if "text/event-stream" not in content_type:
+        return response.read(), 0
+
+    chunks = []
+    first_token_ms = 0
+    while True:
+        chunk = response.readline()
+        if not chunk:
+            break
+        chunks.append(chunk)
+        if first_token_ms:
+            continue
+        line = chunk.strip()
+        if not line.startswith(b"data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == b"[DONE]":
+            continue
+        try:
+            event = json.loads(data)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if response_has_generated_content(event):
+            first_token_ms = round((time.perf_counter() - started_at) * 1000)
+    return b"".join(chunks), first_token_ms
 
 
 def extract_model_name(path: str, payload) -> str:
@@ -1060,7 +1093,7 @@ def token_allows_ip(ip_allowlist: str, client_ip: str) -> bool:
     return False
 
 
-def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0, client_ip: str = "", latency_ms: int = 0, request_path: str = "", request_id: str = ""):
+def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, amount_micros: int, billing_unit: str, input_tokens: int = 0, output_tokens: int = 0, client_ip: str = "", latency_ms: int = 0, first_token_ms: int = 0, request_path: str = "", request_id: str = ""):
     existing = db.execute(
         "SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?",
         (user_id, idempotency_key),
@@ -1086,9 +1119,9 @@ def bill_ledger(db, user_id: int, token_id: int, model_name: str, idempotency_ke
     db.execute(
         """INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit,
                               input_tokens, output_tokens, status, created_at, token_id,
-                              client_ip, latency_ms, request_path, request_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?)""",
-        (user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, now(), token_id, client_ip, latency_ms, request_path, request_id),
+                              client_ip, latency_ms, first_token_ms, request_path, request_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, now(), token_id, client_ip, latency_ms, first_token_ms, request_path, request_id),
     )
     return {
         "idempotent": False,
@@ -1156,13 +1189,13 @@ def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotenc
     return {"idempotent": False, "settled": False, "amount_micros": amount_micros, "reservation_id": cursor.lastrowid}
 
 
-def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, request_path: str, request_id: str, cache_read_tokens: int = 0, cache_write_tokens: int = 0, usage_source: str = ""):
+def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, first_token_ms: int, request_path: str, request_id: str, cache_read_tokens: int = 0, cache_write_tokens: int = 0, usage_source: str = ""):
     reservation = db.execute(
         "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
         (user_id, idempotency_key),
     ).fetchone()
     if not reservation:
-        return bill_ledger(db, user_id, token_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, client_ip, latency_ms, request_path, request_id)
+        return bill_ledger(db, user_id, token_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, client_ip, latency_ms, first_token_ms, request_path, request_id)
     if reservation[2] == "settled":
         existing = db.execute("SELECT amount_micros, status FROM ledger WHERE user_id=? AND idempotency_key=?", (user_id, idempotency_key)).fetchone()
         balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
@@ -1184,8 +1217,8 @@ def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency
         db.execute("UPDATE api_tokens SET used_micros=MAX(0, used_micros-?) WHERE id=?", (refund, token_id))
     timestamp = now()
     db.execute(
-        "INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, request_path, request_id, reserved_micros, adjustment_micros, cache_read_tokens, cache_write_tokens, usage_source) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, timestamp, token_id, client_ip, latency_ms, request_path, request_id, reservation[1], delta, cache_read_tokens, cache_write_tokens, usage_source),
+        "INSERT INTO ledger(user_id, model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, status, created_at, token_id, client_ip, latency_ms, first_token_ms, request_path, request_id, reserved_micros, adjustment_micros, cache_read_tokens, cache_write_tokens, usage_source) VALUES (?, ?, ?, ?, ?, ?, ?, 'charged', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, model_name, idempotency_key, actual_micros, billing_unit, input_tokens, output_tokens, timestamp, token_id, client_ip, latency_ms, first_token_ms, request_path, request_id, reservation[1], delta, cache_read_tokens, cache_write_tokens, usage_source),
     )
     db.execute("UPDATE billing_reservations SET status='settled', updated_at=? WHERE id=?", (timestamp, reservation[0]))
     balance = db.execute("SELECT balance_micros FROM users WHERE id=?", (user_id,)).fetchone()[0]
@@ -1633,7 +1666,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
                     return True
 
-        resp_status, resp_headers, resp_body = 502, {}, b""
+        resp_status, resp_headers, resp_body, first_token_ms = 502, {}, b"", 0
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
         for attempt, route in enumerate(routes):
             upstream_url = f"{route['base_url']}{path}" + (f"?{parsed.query}" if parsed.query else "")
@@ -1643,7 +1676,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
                 with urlopen(request, timeout=UPSTREAM_TIMEOUT) as response:
-                    resp_status, resp_headers, resp_body = response.status, dict(response.headers.items()), response.read()
+                    resp_status, resp_headers = response.status, dict(response.headers.items())
+                    resp_body, first_token_ms = read_upstream_response(response, started_at)
                 update_channel_health(route["channel_id"], True)
                 break
             except HTTPError as exc:
@@ -1752,7 +1786,7 @@ class Handler(BaseHTTPRequestHandler):
             with sqlite3.connect(DB_PATH, timeout=10, isolation_level=None) as db:
                 try:
                     db.execute("BEGIN IMMEDIATE")
-                    charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), path, idempotency_key, cache_read_tokens, cache_write_tokens, usage_source)
+                    charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), first_token_ms, path, idempotency_key, cache_read_tokens, cache_write_tokens, usage_source)
                     if billing_unit == "per_task":
                         record_media_task(db, api_user[1], api_user[0], extract_task_id(response_payload), idempotency_key)
                     db.execute("COMMIT")
@@ -2058,7 +2092,7 @@ class Handler(BaseHTTPRequestHandler):
                 log_scope = requested_scope if user[2] == "super_admin" else "self"
                 filters = ["1=1"] if log_scope == "all" else ["l.user_id=?"]
                 params = [] if log_scope == "all" else [user[0]]
-                for key, expression in (("model", "lower(l.model_name) LIKE ?"), ("requestId", "lower(COALESCE(l.request_id, l.idempotency_key)) LIKE ?"), ("token", "(lower(COALESCE(t.name, '')) LIKE ? OR lower(COALESCE(t.token_hint, '')) LIKE ?)") , ("group", "lower(COALESCE(t.token_group, '')) LIKE ?")):
+                for key, expression in (("model", "lower(l.model_name) LIKE ?"), ("requestId", "lower(COALESCE(l.request_id, l.idempotency_key)) LIKE ?"), ("token", "(lower(COALESCE(t.name, '')) LIKE ? OR lower(COALESCE(t.token_hint, '')) LIKE ?)")):
                     value = get_filter(key).lower()
                     if value:
                         filters.append(expression)
@@ -2088,11 +2122,11 @@ class Handler(BaseHTTPRequestHandler):
                         f"SELECT COUNT(*), COALESCE(SUM(CASE WHEN l.status='charged' THEN l.amount_micros ELSE 0 END),0), COALESCE(SUM(l.input_tokens),0), COALESCE(SUM(l.output_tokens),0) FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id WHERE {where}", params
                     ).fetchone()
                     rows = db.execute(
-                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(t.token_group,'default'), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,''), COALESCE(u.username,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id LEFT JOIN users u ON u.id=l.user_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
+                        f"SELECT l.id, l.model_name, l.amount_micros, l.billing_unit, l.input_tokens, l.output_tokens, l.status, l.created_at, l.token_id, COALESCE(t.name,''), COALESCE(t.token_hint,''), COALESCE(l.request_id,l.idempotency_key), COALESCE(l.client_ip,''), COALESCE(l.latency_ms,0), COALESCE(l.first_token_ms,0), COALESCE(l.request_path,''), COALESCE(l.reserved_micros,0), COALESCE(l.adjustment_micros,0), COALESCE(l.cache_read_tokens,0), COALESCE(l.cache_write_tokens,0), COALESCE(l.usage_source,''), COALESCE(u.username,'') FROM ledger l LEFT JOIN api_tokens t ON t.id=l.token_id LEFT JOIN users u ON u.id=l.user_id WHERE {where} ORDER BY l.id DESC LIMIT ? OFFSET ?",
                         [*params, page_size, (page - 1) * page_size],
                     ).fetchall()
                 self.send_json(200, {"scope": log_scope, "items": [{
-                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "tokenGroup": r[11], "requestId": r[12], "ip": r[13] or "-", "latencyMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-", "userName": r[21] or "-"
+                    "id": r[0], "model": r[1], "amount": micros_to_dollars(r[2] if r[6] == "charged" else 0), "chargedAmount": micros_to_dollars(r[2]), "billingUnit": r[3], "inputTokens": r[4], "outputTokens": r[5], "status": r[6], "createdAt": r[7], "tokenId": r[8], "tokenName": r[9] or "未关联令牌", "tokenHint": r[10], "requestId": r[11], "ip": r[12] or "-", "latencyMs": r[13], "firstTokenMs": r[14], "path": r[15], "reserved": micros_to_dollars(r[16]), "adjustment": micros_to_dollars(r[17]), "cacheReadTokens": r[18], "cacheWriteTokens": r[19], "usageSource": r[20] or "-", "userName": r[21] or "-"
                 } for r in rows], "stats": {"amount": micros_to_dollars(amount_total), "requests": total, "inputTokens": input_total, "outputTokens": output_total, "tokens": input_total + output_total}, "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)})
             return
         if path == "/api/tokens":

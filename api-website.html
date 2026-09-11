@@ -1266,12 +1266,11 @@ console.log(result.choices[0].message.content);</pre></div></section>
             <div class="auth-field"><label for="logTo">结束时间</label><input class="auth-input" id="logTo" type="datetime-local" /></div>
             <div class="auth-field"><label for="logToken">令牌名称</label><input class="auth-input" id="logToken" placeholder="搜索令牌" /></div>
             <div class="auth-field"><label for="logModel">模型名称</label><input class="auth-input" id="logModel" placeholder="搜索模型" /></div>
-            <div class="auth-field"><label for="logGroup">分组</label><input class="auth-input" id="logGroup" placeholder="default" /></div>
             <div class="auth-field"><label for="logRequestId">Request ID</label><input class="auth-input" id="logRequestId" placeholder="搜索请求 ID" /></div>
             <div class="auth-field"><label for="logType">类型</label><select class="auth-input" id="logType"><option value="">全部类型</option><option value="per_task">按次计费</option><option value="per_token">按 Token</option></select></div>
             <div class="usage-filter-actions"><button class="btn primary" id="queryUsageLogs" type="button">查询</button><button class="btn" id="resetUsageLogs" type="button">重置</button></div>
           </div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>用户</th><th>令牌</th><th>分组</th><th>类型</th><th>模型</th><th>用时</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>时间</th><th>用户</th><th>令牌</th><th>类型</th><th>模型</th><th>用时（秒）</th><th>首 Token（秒）</th><th>输入</th><th>输出</th><th>花费</th><th>IP</th><th>详情</th></tr></thead><tbody id="usageLogBody"><tr><td colspan="12" class="muted">登录后加载真实日志。</td></tr></tbody></table></div>
           <div class="usage-pagination"><span class="muted" id="usagePageInfo">共 0 条</span><div class="page-actions"><select class="auth-input" id="usagePageSize" style="width:92px;height:34px"><option>10</option><option>20</option><option>50</option></select><button class="btn" id="usagePrevPage" type="button">上一页</button><button class="btn" id="usageNextPage" type="button">下一页</button></div></div>
         </section>
 
@@ -1468,7 +1467,6 @@ console.log(result.choices[0].message.content);</pre></div></section>
     const logTo = document.getElementById("logTo");
     const logToken = document.getElementById("logToken");
     const logModel = document.getElementById("logModel");
-    const logGroup = document.getElementById("logGroup");
     const logRequestId = document.getElementById("logRequestId");
     const logType = document.getElementById("logType");
     const logScope = document.getElementById("logScope");
@@ -1549,7 +1547,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         authVersion += 1;
         clearWalletView();
         clearUsageLogView();
-        [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { if (input) input.value = ""; });
+        [logFrom, logTo, logToken, logModel, logRequestId].forEach((input) => { if (input) input.value = ""; });
         if (logType) logType.value = "";
         if (logScope) logScope.value = "self";
       }
@@ -1624,7 +1622,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
     }
 
     function usageLogQuery() {
-      const values = { scope: isSuperAdmin ? logScope.value : "self", from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, group: logGroup.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
+      const values = { scope: isSuperAdmin ? logScope.value : "self", from: logFrom.value, to: logTo.value, token: logToken.value, model: logModel.value, requestId: logRequestId.value, type: logType.value, page: usageLogsPage, pageSize: usagePageSize.value };
       return Object.entries(values).filter(([, value]) => value !== "" && value != null).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
     }
 
@@ -1703,8 +1701,8 @@ console.log(result.choices[0].message.content);</pre></div></section>
       usageNextPage.disabled = usageLogsPage >= usageLogsTotalPages;
       if (!data.items?.length) { usageLogBody.innerHTML = '<tr><td colspan="12" class="muted">当前筛选条件下没有真实调用记录。</td></tr>'; return; }
       usageLogBody.innerHTML = data.items.map((item) => `<tr>
-        <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.userName || "-")}</strong></td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td><td>${escapeHtml(item.tokenGroup || "default")}</td>
-        <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${Number(item.latencyMs || 0)} ms</td>
+        <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.userName || "-")}</strong></td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td>
+        <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${formatDurationSeconds(item.latencyMs)}</td><td>${formatDurationSeconds(item.firstTokenMs)}</td>
         <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>$${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
         <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}<br>计费来源：${escapeHtml(item.usageSource || "-")}<br>预扣：$${Number(item.reserved || 0).toFixed(6)}<br>结算差额：$${Number(item.adjustment || 0).toFixed(6)}<br>缓存读：${Number(item.cacheReadTokens || 0).toLocaleString()} · 缓存写：${Number(item.cacheWriteTokens || 0).toLocaleString()}</div></td></tr>`).join("");
       usageLogBody.querySelectorAll("[data-log-detail]").forEach((button) => button.addEventListener("click", () => { const detail = document.getElementById(`log-detail-${button.dataset.logDetail}`); detail.hidden = !detail.hidden; button.textContent = detail.hidden ? "查看" : "收起"; }));
@@ -1726,7 +1724,12 @@ console.log(result.choices[0].message.content);</pre></div></section>
       }
     }
 
-    function resetLogFilters() { [logFrom, logTo, logToken, logModel, logGroup, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; logScope.value = "self"; usageLogsPage = 1; loadUsageLogs(); }
+    function resetLogFilters() { [logFrom, logTo, logToken, logModel, logRequestId].forEach((input) => { input.value = ""; }); logType.value = ""; logScope.value = "self"; usageLogsPage = 1; loadUsageLogs(); }
+
+    function formatDurationSeconds(milliseconds) {
+      const value = Number(milliseconds || 0);
+      return value > 0 ? `${(value / 1000).toFixed(3)} 秒` : "-";
+    }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));

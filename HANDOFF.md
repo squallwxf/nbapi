@@ -298,3 +298,12 @@ systemctl is-active nbapi
 3. 如需更新服务器，在服务器 `/opt/nbapi` 执行 `git pull --ff-only origin main`。
 4. 本次仅改前端页面，拉取后浏览器执行 `Ctrl+F5`；若后续修改 `server.py`，再执行 `systemctl restart nbapi` 并检查服务状态。
 5. 下一步优先做生产环境回归：登录/注册、密码找回、令牌、操练场文本/图片/视频、计费日志、钱包支付、供应商和超级管理员权限。
+
+## 2026-09-11 使用日志字段优化
+
+- 使用日志已移除“分组”筛选项和表格列；令牌管理中的令牌分组功能保留不变。
+- “用时”现在以秒显示，保留 3 位小数。
+- 新增“首 Token（秒）”列。后端对流式 SSE 响应在第一个真实生成内容事件到达时记录首 Token 用时；非流式调用、历史记录或无法识别首内容的响应显示 `-`，不会用估算值伪造。
+- `ledger.first_token_ms` 会在服务启动时自动迁移；旧数据库和旧日志数据不会丢失。
+- 本次修改涉及 `server.py`、`api-website.html` 和 `tools/test_usage_parsing.py`，未修改计费金额、余额扣除、令牌、权限或上游调用协议。
+- 已通过 Python 语法检查、JavaScript 语法检查、`git diff --check` 和 10 项用量解析回归测试。

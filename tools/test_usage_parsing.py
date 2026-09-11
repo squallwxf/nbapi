@@ -2,7 +2,9 @@
 
 import json
 import sys
+import time
 import unittest
+from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -10,6 +12,19 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_stream_first_token_time_uses_first_generated_sse_event(self):
+        class Response(BytesIO):
+            headers = {"Content-Type": "text/event-stream"}
+
+        response = Response(
+            b"data: {\"type\":\"message_start\",\"message\":{\"content\":[]}}\n\n"
+            b"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n"
+            b"data: [DONE]\n\n"
+        )
+        body, first_token_ms = server.read_upstream_response(response, time.perf_counter() - 0.01)
+        self.assertIn(b"text_delta", body)
+        self.assertGreater(first_token_ms, 0)
+
     def test_announcement_validation_keeps_only_supported_fields(self):
         items = server.normalize_announcements([{"title": "维护通知", "detail": "今晚维护", "badge": "提醒", "tone": "orange", "active": True}])
         self.assertEqual(items[0]["title"], "维护通知")
