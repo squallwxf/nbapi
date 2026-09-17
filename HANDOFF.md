@@ -2,6 +2,14 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 2026-09-18 Gemini 外部智能体兼容修复
+
+- 问题定位：网站操练场调用 Gemini 使用原生 `/v1beta/models/{model}:generateContent`，但 WorkBuddy、Codex++ 等外部智能体工具通常只支持 OpenAI 兼容 `/v1/chat/completions`，并会携带 `tools/tool_choice`。旧后端会把 `/v1/chat/completions` 原样发给上游，Google/Gemini 模型因此在外部智能体工具中容易报错。
+- 已新增 Gemini OpenAI 兼容桥接层：当下游以 `/v1/chat/completions` 调用 Google 对话模型时，NBAPI 自动转换为 Gemini 原生 `generateContent` 请求；支持 system/developer/user/assistant/tool 消息、文本/图片输入、OpenAI function tools 到 Gemini functionDeclarations、tool_choice 到 toolConfig。
+- Gemini 上游响应会转换回 OpenAI chat completion 格式；如果下游请求 `stream:true`，NBAPI 会返回 OpenAI SSE 兼容格式，避免外部客户端因期待流式响应而报错。当前仍是完整读取、结算后一次性返回的兼容流，不是真正逐 token 透传。
+- 计费仍使用上游 Gemini 原生 `usageMetadata` 结算，不改余额、价格、预扣、退款、令牌或供应商配置。新增 `NBAPI_STREAM_TIMING.bridgedProtocol=openai_chat_to_gemini` 便于日志定位桥接调用。
+- 已通过 `server.py` 语法检查、`git diff --check` 和 19 项 `tools.test_usage_parsing` 回归测试。部署服务器后需重启 `nbapi` 服务才能生效。
+
 ## 紧急恢复：撤回上游请求 gzip 压缩
 
 - 用户更新压缩版本后报告站外调用不可用，大上下文调用出现零 Token/零金额，小请求操练场仍有正常扣费。未取得具体上游错误，gzip 兼容性是首要怀疑项，不宣称根因已经线上验证。

@@ -184,6 +184,61 @@ class UsageParsingTests(unittest.TestCase):
         self.assertNotIn("X-NBAPI-Key", headers)
         self.assertNotIn("Idempotency-Key", headers)
 
+    def test_openai_chat_payload_converts_to_gemini_native(self):
+        payload = {
+            "model": "gemini-3.1-pro-preview",
+            "messages": [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "天气怎么样？"},
+            ],
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "max_tokens": 128,
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+                },
+            }],
+            "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+        }
+        converted = server.openai_chat_to_gemini_generate_content(payload)
+        self.assertEqual(converted["systemInstruction"]["parts"], [{"text": "You are concise."}])
+        self.assertEqual(converted["contents"], [{"role": "user", "parts": [{"text": "天气怎么样？"}]}])
+        self.assertEqual(converted["generationConfig"]["maxOutputTokens"], 128)
+        self.assertEqual(converted["tools"][0]["functionDeclarations"][0]["name"], "get_weather")
+        self.assertEqual(converted["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"], ["get_weather"])
+
+    def test_gemini_function_call_converts_to_openai_tool_call(self):
+        payload = {
+            "candidates": [{
+                "content": {"parts": [{"functionCall": {"name": "get_weather", "args": {"city": "北京"}}}]},
+                "finishReason": "STOP",
+            }],
+            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 1},
+        }
+        converted = server.gemini_response_to_openai_chat(payload, "gemini-3.1-pro-preview")
+        message = converted["choices"][0]["message"]
+        self.assertEqual(converted["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(message["tool_calls"][0]["function"]["name"], "get_weather")
+        self.assertEqual(json.loads(message["tool_calls"][0]["function"]["arguments"]), {"city": "北京"})
+        self.assertEqual(converted["usage"]["prompt_tokens"], 5)
+
+    def test_bridged_openai_chat_response_can_be_wrapped_as_sse(self):
+        payload = {
+            "id": "chatcmpl_test",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gemini-3.1-pro-preview",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "你好"}, "finish_reason": "stop"}],
+        }
+        body = server.openai_chat_to_sse_bytes(payload).decode("utf-8")
+        self.assertIn('"object":"chat.completion.chunk"', body)
+        self.assertIn('"content":"你好"', body)
+        self.assertTrue(body.endswith("data: [DONE]\n\n"))
+
     def assert_usage(self, body, expected_counts, expected_billable):
         payload = server.extract_response_payload(body.encode("utf-8"))
         self.assertEqual(server.extract_usage_counts(payload), expected_counts)

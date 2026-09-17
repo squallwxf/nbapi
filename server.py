@@ -1141,6 +1141,267 @@ def build_upstream_headers(incoming_headers, route: dict, path: str) -> dict[str
     return headers
 
 
+def data_url_to_inline_data(url: str):
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return None
+    header, _, data = url.partition(",")
+    if not data:
+        return None
+    mime_type = header[5:].split(";", 1)[0] or "application/octet-stream"
+    return {"inlineData": {"mimeType": mime_type, "data": data}}
+
+
+def openai_content_to_gemini_parts(content):
+    parts = []
+    if isinstance(content, str):
+        if content:
+            parts.append({"text": content})
+        return parts
+    if not isinstance(content, list):
+        if content is not None:
+            parts.append({"text": str(content)})
+        return parts
+    for item in content:
+        if isinstance(item, str):
+            if item:
+                parts.append({"text": item})
+            continue
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type in ("text", "input_text"):
+            text = item.get("text", "")
+            if text:
+                parts.append({"text": str(text)})
+            continue
+        if item_type in ("image_url", "input_image"):
+            value = item.get("image_url")
+            image_url = value.get("url") if isinstance(value, dict) else item.get("image_url") or item.get("url")
+            if not image_url:
+                continue
+            inline = data_url_to_inline_data(str(image_url))
+            if inline:
+                parts.append(inline)
+            else:
+                parts.append({"fileData": {"mimeType": item.get("mime_type", "image/*"), "fileUri": str(image_url)}})
+    return parts
+
+
+def openai_tools_to_gemini_tools(tools):
+    declarations = []
+    for tool in tools if isinstance(tools, list) else []:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            continue
+        function = tool.get("function")
+        if not isinstance(function, dict) or not function.get("name"):
+            continue
+        declaration = {"name": str(function["name"])}
+        if function.get("description"):
+            declaration["description"] = str(function["description"])
+        parameters = function.get("parameters")
+        if isinstance(parameters, dict):
+            declaration["parameters"] = parameters
+        declarations.append(declaration)
+    return [{"functionDeclarations": declarations}] if declarations else []
+
+
+def openai_tool_choice_to_gemini_config(tool_choice):
+    if tool_choice in (None, "", "auto"):
+        return None
+    if tool_choice == "none":
+        return {"functionCallingConfig": {"mode": "NONE"}}
+    if tool_choice == "required":
+        return {"functionCallingConfig": {"mode": "ANY"}}
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function") if isinstance(tool_choice.get("function"), dict) else {}
+        name = function.get("name")
+        if name:
+            return {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": [str(name)]}}
+    return None
+
+
+def openai_chat_to_gemini_generate_content(payload: dict) -> dict:
+    messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    contents = []
+    system_parts = []
+    tool_names_by_id = {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", "user"))
+        if role in ("system", "developer"):
+            system_parts.extend(openai_content_to_gemini_parts(message.get("content", "")))
+            continue
+        if role == "tool":
+            name = message.get("name") or tool_names_by_id.get(str(message.get("tool_call_id", ""))) or "tool"
+            contents.append({
+                "role": "user",
+                "parts": [{"functionResponse": {"name": str(name), "response": {"content": message.get("content", "")}}}],
+            })
+            continue
+
+        parts = openai_content_to_gemini_parts(message.get("content", ""))
+        if role == "assistant":
+            role = "model"
+            for tool_call in message.get("tool_calls", []) if isinstance(message.get("tool_calls"), list) else []:
+                if not isinstance(tool_call, dict) or tool_call.get("type") != "function":
+                    continue
+                function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+                name = function.get("name")
+                if not name:
+                    continue
+                call_id = str(tool_call.get("id", ""))
+                if call_id:
+                    tool_names_by_id[call_id] = str(name)
+                arguments = function.get("arguments") or {}
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments) if arguments.strip() else {}
+                    except json.JSONDecodeError:
+                        arguments = {"arguments": arguments}
+                parts.append({"functionCall": {"name": str(name), "args": arguments if isinstance(arguments, dict) else {}}})
+        else:
+            role = "user"
+        if parts:
+            contents.append({"role": role, "parts": parts})
+
+    generation_config = {}
+    mapping = {
+        "temperature": "temperature",
+        "top_p": "topP",
+        "topP": "topP",
+        "max_tokens": "maxOutputTokens",
+        "max_completion_tokens": "maxOutputTokens",
+        "maxOutputTokens": "maxOutputTokens",
+        "stop": "stopSequences",
+    }
+    for source, target in mapping.items():
+        if source not in payload or payload[source] is None:
+            continue
+        value = payload[source]
+        if target == "stopSequences" and isinstance(value, str):
+            value = [value]
+        generation_config[target] = value
+
+    result = {"contents": contents or [{"role": "user", "parts": [{"text": ""}]}]}
+    if system_parts:
+        result["systemInstruction"] = {"parts": system_parts}
+    if generation_config:
+        result["generationConfig"] = generation_config
+    gemini_tools = openai_tools_to_gemini_tools(payload.get("tools"))
+    if gemini_tools:
+        result["tools"] = gemini_tools
+    tool_config = openai_tool_choice_to_gemini_config(payload.get("tool_choice"))
+    if tool_config:
+        result["toolConfig"] = tool_config
+    return result
+
+
+def gemini_response_to_openai_chat(payload: dict, model_name: str) -> dict:
+    candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    candidate = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+    content = candidate.get("content") if isinstance(candidate.get("content"), dict) else {}
+    parts = content.get("parts") if isinstance(content.get("parts"), list) else []
+    text_parts = []
+    tool_calls = []
+    for index, part in enumerate(parts):
+        if not isinstance(part, dict):
+            continue
+        if part.get("text"):
+            text_parts.append(str(part["text"]))
+        function_call = part.get("functionCall")
+        if isinstance(function_call, dict) and function_call.get("name"):
+            args = function_call.get("args")
+            tool_calls.append({
+                "id": f"call_{secrets.token_urlsafe(12)}",
+                "type": "function",
+                "function": {
+                    "name": str(function_call["name"]),
+                    "arguments": json.dumps(args if isinstance(args, dict) else {}, ensure_ascii=False),
+                },
+            })
+    finish_reason = str(candidate.get("finishReason", "")).lower()
+    finish_map = {"stop": "stop", "max_tokens": "length", "safety": "content_filter", "recitation": "content_filter"}
+    message = {"role": "assistant", "content": "".join(text_parts) or None}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+        if message["content"] is None:
+            message["content"] = ""
+
+    usage = payload.get("usageMetadata") if isinstance(payload.get("usageMetadata"), dict) else {}
+    prompt_tokens = int(usage.get("promptTokenCount", 0) or 0) + int(usage.get("toolUsePromptTokenCount", 0) or 0)
+    completion_tokens = int(usage.get("candidatesTokenCount", 0) or 0) + int(usage.get("thoughtsTokenCount", 0) or 0)
+    cached_tokens = int(usage.get("cachedContentTokenCount", 0) or 0)
+    return {
+        "id": f"chatcmpl_{secrets.token_urlsafe(16)}",
+        "object": "chat.completion",
+        "created": now(),
+        "model": model_name,
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": "tool_calls" if tool_calls else finish_map.get(finish_reason, "stop"),
+        }],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "prompt_tokens_details": {"cached_tokens": cached_tokens},
+        },
+    }
+
+
+def openai_chat_to_sse_bytes(payload: dict) -> bytes:
+    choice = payload.get("choices", [{}])[0] if isinstance(payload.get("choices"), list) and payload.get("choices") else {}
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    chunk = {
+        "id": payload.get("id", f"chatcmpl_{secrets.token_urlsafe(16)}"),
+        "object": "chat.completion.chunk",
+        "created": payload.get("created", now()),
+        "model": payload.get("model", ""),
+        "choices": [{
+            "index": 0,
+            "delta": {"role": "assistant"},
+            "finish_reason": None,
+        }],
+    }
+    lines = [f"data: {json.dumps(chunk, ensure_ascii=False, separators=(',', ':'))}\n\n"]
+    delta = {}
+    if message.get("content"):
+        delta["content"] = message["content"]
+    if message.get("tool_calls"):
+        delta["tool_calls"] = [
+            {
+                "index": index,
+                "id": tool_call.get("id"),
+                "type": tool_call.get("type", "function"),
+                "function": tool_call.get("function", {}),
+            }
+            for index, tool_call in enumerate(message.get("tool_calls", []))
+            if isinstance(tool_call, dict)
+        ]
+    if delta:
+        chunk["choices"][0]["delta"] = delta
+        lines.append(f"data: {json.dumps(chunk, ensure_ascii=False, separators=(',', ':'))}\n\n")
+    chunk["choices"][0]["delta"] = {}
+    chunk["choices"][0]["finish_reason"] = choice.get("finish_reason", "stop")
+    lines.append(f"data: {json.dumps(chunk, ensure_ascii=False, separators=(',', ':'))}\n\n")
+    lines.append("data: [DONE]\n\n")
+    return "".join(lines).encode("utf-8")
+
+
+def maybe_bridge_openai_chat_to_gemini(path: str, payload, model_row):
+    if path != "/v1/chat/completions" or not isinstance(payload, dict) or not model_row:
+        return None
+    if model_row[2] != "Google" or model_row[3] != "对话模型":
+        return None
+    model_name = str(payload.get("model", "")).strip()
+    if not model_name:
+        return None
+    bridged_path = f"/v1beta/models/{quote(model_name, safe='')}:generateContent"
+    return bridged_path, json_bytes(openai_chat_to_gemini_generate_content(payload))
+
+
 def update_channel_health(channel_id: int | None, success: bool, error: str = "") -> None:
     if channel_id is None:
         return
@@ -1760,16 +2021,19 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
                     return True
 
+        bridge = maybe_bridge_openai_chat_to_gemini(path, payload, model_row)
+        upstream_path = bridge[0] if bridge else path
+        upstream_body = bridge[1] if bridge else body
         resp_status, resp_headers, resp_body, first_token_ms = 502, {}, b"", 0
         prepared_ms = round((time.perf_counter() - started_at) * 1000)
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
         for attempt, route in enumerate(routes):
-            upstream_url = f"{route['base_url']}{path}" + (f"?{parsed.query}" if parsed.query else "")
-            upstream_headers = build_upstream_headers(self.headers, route, path)
-            if body and "content-type" not in {key.lower() for key in upstream_headers}:
+            upstream_url = f"{route['base_url']}{upstream_path}" + (f"?{parsed.query}" if parsed.query and not bridge else "")
+            upstream_headers = build_upstream_headers(self.headers, route, upstream_path)
+            if upstream_body and "content-type" not in {key.lower() for key in upstream_headers}:
                 upstream_headers["Content-Type"] = self.headers.get("Content-Type", "application/json")
             try:
-                request = Request(upstream_url, data=body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
+                request = Request(upstream_url, data=upstream_body if method in ("POST", "PUT", "PATCH", "DELETE") else None, headers=upstream_headers, method=method)
                 upstream_start_ms = round((time.perf_counter() - started_at) * 1000)
                 first_response_started_at = time.perf_counter()
                 transport_timing = {}
@@ -1780,8 +2044,9 @@ class Handler(BaseHTTPRequestHandler):
                     print("NBAPI_STREAM_TIMING " + json.dumps({
                         "requestId": idempotency_key, "channelId": route["channel_id"],
                         "attempt": attempt + 1, "requestBytes": len(body),
-                        "wireBytes": len(body),
+                        "wireBytes": len(upstream_body),
                         "requestEncoding": upstream_headers.get("Content-Encoding", "identity"),
+                        "bridgedProtocol": "openai_chat_to_gemini" if bridge else "",
                         "bodyReadMs": body_read_ms, "preparedMs": prepared_ms,
                         "upstreamStartMs": upstream_start_ms,
                         "upstreamWaitHeadersMs": stream_timing["headersMs"] - upstream_start_ms,
@@ -1912,6 +2177,15 @@ class Handler(BaseHTTPRequestHandler):
                 resp_headers["X-NBAPI-Idempotent"] = "1"
             resp_headers["X-NBAPI-Charged"] = micros_to_dollars(charge_result["amount_micros"])
             resp_headers["X-NBAPI-Balance"] = micros_to_dollars(charge_result["balance_micros"])
+
+        if bridge and isinstance(response_payload, dict):
+            bridged_response = gemini_response_to_openai_chat(response_payload, model_name)
+            resp_body = openai_chat_to_sse_bytes(bridged_response) if isinstance(payload, dict) and payload.get("stream") is True else json_bytes(bridged_response)
+            resp_headers = {
+                key: value for key, value in resp_headers.items()
+                if key.lower() not in ("content-encoding", "content-length", "transfer-encoding")
+            }
+            resp_headers["Content-Type"] = "text/event-stream; charset=utf-8" if isinstance(payload, dict) and payload.get("stream") is True else "application/json; charset=utf-8"
 
         self._send_raw_response(resp_status, resp_headers, resp_body)
         return True
