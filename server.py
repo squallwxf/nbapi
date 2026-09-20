@@ -45,6 +45,8 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
 UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
+TOKEN_RESERVE_INPUT_CAP = int(os.environ.get("NBAPI_TOKEN_RESERVE_INPUT_CAP", "500000"))
+TOKEN_RESERVE_OUTPUT_CAP = int(os.environ.get("NBAPI_TOKEN_RESERVE_OUTPUT_CAP", "8192"))
 ZPAY_SUBMIT_URL = os.environ.get("NBAPI_ZPAY_SUBMIT_URL", "https://zpayz.cn/submit.php")
 ZPAY_PID = os.environ.get("NBAPI_ZPAY_PID", "").strip()
 ZPAY_KEY = os.environ.get("NBAPI_ZPAY_KEY", "").strip()
@@ -1087,6 +1089,37 @@ def calculate_token_charge_micros(model_row, response_payload):
     return amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
 
 
+def estimate_token_reservation(model_row, payload) -> dict:
+    input_price = model_row[7] if model_row[7] > 0 else model_row[5]
+    output_price = model_row[8] if model_row[8] > 0 else input_price
+    raw_input_tokens = max(1, len(json.dumps(payload or {}, ensure_ascii=False)) // 4)
+    raw_output_tokens = 0
+    if isinstance(payload, dict):
+        for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens", "max_output_tokens", "maxOutputTokens"):
+            try:
+                raw_output_tokens = max(0, int(payload.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                raw_output_tokens = 0
+            if raw_output_tokens:
+                break
+    input_tokens = min(raw_input_tokens, max(1, TOKEN_RESERVE_INPUT_CAP))
+    output_tokens = min(raw_output_tokens, max(0, TOKEN_RESERVE_OUTPUT_CAP))
+    amount_micros = (
+        input_price * input_tokens
+        + output_price * output_tokens
+        + 999_999
+    ) // 1_000_000
+    return {
+        "amount_micros": max(0, int(amount_micros)),
+        "raw_input_tokens": raw_input_tokens,
+        "raw_output_tokens": raw_output_tokens,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "input_cap": TOKEN_RESERVE_INPUT_CAP,
+        "output_cap": TOKEN_RESERVE_OUTPUT_CAP,
+    }
+
+
 def channel_allows_model(allowed_models: str, model_name: str) -> bool:
     models = split_lines(allowed_models)
     return not models or not model_name or model_name in models
@@ -1975,6 +2008,7 @@ class Handler(BaseHTTPRequestHandler):
 
             model_row = None
             reservation_created = False
+            reserve_details = None
             if model_name:
                 model_row = fetch_model_row(db, model_name)
                 if not model_row or not model_row[6]:
@@ -1990,20 +2024,8 @@ class Handler(BaseHTTPRequestHandler):
                         return True
                 reserve_amount = model_row[5]
                 if model_row[4] == "per_token":
-                    estimated_input = max(1, len(json.dumps(payload or {}, ensure_ascii=False)) // 4)
-                    estimated_output = 0
-                    for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens"):
-                        try:
-                            estimated_output = max(0, int((payload or {}).get(key, 0) or 0))
-                        except (TypeError, ValueError):
-                            estimated_output = 0
-                        if estimated_output:
-                            break
-                    reserve_amount = (
-                        (model_row[7] if model_row[7] > 0 else model_row[5]) * estimated_input
-                        + (model_row[8] if model_row[8] > 0 else (model_row[7] if model_row[7] > 0 else model_row[5])) * estimated_output
-                        + 999_999
-                    ) // 1_000_000
+                    reserve_details = estimate_token_reservation(model_row, payload)
+                    reserve_amount = reserve_details["amount_micros"]
                 try:
                     db.execute("BEGIN IMMEDIATE")
                     reservation = reserve_billing(db, api_user[1], api_user[0], model_name, idempotency_key, reserve_amount)
@@ -2018,7 +2040,29 @@ class Handler(BaseHTTPRequestHandler):
                         return True
                 except ValueError as exc:
                     db.execute("ROLLBACK")
-                    self.send_json(402 if str(exc) in ("insufficient_balance", "token_quota_exceeded") else 400, {"error": str(exc)})
+                    error = str(exc)
+                    if error in ("insufficient_balance", "token_quota_exceeded"):
+                        balance_row = db.execute("SELECT balance_micros FROM users WHERE id=?", (api_user[1],)).fetchone()
+                        payload_body = {
+                            "error": error,
+                            "message": "余额不足：当前余额低于本次模型调用需要的预扣金额。" if error == "insufficient_balance" else "令牌额度不足：当前令牌剩余额度低于本次模型调用需要的预扣金额。",
+                            "balance": micros_to_dollars(balance_row[0] if balance_row else 0),
+                            "requiredReserve": micros_to_dollars(reserve_amount),
+                            "model": model_name,
+                            "billingUnit": model_row[4] if model_row else "",
+                        }
+                        if reserve_details:
+                            payload_body["reservationEstimate"] = {
+                                "estimatedInputTokens": reserve_details["input_tokens"],
+                                "estimatedOutputTokens": reserve_details["output_tokens"],
+                                "rawEstimatedInputTokens": reserve_details["raw_input_tokens"],
+                                "rawEstimatedOutputTokens": reserve_details["raw_output_tokens"],
+                                "inputReserveCap": reserve_details["input_cap"],
+                                "outputReserveCap": reserve_details["output_cap"],
+                            }
+                        self.send_json(402, payload_body)
+                    else:
+                        self.send_json(400, {"error": error})
                     return True
 
         bridge = maybe_bridge_openai_chat_to_gemini(path, payload, model_row)
