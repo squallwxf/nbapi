@@ -2,6 +2,12 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 2026-09-21 Token 预扣上限优化
+
+- 所有按 Token 计费模型的调用前预扣统一封顶为 3 个账户余额单位，避免客户端携带过大的 `max_tokens` 时出现“账户有余额但预扣估算超过余额”的误拒绝。
+- 默认上限为 `3_000_000` 微单位，可通过服务器环境变量 `NBAPI_MAX_TOKEN_RESERVATION_MICROS` 调整；最终账单仍严格按上游返回的真实 Token 用量结算，多退少补，不修改模型单价。
+- 按次计费的图片和视频模型继续按确定的单次价格预扣，避免低额预扣放行高价任务造成欠费。
+
 ## 2026-09-18 Gemini 外部智能体兼容修复
 
 - 问题定位：网站操练场调用 Gemini 使用原生 `/v1beta/models/{model}:generateContent`，但 WorkBuddy、Codex++ 等外部智能体工具通常只支持 OpenAI 兼容 `/v1/chat/completions`，并会携带 `tools/tool_choice`。旧后端会把 `/v1/chat/completions` 原样发给上游，Google/Gemini 模型因此在外部智能体工具中容易报错。

@@ -45,6 +45,7 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
 UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
+MAX_TOKEN_RESERVATION_MICROS = max(0, int(os.environ.get("NBAPI_MAX_TOKEN_RESERVATION_MICROS", "3000000")))
 ZPAY_SUBMIT_URL = os.environ.get("NBAPI_ZPAY_SUBMIT_URL", "https://zpayz.cn/submit.php")
 ZPAY_PID = os.environ.get("NBAPI_ZPAY_PID", "").strip()
 ZPAY_KEY = os.environ.get("NBAPI_ZPAY_KEY", "").strip()
@@ -1543,6 +1544,12 @@ def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotenc
     return {"idempotent": False, "settled": False, "amount_micros": amount_micros, "reservation_id": cursor.lastrowid}
 
 
+def cap_token_reservation(amount_micros: int) -> int:
+    """Limit speculative token authorization without changing final billing."""
+    amount_micros = max(0, int(amount_micros))
+    return min(amount_micros, MAX_TOKEN_RESERVATION_MICROS)
+
+
 def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, first_token_ms: int, request_path: str, request_id: str, cache_read_tokens: int = 0, cache_write_tokens: int = 0, usage_source: str = ""):
     reservation = db.execute(
         "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
@@ -2004,6 +2011,7 @@ class Handler(BaseHTTPRequestHandler):
                         + (model_row[8] if model_row[8] > 0 else (model_row[7] if model_row[7] > 0 else model_row[5])) * estimated_output
                         + 999_999
                     ) // 1_000_000
+                    reserve_amount = cap_token_reservation(reserve_amount)
                 try:
                     db.execute("BEGIN IMMEDIATE")
                     reservation = reserve_billing(db, api_user[1], api_user[0], model_name, idempotency_key, reserve_amount)

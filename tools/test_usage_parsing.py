@@ -166,6 +166,12 @@ class UsageParsingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.normalize_announcements([{"title": "", "detail": "", "badge": "", "tone": "red"}])
 
+    def test_token_reservation_is_capped_at_three_account_units(self):
+        self.assertEqual(server.cap_token_reservation(850_000), 850_000)
+        self.assertEqual(server.cap_token_reservation(3_000_000), 3_000_000)
+        self.assertEqual(server.cap_token_reservation(14_594_033), 3_000_000)
+        self.assertEqual(server.cap_token_reservation(-1), 0)
+
     def test_claude_headers_use_provider_key_and_hide_downstream_key(self):
         headers = server.build_upstream_headers(
             {
