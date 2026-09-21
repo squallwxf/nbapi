@@ -45,8 +45,7 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))
 UPSTREAM_MAX_ATTEMPTS = int(os.environ.get("NBAPI_UPSTREAM_MAX_ATTEMPTS", "2"))
-TOKEN_RESERVE_INPUT_CAP = int(os.environ.get("NBAPI_TOKEN_RESERVE_INPUT_CAP", "500000"))
-TOKEN_RESERVE_OUTPUT_CAP = int(os.environ.get("NBAPI_TOKEN_RESERVE_OUTPUT_CAP", "8192"))
+MAX_TOKEN_RESERVATION_MICROS = max(0, int(os.environ.get("NBAPI_MAX_TOKEN_RESERVATION_MICROS", "3000000")))
 ZPAY_SUBMIT_URL = os.environ.get("NBAPI_ZPAY_SUBMIT_URL", "https://zpayz.cn/submit.php")
 ZPAY_PID = os.environ.get("NBAPI_ZPAY_PID", "").strip()
 ZPAY_KEY = os.environ.get("NBAPI_ZPAY_KEY", "").strip()
@@ -738,7 +737,7 @@ def is_first_token_event(event) -> bool:
     return bool(event.get("candidates")) and response_has_generated_content(event)
 
 
-def read_upstream_response(response, started_at: float, timing: dict | None = None) -> tuple[bytes, int]:
+def read_upstream_response(response, started_at: float, timing: dict | None = None, on_chunk=None) -> tuple[bytes, int]:
     """Measure the first nonempty SSE data event, matching New API's FRT."""
     headers = {key.lower(): value for key, value in response.headers.items()}
     content_type = str(headers.get("content-type", "")).lower()
@@ -749,50 +748,59 @@ def read_upstream_response(response, started_at: float, timing: dict | None = No
     if "text/event-stream" not in content_type or headers.get("content-encoding", "identity").lower() not in ("", "identity"):
         if timing is not None:
             timing["measurement"] = "unsupported_encoding" if "text/event-stream" in content_type else "non_stream"
-        return response.read(), 0
+        body = response.read()
+        if on_chunk and body:
+            on_chunk(body)
+        return body, 0
 
     chunks = []
     first_token_ms = 0
-    while True:
-        chunk = response.readline()
-        if not chunk:
-            break
-        chunks.append(chunk)
-        elapsed_ms = max(1, round((time.perf_counter() - started_at) * 1000))
-        if timing is not None and timing["firstLineMs"] is None:
-            timing["firstLineMs"] = elapsed_ms
-        line = chunk.strip()
-        if not line.startswith(b"data:"):
-            continue
-        data = line[5:].strip()
-        if not data or data == b"[DONE]":
-            continue
-        if not first_token_ms:
-            first_token_ms = elapsed_ms
-        if timing is not None and timing["firstDataMs"] is None:
-            timing["firstDataMs"] = elapsed_ms
-        try:
-            event = json.loads(data)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            if timing is not None:
-                timing["parseErrors"] += 1
-            continue
-        generated = is_first_token_event(event)
-        if timing is not None and isinstance(event, dict) and len(timing["events"]) < 12:
-            # Only protocol labels and field names; never record generated content.
-            kind = event.get("type")
-            known_types = {"response.created", "response.in_progress", "response.completed",
-                           "response.output_text.delta", "response.reasoning_summary_text.delta",
-                           "response.function_call_arguments.delta", "response.output_item.added",
-                           "content_block_delta", "message_start", "message_delta"}
-            label = kind if isinstance(kind, str) and kind in known_types else "other"
-            if "choices" in event:
-                label = "chat"
-            elif "candidates" in event:
-                label = "gemini"
-            timing["events"].append({"ms": elapsed_ms, "event": label, "generated": generated})
-        if timing is not None and timing["firstContentMs"] is None and generated:
-            timing["firstContentMs"] = elapsed_ms
+    try:
+        while True:
+            chunk = response.readline()
+            if not chunk:
+                break
+            chunks.append(chunk)
+            if on_chunk:
+                on_chunk(chunk)
+            elapsed_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+            if timing is not None and timing["firstLineMs"] is None:
+                timing["firstLineMs"] = elapsed_ms
+            line = chunk.strip()
+            if not line.startswith(b"data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == b"[DONE]":
+                continue
+            if not first_token_ms:
+                first_token_ms = elapsed_ms
+            if timing is not None and timing["firstDataMs"] is None:
+                timing["firstDataMs"] = elapsed_ms
+            try:
+                event = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                if timing is not None:
+                    timing["parseErrors"] += 1
+                continue
+            generated = is_first_token_event(event)
+            if timing is not None and isinstance(event, dict) and len(timing["events"]) < 12:
+                # Only protocol labels and field names; never record generated content.
+                kind = event.get("type")
+                known_types = {"response.created", "response.in_progress", "response.completed",
+                               "response.output_text.delta", "response.reasoning_summary_text.delta",
+                               "response.function_call_arguments.delta", "response.output_item.added",
+                               "content_block_delta", "message_start", "message_delta"}
+                label = kind if isinstance(kind, str) and kind in known_types else "other"
+                if "choices" in event:
+                    label = "chat"
+                elif "candidates" in event:
+                    label = "gemini"
+                timing["events"].append({"ms": elapsed_ms, "event": label, "generated": generated})
+            if timing is not None and timing["firstContentMs"] is None and generated:
+                timing["firstContentMs"] = elapsed_ms
+    except (http.client.IncompleteRead, TimeoutError, OSError) as exc:
+        if timing is not None:
+            timing["streamError"] = f"{type(exc).__name__}: {exc}"
     if timing is not None:
         timing.update(firstTokenMs=first_token_ms or None,
                       endMs=round((time.perf_counter() - started_at) * 1000),
@@ -1087,37 +1095,6 @@ def calculate_token_charge_micros(model_row, response_payload):
         + 999_999
     ) // 1_000_000
     return amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
-
-
-def estimate_token_reservation(model_row, payload) -> dict:
-    input_price = model_row[7] if model_row[7] > 0 else model_row[5]
-    output_price = model_row[8] if model_row[8] > 0 else input_price
-    raw_input_tokens = max(1, len(json.dumps(payload or {}, ensure_ascii=False)) // 4)
-    raw_output_tokens = 0
-    if isinstance(payload, dict):
-        for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens", "max_output_tokens", "maxOutputTokens"):
-            try:
-                raw_output_tokens = max(0, int(payload.get(key, 0) or 0))
-            except (TypeError, ValueError):
-                raw_output_tokens = 0
-            if raw_output_tokens:
-                break
-    input_tokens = min(raw_input_tokens, max(1, TOKEN_RESERVE_INPUT_CAP))
-    output_tokens = min(raw_output_tokens, max(0, TOKEN_RESERVE_OUTPUT_CAP))
-    amount_micros = (
-        input_price * input_tokens
-        + output_price * output_tokens
-        + 999_999
-    ) // 1_000_000
-    return {
-        "amount_micros": max(0, int(amount_micros)),
-        "raw_input_tokens": raw_input_tokens,
-        "raw_output_tokens": raw_output_tokens,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "input_cap": TOKEN_RESERVE_INPUT_CAP,
-        "output_cap": TOKEN_RESERVE_OUTPUT_CAP,
-    }
 
 
 def channel_allows_model(allowed_models: str, model_name: str) -> bool:
@@ -1576,6 +1553,12 @@ def reserve_billing(db, user_id: int, token_id: int, model_name: str, idempotenc
     return {"idempotent": False, "settled": False, "amount_micros": amount_micros, "reservation_id": cursor.lastrowid}
 
 
+def cap_token_reservation(amount_micros: int) -> int:
+    """Limit speculative token authorization without changing final billing."""
+    amount_micros = max(0, int(amount_micros))
+    return min(amount_micros, MAX_TOKEN_RESERVATION_MICROS)
+
+
 def settle_billing(db, user_id: int, token_id: int, model_name: str, idempotency_key: str, actual_micros: int, billing_unit: str, input_tokens: int, output_tokens: int, client_ip: str, latency_ms: int, first_token_ms: int, request_path: str, request_id: str, cache_read_tokens: int = 0, cache_write_tokens: int = 0, usage_source: str = ""):
     reservation = db.execute(
         "SELECT id, reserved_micros, status FROM billing_reservations WHERE user_id=? AND idempotency_key=?",
@@ -1947,6 +1930,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _start_streaming_response(self, status: int, headers: dict) -> bool:
+        try:
+            self.send_response(status)
+            for key, value in headers.items():
+                if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "content-length":
+                    continue
+                self.send_header(key, value)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.flush()
+            return True
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return False
+
     def _estimate_token_quantity(self, payload) -> int:
         if not isinstance(payload, dict):
             return 1
@@ -2008,7 +2007,6 @@ class Handler(BaseHTTPRequestHandler):
 
             model_row = None
             reservation_created = False
-            reserve_details = None
             if model_name:
                 model_row = fetch_model_row(db, model_name)
                 if not model_row or not model_row[6]:
@@ -2024,8 +2022,21 @@ class Handler(BaseHTTPRequestHandler):
                         return True
                 reserve_amount = model_row[5]
                 if model_row[4] == "per_token":
-                    reserve_details = estimate_token_reservation(model_row, payload)
-                    reserve_amount = reserve_details["amount_micros"]
+                    estimated_input = max(1, len(json.dumps(payload or {}, ensure_ascii=False)) // 4)
+                    estimated_output = 0
+                    for key in ("max_tokens", "maxTokens", "max_completion_tokens", "maxCompletionTokens"):
+                        try:
+                            estimated_output = max(0, int((payload or {}).get(key, 0) or 0))
+                        except (TypeError, ValueError):
+                            estimated_output = 0
+                        if estimated_output:
+                            break
+                    reserve_amount = (
+                        (model_row[7] if model_row[7] > 0 else model_row[5]) * estimated_input
+                        + (model_row[8] if model_row[8] > 0 else (model_row[7] if model_row[7] > 0 else model_row[5])) * estimated_output
+                        + 999_999
+                    ) // 1_000_000
+                    reserve_amount = cap_token_reservation(reserve_amount)
                 try:
                     db.execute("BEGIN IMMEDIATE")
                     reservation = reserve_billing(db, api_user[1], api_user[0], model_name, idempotency_key, reserve_amount)
@@ -2051,15 +2062,6 @@ class Handler(BaseHTTPRequestHandler):
                             "model": model_name,
                             "billingUnit": model_row[4] if model_row else "",
                         }
-                        if reserve_details:
-                            payload_body["reservationEstimate"] = {
-                                "estimatedInputTokens": reserve_details["input_tokens"],
-                                "estimatedOutputTokens": reserve_details["output_tokens"],
-                                "rawEstimatedInputTokens": reserve_details["raw_input_tokens"],
-                                "rawEstimatedOutputTokens": reserve_details["raw_output_tokens"],
-                                "inputReserveCap": reserve_details["input_cap"],
-                                "outputReserveCap": reserve_details["output_cap"],
-                            }
                         self.send_json(402, payload_body)
                     else:
                         self.send_json(400, {"error": error})
@@ -2069,6 +2071,8 @@ class Handler(BaseHTTPRequestHandler):
         upstream_path = bridge[0] if bridge else path
         upstream_body = bridge[1] if bridge else body
         resp_status, resp_headers, resp_body, first_token_ms = 502, {}, b"", 0
+        streaming_started = False
+        downstream_connected = True
         prepared_ms = round((time.perf_counter() - started_at) * 1000)
         routes = [route for route in routes if route["api_key"]][:max(1, UPSTREAM_MAX_ATTEMPTS)]
         for attempt, route in enumerate(routes):
@@ -2084,7 +2088,35 @@ class Handler(BaseHTTPRequestHandler):
                 with open_timed_upstream(request, first_response_started_at, transport_timing) as response:
                     resp_status, resp_headers = response.status, dict(response.headers.items())
                     stream_timing = {}
-                    resp_body, first_token_ms = read_upstream_response(response, first_response_started_at, stream_timing)
+                    content_type = str(resp_headers.get("Content-Type", resp_headers.get("content-type", ""))).lower()
+                    should_stream = (
+                        not bridge
+                        and isinstance(payload, dict)
+                        and payload.get("stream") is True
+                        and "text/event-stream" in content_type
+                        and str(resp_headers.get("Content-Encoding", resp_headers.get("content-encoding", "identity"))).lower() in ("", "identity")
+                    )
+                    if should_stream:
+                        streaming_started = True
+                        downstream_connected = self._start_streaming_response(resp_status, resp_headers)
+
+                    def forward_chunk(chunk: bytes) -> None:
+                        nonlocal downstream_connected
+                        if not streaming_started or not downstream_connected:
+                            return
+                        try:
+                            self.wfile.write(chunk)
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                            downstream_connected = False
+
+                    resp_body, first_token_ms = read_upstream_response(
+                        response,
+                        first_response_started_at,
+                        stream_timing,
+                        forward_chunk if should_stream else None,
+                    )
+                    stream_error = stream_timing.get("streamError", "")
                     print("NBAPI_STREAM_TIMING " + json.dumps({
                         "requestId": idempotency_key, "channelId": route["channel_id"],
                         "attempt": attempt + 1, "requestBytes": len(body),
@@ -2097,7 +2129,7 @@ class Handler(BaseHTTPRequestHandler):
                         **transport_timing,
                         **stream_timing,
                     }), flush=True)
-                update_channel_health(route["channel_id"], True)
+                update_channel_health(route["channel_id"], not bool(stream_error), stream_error)
                 break
             except HTTPError as exc:
                 resp_status, resp_headers, resp_body = exc.code, dict(exc.headers.items()) if exc.headers else {}, exc.read() or b""
@@ -2130,7 +2162,8 @@ class Handler(BaseHTTPRequestHandler):
                     resp_headers["X-NBAPI-Refunded"] = "1"
                     resp_headers["X-NBAPI-Refunded-Amount"] = micros_to_dollars(refund_result["amount_micros"])
                     resp_headers["X-NBAPI-Balance"] = micros_to_dollars(refund_result["balance_micros"])
-            self._send_raw_response(resp_status, resp_headers, resp_body)
+            if not streaming_started:
+                self._send_raw_response(resp_status, resp_headers, resp_body)
             return True
 
         response_payload = extract_response_payload(decode_upstream_body(resp_body, resp_headers))
@@ -2179,13 +2212,20 @@ class Handler(BaseHTTPRequestHandler):
                             "X-NBAPI-Refunded-Amount": micros_to_dollars(refund_result["amount_micros"]),
                             "X-NBAPI-Balance": micros_to_dollars(refund_result["balance_micros"]),
                         }
-                    self.send_json(502, {
-                        "error": "upstream_usage_unavailable",
-                        "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。",
-                        "refunded": bool(refund_result.get("refunded")),
-                        "refundAmount": micros_to_dollars(refund_result.get("amount_micros", 0)),
-                        "balance": micros_to_dollars(refund_result.get("balance_micros", 0)),
-                    }, refund_headers)
+                    if not streaming_started:
+                        self.send_json(502, {
+                            "error": "upstream_usage_unavailable",
+                            "message": "上游未返回可核验的输入和补全 Token 用量，未执行扣费。",
+                            "refunded": bool(refund_result.get("refunded")),
+                            "refundAmount": micros_to_dollars(refund_result.get("amount_micros", 0)),
+                            "balance": micros_to_dollars(refund_result.get("balance_micros", 0)),
+                        }, refund_headers)
+                    else:
+                        print("NBAPI_STREAM_SETTLEMENT " + json.dumps({
+                            "requestId": idempotency_key,
+                            "status": "refunded_usage_unavailable",
+                            "downstreamConnected": downstream_connected,
+                        }), flush=True)
                     return True
                 amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens = calculate_token_charge_micros(model_row, response_payload)
                 if model_row[2] == "Anthropic":
@@ -2211,11 +2251,26 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")
-                    self.send_json(502, {"error": str(exc), "message": "上游调用已完成，但结算未完成，请保留 Request ID 供管理员对账。", "requestId": idempotency_key})
+                    if not streaming_started:
+                        self.send_json(502, {"error": str(exc), "message": "上游调用已完成，但结算未完成，请保留 Request ID 供管理员对账。", "requestId": idempotency_key})
+                    else:
+                        print("NBAPI_STREAM_SETTLEMENT " + json.dumps({
+                            "requestId": idempotency_key,
+                            "status": "failed",
+                            "error": str(exc),
+                            "downstreamConnected": downstream_connected,
+                        }), flush=True)
                     return True
                 except sqlite3.IntegrityError:
                     db.execute("ROLLBACK")
-                    self.send_json(409, {"error": "duplicate_idempotency_key"})
+                    if not streaming_started:
+                        self.send_json(409, {"error": "duplicate_idempotency_key"})
+                    else:
+                        print("NBAPI_STREAM_SETTLEMENT " + json.dumps({
+                            "requestId": idempotency_key,
+                            "status": "duplicate_idempotency_key",
+                            "downstreamConnected": downstream_connected,
+                        }), flush=True)
                     return True
             if charge_result["idempotent"]:
                 resp_headers["X-NBAPI-Idempotent"] = "1"
@@ -2231,7 +2286,8 @@ class Handler(BaseHTTPRequestHandler):
             }
             resp_headers["Content-Type"] = "text/event-stream; charset=utf-8" if isinstance(payload, dict) and payload.get("stream") is True else "application/json; charset=utf-8"
 
-        self._send_raw_response(resp_status, resp_headers, resp_body)
+        if not streaming_started:
+            self._send_raw_response(resp_status, resp_headers, resp_body)
         return True
 
     def current_user(self):

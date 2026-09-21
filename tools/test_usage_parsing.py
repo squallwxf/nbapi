@@ -1,7 +1,11 @@
 """Regression checks for authoritative upstream usage parsing."""
 
+import gc
+import http.client
 import json
+import sqlite3
 import sys
+import tempfile
 import time
 import unittest
 import threading
@@ -44,6 +48,7 @@ class UsageParsingTests(unittest.TestCase):
 
     def test_real_http_stream_records_delta_before_end(self):
         token_seen = threading.Event()
+        forwarded = threading.Event()
         acknowledged = []
         payload = (
             b'data: {"type":"response.created","response":{}}\n\n',
@@ -61,7 +66,7 @@ class UsageParsingTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(payload[0] + payload[1])
                 self.wfile.flush()
-                acknowledged.append(token_seen.wait(2))
+                acknowledged.append(token_seen.wait(2) and forwarded.wait(2))
                 time.sleep(0.15)
                 self.wfile.write(payload[2])
 
@@ -82,7 +87,12 @@ class UsageParsingTests(unittest.TestCase):
                     transport = {}
                     with server.open_timed_upstream(server.Request(f"http://127.0.0.1:{upstream.server_port}/"), started, transport) as response:
                         timing = {}
-                        body, first_ms = server.read_upstream_response(response, started, timing)
+                        body, first_ms = server.read_upstream_response(
+                            response,
+                            started,
+                            timing,
+                            lambda chunk: forwarded.set() if b"output_text.delta" in chunk else None,
+                        )
                 self.assertEqual(acknowledged, [True])
                 self.assertEqual(body, b"".join(payload))
                 self.assertGreaterEqual(timing["endMs"] - first_ms, 100)
@@ -92,6 +102,34 @@ class UsageParsingTests(unittest.TestCase):
                 self.assertLessEqual(transport["requestSentMs"], timing["headersMs"])
             finally:
                 thread.join(timeout=5)
+
+    def test_interrupted_stream_keeps_received_events_for_refund_decision(self):
+        first = b'data: {"type":"response.output_text.delta","delta":"partial"}\n\n'
+
+        class InterruptedResponse:
+            headers = {"Content-Type": "text/event-stream"}
+
+            def __init__(self):
+                self.calls = 0
+
+            def readline(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return first
+                raise ConnectionResetError("upstream disconnected")
+
+        forwarded = []
+        timing = {}
+        body, first_ms = server.read_upstream_response(
+            InterruptedResponse(),
+            time.perf_counter() - 0.01,
+            timing,
+            forwarded.append,
+        )
+        self.assertEqual(body, first)
+        self.assertEqual(forwarded, [first])
+        self.assertGreater(first_ms, 0)
+        self.assertIn("ConnectionResetError", timing["streamError"])
 
     def test_responses_first_token_precedes_completion(self):
         class Response(BytesIO):
@@ -165,6 +203,12 @@ class UsageParsingTests(unittest.TestCase):
         self.assertEqual(items[0]["tone"], "orange")
         with self.assertRaises(ValueError):
             server.normalize_announcements([{"title": "", "detail": "", "badge": "", "tone": "red"}])
+
+    def test_token_reservation_is_capped_at_three_account_units(self):
+        self.assertEqual(server.cap_token_reservation(850_000), 850_000)
+        self.assertEqual(server.cap_token_reservation(3_000_000), 3_000_000)
+        self.assertEqual(server.cap_token_reservation(14_594_033), 3_000_000)
+        self.assertEqual(server.cap_token_reservation(-1), 0)
 
     def test_claude_headers_use_provider_key_and_hide_downstream_key(self):
         headers = server.build_upstream_headers(
@@ -316,6 +360,225 @@ data: [DONE]
         amount, input_tokens, output_tokens, cache_read, cache_write = server.calculate_token_charge_micros(model, payload)
         self.assertEqual((input_tokens, output_tokens, cache_read, cache_write), (10, 5, 3, 0))
         self.assertEqual(amount, 15)
+
+
+class BillingStabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.addCleanup(gc.collect)
+        self.db_path_patch = patch.object(server, "DB_PATH", Path(self.temp_dir.name) / "test.sqlite3")
+        self.password_patch = patch.object(server, "DEFAULT_SUPER_ADMIN_PASSWORD", "test-password")
+        self.db_path_patch.start()
+        self.password_patch.start()
+        self.addCleanup(self.db_path_patch.stop)
+        self.addCleanup(self.password_patch.stop)
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            cursor = db.execute(
+                "INSERT INTO users(username,email,password_hash,role,active,balance_micros,created_at) VALUES ('billing-user','',?,'user',1,10000000,?)",
+                (server.hash_password("password"), server.now()),
+            )
+            self.user_id = cursor.lastrowid
+            token = "nb_sk_billing_test"
+            self.token = token
+            cursor = db.execute(
+                "INSERT INTO api_tokens(user_id,name,token_hash,token_secret,token_hint,active,created_at,quota_unlimited,used_micros) VALUES (?,?,?,?,?,1,?,1,0)",
+                (self.user_id, "test", server.hashlib.sha256(token.encode()).hexdigest(), token, "test", server.now()),
+            )
+            self.token_id = cursor.lastrowid
+
+    def test_reserve_and_settle_charge_exactly_once(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            first = server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-1", 3_000_000)
+            duplicate = server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-1", 3_000_000)
+            self.assertFalse(first["idempotent"])
+            self.assertTrue(duplicate["idempotent"])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 7_000_000)
+
+            settled = server.settle_billing(
+                db, self.user_id, self.token_id, "gpt-6-astra", "request-1",
+                129_645, "per_token", 189_426, 2_840, "127.0.0.1",
+                136_300, 48_500, "/v1/responses", "request-1", 189_312, 0, "openai_responses",
+            )
+            repeated = server.settle_billing(
+                db, self.user_id, self.token_id, "gpt-6-astra", "request-1",
+                129_645, "per_token", 189_426, 2_840, "127.0.0.1",
+                136_300, 48_500, "/v1/responses", "request-1", 189_312, 0, "openai_responses",
+            )
+            self.assertFalse(settled["idempotent"])
+            self.assertTrue(repeated["idempotent"])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 9_870_355)
+            self.assertEqual(db.execute("SELECT used_micros FROM api_tokens WHERE id=?", (self.token_id,)).fetchone()[0], 129_645)
+            ledger = db.execute("SELECT amount_micros,input_tokens,output_tokens,cache_read_tokens,status FROM ledger WHERE request_id='request-1'").fetchall()
+            self.assertEqual(ledger, [(129_645, 189_426, 2_840, 189_312, "charged")])
+
+    def test_failed_call_refunds_reservation_exactly_once(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-refund", 3_000_000)
+            first = server.refund_billing(db, self.user_id, "request-refund", "refund_upstream_failure")
+            repeated = server.refund_billing(db, self.user_id, "request-refund", "refund_upstream_failure")
+            self.assertTrue(first["refunded"])
+            self.assertFalse(repeated["refunded"])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 10_000_000)
+            self.assertEqual(db.execute("SELECT used_micros FROM api_tokens WHERE id=?", (self.token_id,)).fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM ledger WHERE idempotency_key='request-refund'").fetchone()[0], 1)
+
+    def test_zpay_credit_is_idempotent_and_isolated_from_streaming(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute(
+                "INSERT INTO wallet_orders(user_id,amount_micros,status,payment_method,payment_provider,merchant_order_no,created_at,updated_at) VALUES (?,10000000,'pending','alipay','zpay','order-stream-test',?,?)",
+                (self.user_id, server.now(), server.now()),
+            )
+        first = server.credit_zpay_order("order-stream-test", "trade-stream-test", 10_000_000, "127.0.0.1", "test")
+        repeated = server.credit_zpay_order("order-stream-test", "trade-stream-test", 10_000_000, "127.0.0.1", "test")
+        self.assertFalse(first["idempotent"])
+        self.assertTrue(repeated["idempotent"])
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 20_000_000)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM balance_transactions WHERE type='topup_zpay'").fetchone()[0], 1)
+
+    def test_end_to_end_sse_reaches_client_before_completion_and_then_settles(self):
+        first_events = (
+            b'data: {"type":"response.created","response":{}}\n\n'
+            b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+        )
+        completed = (
+            b'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":100,"output_tokens":10}}}\n\n'
+            b'data: [DONE]\n\n'
+        )
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(first_events)
+                self.wfile.flush()
+                time.sleep(0.5)
+                self.wfile.write(completed)
+                self.wfile.flush()
+
+        upstream = HTTPServer(("127.0.0.1", 0), Upstream)
+        upstream_thread = threading.Thread(target=upstream.handle_request)
+        upstream_thread.start()
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("UPDATE channels SET active=0")
+            db.execute(
+                "UPDATE channels SET active=1,upstream_base_url=?,upstream_api_key='provider-key',allowed_models='gpt-6-astra' WHERE id=(SELECT MIN(id) FROM channels)",
+                (f"http://127.0.0.1:{upstream.server_port}",),
+            )
+
+        proxy = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        proxy_thread = threading.Thread(target=proxy.handle_request)
+        proxy_thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=3)
+        request_body = json.dumps({"model": "gpt-6-astra", "stream": True, "input": "hello"}).encode()
+        started = time.perf_counter()
+        try:
+            connection.request(
+                "POST",
+                "/v1/responses",
+                body=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-NBAPI-Key": self.token,
+                    "Idempotency-Key": "request-stream-e2e",
+                },
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            lines = []
+            while True:
+                line = response.readline()
+                lines.append(line)
+                if b"output_text.delta" in line:
+                    break
+            first_chunk_seconds = time.perf_counter() - started
+            self.assertLess(first_chunk_seconds, 0.4)
+            remainder = response.read()
+            total_seconds = time.perf_counter() - started
+            self.assertGreaterEqual(total_seconds, 0.45)
+            self.assertIn(b"response.completed", remainder)
+        finally:
+            connection.close()
+            proxy.server_close()
+            upstream.server_close()
+            proxy_thread.join(timeout=3)
+            upstream_thread.join(timeout=3)
+
+        with sqlite3.connect(server.DB_PATH) as db:
+            ledger = db.execute(
+                "SELECT amount_micros,input_tokens,output_tokens,status FROM ledger WHERE request_id='request-stream-e2e'"
+            ).fetchall()
+            self.assertEqual(ledger, [(312, 100, 10, "charged")])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 9_999_688)
+
+    def test_client_disconnect_does_not_cancel_final_settlement(self):
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n')
+                self.wfile.flush()
+                time.sleep(0.2)
+                self.wfile.write(
+                    b'data: {"type":"response.completed","response":{"output":[{"text":"hello"}],"usage":{"input_tokens":20,"output_tokens":5}}}\n\n'
+                    b'data: [DONE]\n\n'
+                )
+                self.wfile.flush()
+
+        upstream = HTTPServer(("127.0.0.1", 0), Upstream)
+        upstream_thread = threading.Thread(target=upstream.handle_request)
+        upstream_thread.start()
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("UPDATE channels SET active=0")
+            db.execute(
+                "UPDATE channels SET active=1,upstream_base_url=?,upstream_api_key='provider-key',allowed_models='gpt-6-astra' WHERE id=(SELECT MIN(id) FROM channels)",
+                (f"http://127.0.0.1:{upstream.server_port}",),
+            )
+
+        proxy = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        proxy_thread = threading.Thread(target=proxy.handle_request)
+        proxy_thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=3)
+        request_body = json.dumps({"model": "gpt-6-astra", "stream": True, "input": "hello"}).encode()
+        try:
+            connection.request(
+                "POST", "/v1/responses", body=request_body,
+                headers={"Content-Type": "application/json", "X-NBAPI-Key": self.token, "Idempotency-Key": "request-disconnect"},
+            )
+            response = connection.getresponse()
+            while b"output_text.delta" not in response.readline():
+                pass
+            connection.close()
+            upstream_thread.join(timeout=3)
+            deadline = time.time() + 3
+            ledger = []
+            while time.time() < deadline:
+                with sqlite3.connect(server.DB_PATH) as db:
+                    ledger = db.execute(
+                        "SELECT amount_micros,input_tokens,output_tokens,status FROM ledger WHERE request_id='request-disconnect'"
+                    ).fetchall()
+                if ledger:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(ledger, [(98, 20, 5, "charged")])
+        finally:
+            connection.close()
+            proxy.server_close()
+            upstream.server_close()
+            proxy_thread.join(timeout=3)
+            upstream_thread.join(timeout=3)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,22 @@
 
 当前项目仓库：`https://github.com/squallwxf/nbapi.git`
 
+## 2026-09-21 真实 SSE 流式转发与计费稳定性
+
+- 已定位生产环境大上下文延迟：约 39.34 MB 请求从 NBAPI 再上传到 KRAPI 需要约 14-33 秒；旧代理还会把上游完整 SSE 缓存在内存，直到生成结束才一次性返回客户端。
+- `/v1/responses`、`/v1/chat/completions`、`/v1/messages` 等原生返回 `text/event-stream` 且下游传入 `stream:true` 的调用，现在逐行转发并立即 flush；响应携带 `X-Accel-Buffering: no`，只关闭该流的 Nginx 缓冲，不影响网页、钱包或普通 JSON 接口。
+- 流式转发仍完整保留上游事件用于最终 usage 解析；预扣在调用前完成，流结束后按上游真实输入、补全和缓存 Token 多退少补。客户端中途断开时只停止向客户端写入，NBAPI 继续读完上游并结算，避免上游扣费而 NBAPI 漏扣。
+- 上游在响应前失败仍返回原 HTTP 错误并退款；流中途断开且没有可信 usage 时自动退款。流已经开始后不会尝试备用渠道，避免同一请求被上游执行两次。
+- 流式响应开始后无法再追加 `X-NBAPI-Charged` / `X-NBAPI-Balance` 响应头；数据库账本和使用日志仍准确记录，网页余额继续通过 `/api/me` 刷新。非流式调用继续保留原扣费响应头。
+- Gemini OpenAI 兼容桥目前仍调用非流式原生 `generateContent` 后转换为 OpenAI SSE，不属于逐 Token 透传；Google 原生流式接口及其他上游原生 SSE 可以直接透传。
+- 已通过 Python 语法检查和 26 项回归测试：真实端到端首块早于结束、客户端断开后继续结算、预扣/补退/重复结算幂等、失败退款幂等、ZPAY 重复通知不重复充值、OpenAI/Claude/Gemini usage 与缓存计价。
+
+## 2026-09-21 Token 预扣上限优化
+
+- 所有按 Token 计费模型的调用前预扣统一封顶为 3 个账户余额单位，避免客户端携带过大的 `max_tokens` 时出现“账户有余额但预扣估算超过余额”的误拒绝。
+- 默认上限为 `3_000_000` 微单位，可通过服务器环境变量 `NBAPI_MAX_TOKEN_RESERVATION_MICROS` 调整；最终账单仍严格按上游返回的真实 Token 用量结算，多退少补，不修改模型单价。
+- 按次计费的图片和视频模型继续按确定的单次价格预扣，避免低额预扣放行高价任务造成欠费。
+
 ## 2026-09-18 Gemini 外部智能体兼容修复
 
 - 问题定位：网站操练场调用 Gemini 使用原生 `/v1beta/models/{model}:generateContent`，但 WorkBuddy、Codex++ 等外部智能体工具通常只支持 OpenAI 兼容 `/v1/chat/completions`，并会携带 `tools/tool_choice`。旧后端会把 `/v1/chat/completions` 原样发给上游，Google/Gemini 模型因此在外部智能体工具中容易报错。
