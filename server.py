@@ -25,6 +25,10 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NBAPI_DB_PATH", str(ROOT / "nbapi.sqlite3"))).expanduser()
 HTML_PATH = ROOT / "api-website.html"
+STATIC_ASSETS = {
+    "/assets/nbapi.css": (ROOT / "assets" / "nbapi.css", "text/css; charset=utf-8"),
+    "/assets/nbapi.js": (ROOT / "assets" / "nbapi.js", "text/javascript; charset=utf-8"),
+}
 UPSTREAM = "https://ai.krapi.cn"
 MICROS_PER_DOLLAR = 1_000_000
 TOKEN_PREFIX = "nb_sk_"
@@ -1930,6 +1934,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_file(self, path: Path, content_type: str) -> None:
+        try:
+            body = path.read_bytes()
+            stat = path.stat()
+        except OSError:
+            self.send_error(404)
+            return
+        etag = f'"{stat.st_mtime_ns:x}-{len(body):x}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("ETag", etag)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _start_streaming_response(self, status: int, headers: dict) -> bool:
         try:
             self.send_response(status)
@@ -2352,6 +2378,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        static_asset = STATIC_ASSETS.get(path)
+        if static_asset:
+            self.send_file(*static_asset)
+            return
         if path == "/api/payment/zpay/notify":
             params = {key: values[-1] for key, values in parse_qs(urlparse(self.path).query, keep_blank_values=True).items()}
             try:
@@ -2629,12 +2659,7 @@ class Handler(BaseHTTPRequestHandler):
                 } for r in rows]})
             return
         if path == "/" or path == "/index.html":
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            body = HTML_PATH.read_bytes()
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_file(HTML_PATH, "text/html; charset=utf-8")
             return
         self.send_error(404)
 

@@ -362,6 +362,44 @@ data: [DONE]
         self.assertEqual(amount, 15)
 
 
+class StaticAssetTests(unittest.TestCase):
+    def test_frontend_entrypoints_are_served_from_fixed_paths(self):
+        app = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=app.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", app.server_port, timeout=3)
+        try:
+            expected = {
+                "/": (200, "text/html", b"assets/nbapi.css"),
+                "/assets/nbapi.css": (200, "text/css", b":root"),
+                "/assets/nbapi.js": (200, "text/javascript", b"const storageKeys"),
+            }
+            for path, (status, content_type, marker) in expected.items():
+                connection.request("GET", path)
+                response = connection.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, status)
+                self.assertIn(content_type, response.getheader("Content-Type"))
+                self.assertIn(marker, body)
+                if path == "/assets/nbapi.js":
+                    etag = response.getheader("ETag")
+
+            connection.request("GET", "/assets/nbapi.js", headers={"If-None-Match": etag})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 304)
+            self.assertEqual(response.read(), b"")
+
+            connection.request("GET", "/assets/not-allowed.txt")
+            response = connection.getresponse()
+            response.read()
+            self.assertEqual(response.status, 404)
+        finally:
+            connection.close()
+            app.shutdown()
+            app.server_close()
+            thread.join(timeout=3)
+
+
 class BillingStabilityTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

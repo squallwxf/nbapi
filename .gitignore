@@ -11,3 +11,8 @@ price_workbook_dump.json
 *.log
 .DS_Store
 backups/
+*.bak
+zhengshu/
+*.crt
+*.key
+*.pem
