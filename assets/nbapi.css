@@ -311,9 +311,12 @@
     .copy-icon { display: inline-block; width: 12px; height: 12px; border: 1px solid currentColor; border-radius: 2px; position: relative; }
     .copy-icon::after { content: ""; position: absolute; width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 2px; left: 4px; top: -4px; background: var(--surface-2); }
     .plaza-price { color: var(--muted); font-size: 12px; line-height: 1.65; min-height: 40px; }
+    .plaza-price-tier1 { color: var(--text); }
     .plaza-price strong { color: var(--text); font-size: 14px; }
     .dynamic-price-label { display: inline-block; color: #9a6700; font-weight: 800; }
     .dynamic-price-tier { display: inline-block; margin-top: 2px; color: var(--text); font-weight: 700; }
+    .dynamic-price-button { margin-top: 6px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+    .dynamic-price-button:hover, .dynamic-price-button:focus-visible { color: var(--blue); text-decoration-style: solid; }
     body.dark .dynamic-price-label { color: #f5c451; }
     .billing-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .billing-input { width: 84px; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); padding: 0 7px; }
@@ -571,6 +574,24 @@
     .token-form-grid .full { grid-column: 1 / -1; }
     .token-form-help { color: var(--muted); font-size: 12px; line-height: 1.5; }
     .token-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .model-pricing-modal { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(3, 8, 20, .72); }
+    .model-pricing-modal.show { display: flex; }
+    .model-pricing-modal-panel { width: min(780px, 100%); max-height: min(92vh, 860px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,.35); padding: 18px; }
+    .model-pricing-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .model-pricing-modal-head h3 { margin: 8px 0 2px; font-size: 20px; }
+    .model-pricing-modal-head p { margin: 0; }
+    .pricing-detail-summary { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 14px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; }
+    .pricing-detail-summary strong { color: var(--text); font-size: 13px; }
+    .pricing-detail-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+    .pricing-detail-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 13px; }
+    .pricing-detail-table th, .pricing-detail-table td { padding: 11px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    .pricing-detail-table th { color: var(--muted); font-weight: 700; background: var(--surface-2); white-space: nowrap; }
+    .pricing-detail-table tbody tr:last-child td { border-bottom: 0; }
+    .pricing-detail-table td:not(:first-child) { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .pricing-detail-tier { display: inline-flex; flex-direction: column; gap: 2px; }
+    .pricing-detail-tier strong { color: var(--text); }
+    .pricing-detail-tier small { margin: 0; font-size: 11px; }
+    .pricing-detail-note { margin: 12px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
     @media (max-width: 680px) { .token-form-grid { grid-template-columns: 1fr; } .token-form-grid .full { grid-column: auto; } }
     .key-box { border: 1px dashed #b8c7dd; background: #f7fbff; border-radius: var(--radius); padding: 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #344054; overflow-wrap: anywhere; }
     body.dark .key-box { background: #162238; color: #d9e4f5; border-color: #3c4d68; }

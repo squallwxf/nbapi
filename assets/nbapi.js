@@ -51,6 +51,11 @@
     const tokenUnlimitedInput = document.getElementById("tokenUnlimitedInput");
     const tokenModelsInput = document.getElementById("tokenModelsInput");
     const tokenIpInput = document.getElementById("tokenIpInput");
+    const modelPricingModal = document.getElementById("modelPricingModal");
+    const closeModelPricingModalButton = document.getElementById("closeModelPricingModal");
+    const modelPricingModalTitle = document.getElementById("modelPricingModalTitle");
+    const modelPricingModalSubtitle = document.getElementById("modelPricingModalSubtitle");
+    const modelPricingModalBody = document.getElementById("modelPricingModalBody");
     const copySelectedTokens = document.getElementById("copySelectedTokens");
     const enableSelectedTokens = document.getElementById("enableSelectedTokens");
     const disableSelectedTokens = document.getElementById("disableSelectedTokens");
@@ -1203,7 +1208,10 @@
     }
 
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeMediaLightbox();
+      if (event.key === "Escape") {
+        closeMediaLightbox();
+        closeModelPricingModal();
+      }
     });
 
     function appendPlaygroundMedia(url, taskType) {
@@ -1393,20 +1401,80 @@
       return value.toLocaleString("zh-CN");
     }
 
-    function formatTierPriceLines(pricing, prefix = "") {
-      return `${prefix}输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>${prefix}补全 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存创建 $${Number(pricing.cacheWritePrice || 0).toFixed(4)} / 1M Tokens`;
+    function getPricingTier(pricing, tierNumber = 1) {
+      if (tierNumber === 2) {
+        return {
+          inputPrice: pricing.tier2InputPrice ?? pricing.inputPrice ?? pricing.amount ?? 0,
+          outputPrice: pricing.tier2OutputPrice ?? pricing.outputPrice ?? pricing.amount ?? 0,
+          cacheReadPrice: pricing.tier2CacheReadPrice ?? pricing.cacheReadPrice ?? 0,
+          cacheWritePrice: pricing.tier2CacheWritePrice ?? pricing.cacheWritePrice ?? 0
+        };
+      }
+      return {
+        inputPrice: pricing.inputPrice ?? pricing.amount ?? 0,
+        outputPrice: pricing.outputPrice ?? pricing.amount ?? 0,
+        cacheReadPrice: pricing.cacheReadPrice ?? 0,
+        cacheWritePrice: pricing.cacheWritePrice ?? 0
+      };
     }
 
-    function formatModelPrice(pricing) {
+    function formatTierPriceLines(pricing, prefix = "") {
+      return `${prefix}输入 $${Number(pricing.inputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}补全 $${Number(pricing.outputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存读 $${Number(pricing.cacheReadPrice ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存创建 $${Number(pricing.cacheWritePrice ?? 0).toFixed(4)} / 1M Tokens`;
+    }
+
+    function formatPricingValue(value) {
+      return `$${Number(value ?? 0).toFixed(4)}`;
+    }
+
+    function formatModelPrice(pricing, modelName = "") {
       if (pricing.unit === "per_token") {
-        const tier1 = formatTierPriceLines(pricing, pricing.pricingMode === "dynamic" ? "第1档 · " : "");
+        const tier1 = formatTierPriceLines(getPricingTier(pricing));
         if (pricing.pricingMode === "dynamic") {
-          const tier2 = { inputPrice: pricing.tier2InputPrice, outputPrice: pricing.tier2OutputPrice, cacheReadPrice: pricing.tier2CacheReadPrice, cacheWritePrice: pricing.tier2CacheWritePrice };
-          return `<span class="dynamic-price-label">动态计费 · 2档</span><br><span class="dynamic-price-tier">len &lt; ${formatTokenThreshold(pricing.tierThresholdTokens)}</span><br>${tier1}<br><span class="dynamic-price-tier">len ≥ ${formatTokenThreshold(pricing.tierThresholdTokens)}</span><br>${formatTierPriceLines(tier2, "第2档 · ")}`;
+          return `<div class="plaza-price-tier1"><strong>${tier1}</strong></div><button class="dynamic-price-label dynamic-price-button" type="button" data-model-pricing="${escapeHtml(modelName)}" title="点击查看两档完整计费">动态计费 · 2档</button>`;
         }
-        return tier1;
+        return `<strong>${tier1}</strong>`;
       }
-      return `$${Number(pricing.amount || 0).toFixed(4)} / 次`;
+      return `<strong>$${Number(pricing.amount || 0).toFixed(4)} / 次</strong>`;
+    }
+
+    function renderModelPricingDetails(pricing) {
+      const threshold = formatTokenThreshold(pricing.tierThresholdTokens);
+      const tierRows = [
+        { label: "第1档", rule: `len &lt; ${threshold}`, values: getPricingTier(pricing, 1) },
+        { label: "第2档", rule: `len ≥ ${threshold}`, values: getPricingTier(pricing, 2) }
+      ];
+      return `
+        <div class="pricing-detail-summary">
+          <span>计费方式</span><strong>按量计费</strong>
+          <span>档位阈值</span><strong>输入 Token ${threshold}</strong>
+        </div>
+        <div class="pricing-detail-table-wrap">
+          <table class="pricing-detail-table">
+            <thead><tr><th>档位</th><th>输入（$/1M tokens）</th><th>补全（$/1M tokens）</th><th>缓存读（$/1M tokens）</th><th>缓存创建（$/1M tokens）</th></tr></thead>
+            <tbody>${tierRows.map((tier) => `<tr><td><span class="pricing-detail-tier"><strong>${tier.label}</strong><small>${tier.rule}</small></span></td><td>${formatPricingValue(tier.values.inputPrice)}</td><td>${formatPricingValue(tier.values.outputPrice)}</td><td>${formatPricingValue(tier.values.cacheReadPrice)}</td><td>${formatPricingValue(tier.values.cacheWritePrice)}</td></tr>`).join("")}</tbody>
+          </table>
+        </div>
+        <p class="pricing-detail-note">系统会按上游返回的真实输入 Token 选择档位；达到阈值时使用第 2 档，输入、补全和缓存相关费用分别按对应价格结算。</p>
+      `;
+    }
+
+    function openModelPricingModal(modelName) {
+      const pricing = getModelPricing(modelName, "对话模型");
+      if (!modelPricingModal || pricing.pricingMode !== "dynamic") return;
+      const model = serverModelCatalog.find((item) => item.name === modelName);
+      const fallback = documentedModels.find((item) => item[0] === modelName);
+      modelPricingModalTitle.textContent = `${modelName} · 分档价格`;
+      modelPricingModalSubtitle.textContent = `${model?.providerLabel || fallback?.[1] || "模型"} · 按上游返回的真实输入 Token 选择计费档位。`;
+      modelPricingModalBody.innerHTML = renderModelPricingDetails(pricing);
+      modelPricingModal.classList.add("show");
+      modelPricingModal.setAttribute("aria-hidden", "false");
+      closeModelPricingModalButton?.focus();
+    }
+
+    function closeModelPricingModal() {
+      if (!modelPricingModal) return;
+      modelPricingModal.classList.remove("show");
+      modelPricingModal.setAttribute("aria-hidden", "true");
     }
 
     function saveModelPricing(name, amount, unit) {
@@ -1460,7 +1528,7 @@
       document.getElementById("plazaCount").textContent = `当前显示 ${visibleModels.length} / ${modelRows.length} 个模型`;
       modelGrid.innerHTML = visibleModels.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
-        const priceMarkup = `<strong>${formatModelPrice(pricing)}</strong>`;
+        const priceMarkup = formatModelPrice(pricing, model.name);
         return `
         <article class="plaza-card">
           <div class="plaza-card-top">
@@ -1476,6 +1544,9 @@
       }).join("");
       modelGrid.querySelectorAll("[data-copy-model]").forEach((button) => {
         button.addEventListener("click", () => copyModelName(button.dataset.copyModel));
+      });
+      modelGrid.querySelectorAll("[data-model-pricing]").forEach((button) => {
+        button.addEventListener("click", () => openModelPricingModal(button.dataset.modelPricing));
       });
     }
 
@@ -1709,6 +1780,8 @@
     closeTokenModal.addEventListener("click", closeTokenCreator);
     cancelTokenModal.addEventListener("click", closeTokenCreator);
     tokenModal.addEventListener("click", (event) => { if (event.target === tokenModal) closeTokenCreator(); });
+    closeModelPricingModalButton?.addEventListener("click", closeModelPricingModal);
+    modelPricingModal?.addEventListener("click", (event) => { if (event.target === modelPricingModal) closeModelPricingModal(); });
     tokenUnlimitedInput.addEventListener("change", () => { tokenQuotaInput.disabled = tokenUnlimitedInput.checked; });
     submitTokenModal.addEventListener("click", async () => {
       const name = tokenNameInput.value.trim();
