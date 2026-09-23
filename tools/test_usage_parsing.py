@@ -402,10 +402,11 @@ data: [DONE]
         self.assertEqual(server.calculate_token_estimate_micros(model, 100, 5), 215)
 
     def test_approved_dynamic_customer_rates_match_pricing_plan(self):
-        self.assertEqual(
-            server.DYNAMIC_PRICING_CORRECTIONS["gpt-5.6-sol"],
-            (1_700_000, 1_700_000, 14_500_000, 117_000, 1_462_500, 272_000, 3_400_000, 21_750_000, 234_000, 2_925_000),
-        )
+        self.assertEqual(server.DYNAMIC_PRICING_CORRECTIONS, {
+            "gpt-5.6-sol": (1_700_000, 1_700_000, 14_500_000, 117_000, 1_462_500, 272_000, 3_400_000, 21_750_000, 234_000, 2_925_000),
+            "gpt-5.6-terra": (702_000, 702_000, 6_012_000, 70_200, 877_500, 200_000, 1_404_000, 9_018_000, 140_400, 1_755_000),
+            "gpt-6-astra": (3_510_000, 3_510_000, 17_550_000, 351_000, 4_387_500, 272_000, 7_020_000, 26_325_000, 702_000, 8_775_000),
+        })
 
 
 class StaticAssetTests(unittest.TestCase):
@@ -599,8 +600,8 @@ class BillingStabilityTests(unittest.TestCase):
             ledger = db.execute(
                 "SELECT amount_micros,input_tokens,output_tokens,status FROM ledger WHERE request_id='request-stream-e2e'"
             ).fetchall()
-            self.assertEqual(ledger, [(1_060_976, 272_000, 10, "charged")])
-            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 8_939_024)
+            self.assertEqual(ledger, [(1_909_704, 272_000, 10, "charged")])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 8_090_296)
 
     def test_client_disconnect_does_not_cancel_final_settlement(self):
         class Upstream(BaseHTTPRequestHandler):
@@ -656,7 +657,7 @@ class BillingStabilityTests(unittest.TestCase):
                 if ledger:
                     break
                 time.sleep(0.02)
-            self.assertEqual(ledger, [(98, 20, 5, "charged")])
+            self.assertEqual(ledger, [(158, 20, 5, "charged")])
         finally:
             connection.close()
             proxy.server_close()

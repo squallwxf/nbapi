@@ -132,7 +132,7 @@ MODEL_ROWS = [
 # USD per task for media models. Each model may use its own approved markup.
 MODEL_PRICE_OVERRIDES = {
     "T香蕉2": ("per_task", 240000), "T香蕉pro": ("per_task", 360000), "gpt-image-2": ("per_task", 220000),
-    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-6-astra": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1700000, 1700000, 14500000, 117000, 1462500), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
+    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-6-astra": ("per_token", 3510000, 3510000, 17550000, 351000, 4387500), "gpt-5.6-sol": ("per_token", 1700000, 1700000, 14500000, 117000, 1462500), "gpt-5.6-terra": ("per_token", 702000, 702000, 6012000, 70200, 877500),
     "claude-fable-5": ("per_token", 28800000, 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 8640000, 43200000, 864000, 10800000),
     "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 3000000, 18000000, 300000, 0),
     "ky-fast-720p": ("per_task", 5100000), "ky-pro-720p": ("per_task", 5950000),
@@ -162,6 +162,8 @@ DYNAMIC_CACHE_WRITE_FLOOR_DEFAULTS = {
 # users, balances, tokens, or historical ledger entries.
 DYNAMIC_PRICING_CORRECTIONS = {
     "gpt-5.6-sol": (1_700_000, 1_700_000, 14_500_000, 117_000, 1_462_500, 272_000, 3_400_000, 21_750_000, 234_000, 2_925_000),
+    "gpt-5.6-terra": (702_000, 702_000, 6_012_000, 70_200, 877_500, 200_000, 1_404_000, 9_018_000, 140_400, 1_755_000),
+    "gpt-6-astra": (3_510_000, 3_510_000, 17_550_000, 351_000, 4_387_500, 272_000, 7_020_000, 26_325_000, 702_000, 8_775_000),
 }
 CHANNEL_ROWS = [
     ("默认主渠道", "https://ai.krapi.cn", "", 1, 100, "主站默认模型渠道"),
@@ -697,7 +699,7 @@ def init_db() -> None:
                     ),
                 )
             set_setting(db, "dynamic_pricing_schema_version", "1")
-        if get_setting(db, "dynamic_pricing_correction_version") != "1":
+        if get_setting(db, "dynamic_pricing_correction_version") != "2":
             for name, correction in DYNAMIC_PRICING_CORRECTIONS.items():
                 (
                     price,
@@ -732,7 +734,7 @@ def init_db() -> None:
                         name,
                     ),
                 )
-            set_setting(db, "dynamic_pricing_correction_version", "1")
+            set_setting(db, "dynamic_pricing_correction_version", "2")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels

@@ -4,16 +4,17 @@ Updated: 2026-09-23
 
 ## 2026-09-23 dynamic tier billing
 
-- The three models shown with upstream context-length pricing now use NBAPI dynamic billing: `gpt-5.6-sol` switches at `272K`, `gpt-5.6-terra` at `200K`, and `gpt-6-astra` at `272K` input tokens. The first tier remains the existing NBAPI customer price; the second tier follows the upstream multipliers: input/cache x2 and output x1.5.
+- The three models shown with upstream context-length pricing now use NBAPI dynamic billing: `gpt-5.6-sol` switches at `272K`, `gpt-5.6-terra` at `200K`, and `gpt-6-astra` at `272K` input tokens. `gpt-5.6-sol` keeps its separately approved customer rates; `gpt-5.6-terra` and `gpt-6-astra` use 1.8x the screenshot upstream rates. Each second tier follows the upstream multipliers: input/cache x2 and output x1.5.
 - `gpt-5.6-sol` first tier is input `1.7000`, output `14.5000`, cache read `0.1170`, cache create `1.4625`; second tier is `3.4000`, `21.7500`, `0.2340`, `2.9250` USD per 1M tokens.
-- The migration adds only dynamic pricing columns and fills them once. It does not rewrite users, balances, tokens, channels, or historical ledger rows. Missing zero cache-create prices for the two newly documented models are filled at the approved 50% uplift over the displayed upstream rates; existing non-zero administrator values are preserved.
+- `gpt-5.6-terra` first/second tiers are `0.7020 / 6.0120 / 0.0702 / 0.8775` and `1.4040 / 9.0180 / 0.1404 / 1.7550`; `gpt-6-astra` first/second tiers are `3.5100 / 17.5500 / 0.3510 / 4.3875` and `7.0200 / 26.3250 / 0.7020 / 8.7750` USD per 1M tokens.
+- The migration adds only dynamic pricing columns and fills them once. Correction version 2 applies the approved prices to these three dynamic models; it does not rewrite users, balances, tokens, channels, or historical ledger rows.
 - Final settlement selects the tier from authoritative upstream input usage, including the threshold boundary; reservation estimates use the same selector. Input, output, cache-read and cache-create charges all use the selected tier.
 - `/api/models` and the super-admin pricing screen expose both tiers, thresholds and all four prices. The model plaza displays the same dynamic pricing information.
 
 ## 2026-09-23 pricing correction
 
 - `gpt-5.6-sol` customer pricing is set to input `1.7000` and output `14.5000` USD per 1M tokens, with cache read `0.1170` and cache write `1.4625` USD per 1M tokens. The input/output values are the approved fixed rates; cache values are the upstream reference rates plus 50%.
-- A one-time `dynamic_pricing_correction_version` migration aligns the production row and the code defaults with these values; the production database is backed up before deployment.
+- The one-time `dynamic_pricing_correction_version=2` migration aligns all three production rows and the code defaults with these values; the production database is backed up before deployment.
 - Existing ledger rows are not rewritten. New calls use the corrected prices after the service reload.
 
 ## Read this first
