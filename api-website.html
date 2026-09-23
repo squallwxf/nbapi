@@ -63,7 +63,7 @@
             </div>
             <div class="auth-copy">
               <h1>统一登录后进入控制台。</h1>
-              <p>对齐 krapi 的登录页结构，先把入口、登录态和品牌感立起来，再逐步补齐控制台、令牌和渠道管理。</p>
+              <p>从统一入口进入 NBAPI 控制台，集中管理登录态、令牌、模型和渠道。</p>
             </div>
             <div class="auth-list">
               <div class="auth-mini"><strong>控制台</strong><small>总览、渠道、日志、系统设置统一入口</small></div>
@@ -395,7 +395,7 @@ const result = await client.chat.completions.create({
 console.log(result.choices[0].message.content);</pre></div></section>
                 <section class="panel docs-section"><h3>模型列表</h3><p>下面列表来自服务器当前启用的模型。</p><div class="docs-model-list" id="docsModelList"><span class="muted">正在加载模型列表...</span></div></section>
               </div>
-              <section class="panel docs-section full"><h3>参数与计费</h3><table class="docs-table"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>接口地址</td><td>OpenAI 兼容接口使用 `https://nbapi.win/v1`，Gemini 原生接口使用 `https://nbapi.win/v1beta`。</td></tr><tr><td>鉴权方式</td><td>推荐传 `X-NBAPI-Key: nb_sk_xxx`；也兼容 `Authorization: Bearer nb_sk_xxx`。令牌归属哪个用户，就从哪个用户余额扣费。</td></tr><tr><td>输入/补全 Token</td><td>按服务器模型价格分别计算，单位为每 1M Token。NBAPI 只按上游返回的真实 usage 结算。</td></tr><tr><td>图片/视频</td><td>按模型设置的每次价格计费；异步任务失败或取消会自动退款。查询任务也需要携带自己的 NBAPI 令牌。</td></tr><tr><td>幂等键</td><td>每次新调用必须传唯一 `Idempotency-Key`。重复使用同一个值会返回 `409 duplicate_idempotency_key`，避免上游重复扣费。</td></tr><tr><td>退款提示</td><td>失败自动退款时，响应头会包含 `X-NBAPI-Refunded`、`X-NBAPI-Refunded-Amount`、`X-NBAPI-Balance`。</td></tr><tr><td>错误处理</td><td>HTTP 4xx 表示请求、令牌或余额问题；HTTP 5xx 表示上游或服务异常，请根据 `error` 和 `requestId` 排查。</td></tr></tbody></table></section>
+              <section class="panel docs-section full"><h3>参数与计费</h3><table class="docs-table"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>接口地址</td><td>OpenAI 兼容接口使用 `https://nbapi.win/v1`，Gemini 原生接口使用 `https://nbapi.win/v1beta`。</td></tr><tr><td>鉴权方式</td><td>推荐传 `X-NBAPI-Key: nb_sk_xxx`；也兼容 `Authorization: Bearer nb_sk_xxx`。令牌归属哪个用户，就从哪个用户余额扣费。</td></tr><tr><td>输入/补全 Token</td><td>按模型公开的输入、补全、缓存读取和缓存创建价格分别计算，单位为每 1M Token。动态模型会按上游返回的真实输入 Token 选择对应档位；NBAPI 只按真实 usage 结算。</td></tr><tr><td>图片/视频</td><td>按模型设置的每次价格计费；异步任务失败或取消会自动退款。查询任务也需要携带自己的 NBAPI 令牌。</td></tr><tr><td>幂等键</td><td>每次新调用必须传唯一 `Idempotency-Key`。重复使用同一个值会返回 `409 duplicate_idempotency_key`，避免上游重复扣费。</td></tr><tr><td>退款提示</td><td>失败自动退款时，响应头会包含 `X-NBAPI-Refunded`、`X-NBAPI-Refunded-Amount`、`X-NBAPI-Balance`。</td></tr><tr><td>错误处理</td><td>HTTP 4xx 表示请求、令牌或余额问题；HTTP 5xx 表示上游或服务异常，请根据 `error` 和 `requestId` 排查。</td></tr></tbody></table></section>
             </article>
             <article class="panel detail-card" id="users">
               <div class="management-top">
@@ -442,7 +442,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <strong>新增供应商渠道</strong>
                 <div class="management-fields">
                   <div class="auth-field"><label for="newChannelName">渠道名称</label><input class="auth-input" id="newChannelName" placeholder="例如：主站渠道" /></div>
-                  <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" placeholder="https://ai.krapi.cn" /></div>
+                  <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" placeholder="https://provider.example" /></div>
                   <div class="auth-field"><label for="newChannelKey">上游 API Key</label><input class="auth-input" id="newChannelKey" type="password" placeholder="可选" /></div>
                   <div class="auth-field"><label for="newChannelPriority">优先级</label><input class="auth-input" id="newChannelPriority" type="number" value="100" /></div>
                 </div>
@@ -464,8 +464,8 @@ console.log(result.choices[0].message.content);</pre></div></section>
         </section>
 
         <section class="panel detail-card super-admin-only" id="pricing">
-          <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">价格保存后立即用于真实调用计费。按 Token 模型按输入、补全及缓存价格分别计算。</p></div><button class="btn" id="refreshPricing" type="button">刷新价格</button></div>
-          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>状态</th><th>计费方式</th><th>按次价格</th><th>输入 / 1M</th><th>补全 / 1M</th><th>缓存读 / 1M</th><th>缓存写 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="10" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
+          <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">价格保存后立即用于真实调用计费。动态模型会按上游返回的输入 Token 在两档之间选择输入、补全和缓存价格。</p></div><button class="btn" id="refreshPricing" type="button">刷新价格</button></div>
+          <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>状态</th><th>计费方式</th><th>二档阈值</th><th>按次价格</th><th>第1档输入 / 1M</th><th>第1档补全 / 1M</th><th>第1档缓存读 / 1M</th><th>第1档缓存创建 / 1M</th><th>第2档输入 / 1M</th><th>第2档补全 / 1M</th><th>第2档缓存读 / 1M</th><th>第2档缓存创建 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="15" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
         </section>
 
         <section class="panel detail-card" id="logs">

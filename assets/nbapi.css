@@ -312,6 +312,9 @@
     .copy-icon::after { content: ""; position: absolute; width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 2px; left: 4px; top: -4px; background: var(--surface-2); }
     .plaza-price { color: var(--muted); font-size: 12px; line-height: 1.65; min-height: 40px; }
     .plaza-price strong { color: var(--text); font-size: 14px; }
+    .dynamic-price-label { display: inline-block; color: #9a6700; font-weight: 800; }
+    .dynamic-price-tier { display: inline-block; margin-top: 2px; color: var(--text); font-weight: 700; }
+    body.dark .dynamic-price-label { color: #f5c451; }
     .billing-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .billing-input { width: 84px; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); padding: 0 7px; }
     .billing-select { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); padding: 0 5px; }

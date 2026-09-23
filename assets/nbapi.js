@@ -673,15 +673,20 @@
       pricingList.innerHTML = models.map((model) => {
         const pricing = getModelPricing(model.name, model.kind);
         const token = pricing.unit === "per_token";
+        const dynamic = pricing.pricingMode === "dynamic";
         const catalogItem = serverModelCatalog.find((item) => item.name === model.name);
         const active = catalogItem ? catalogItem.active !== false : true;
         return `<tr data-pricing-model="${model.name}">
-          <td><code>${model.name}</code></td><td>${model.providerLabel}</td><td><span class="tag ${active ? "green" : "gray"}">${active ? "已可见" : "已隐藏"}</span></td><td>${token ? "按 1M Token" : "按次"}</td>
+          <td><code>${model.name}</code></td><td>${model.providerLabel}</td><td><span class="tag ${active ? "green" : "gray"}">${active ? "已可见" : "已隐藏"}</span></td><td>${token ? `<select class="auth-input" data-pricing-mode><option value="static" ${dynamic ? "" : "selected"}>静态</option><option value="dynamic" ${dynamic ? "selected" : ""}>动态 2 档</option></select>` : "按次"}</td><td>${token ? `<input class="auth-input" data-tier-threshold type="number" min="1" step="1" value="${Number(pricing.tierThresholdTokens || 0)}" placeholder="阈值 Token" />` : "-"}</td>
           <td>${token ? "-" : `<input class="auth-input" data-price type="number" min="0" step="0.000001" value="${pricing.amount}" />`}</td>
           <td>${token ? `<input class="auth-input" data-input-price type="number" min="0" step="0.000001" value="${pricing.inputPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-output-price type="number" min="0" step="0.000001" value="${pricing.outputPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-cache-read-price type="number" min="0" step="0.000001" value="${pricing.cacheReadPrice}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-cache-write-price type="number" min="0" step="0.000001" value="${pricing.cacheWritePrice}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-tier2-input-price type="number" min="0" step="0.000001" value="${pricing.tier2InputPrice || 0}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-tier2-output-price type="number" min="0" step="0.000001" value="${pricing.tier2OutputPrice || 0}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-tier2-cache-read-price type="number" min="0" step="0.000001" value="${pricing.tier2CacheReadPrice || 0}" />` : "-"}</td>
+          <td>${token ? `<input class="auth-input" data-tier2-cache-write-price type="number" min="0" step="0.000001" value="${pricing.tier2CacheWritePrice || 0}" />` : "-"}</td>
           <td><div class="auth-actions"><button class="btn primary" type="button" data-save-pricing>保存</button><button class="btn" type="button" data-toggle-model>${active ? "隐藏" : "显示"}</button><button class="btn" type="button" data-delete-model>永久删除</button></div></td></tr>`;
       }).join("");
       pricingList.querySelectorAll("[data-save-pricing]").forEach((button) => button.addEventListener("click", async () => {
@@ -689,11 +694,11 @@
         const name = row.dataset.pricingModel;
         const perToken = Boolean(row.querySelector("[data-input-price]"));
         const payload = perToken
-          ? { billingUnit: "per_token", price: row.querySelector("[data-input-price]").value, inputPrice: row.querySelector("[data-input-price]").value, outputPrice: row.querySelector("[data-output-price]").value, cacheReadPrice: row.querySelector("[data-cache-read-price]").value, cacheWritePrice: row.querySelector("[data-cache-write-price]").value }
+          ? { billingUnit: "per_token", price: row.querySelector("[data-input-price]").value, inputPrice: row.querySelector("[data-input-price]").value, outputPrice: row.querySelector("[data-output-price]").value, cacheReadPrice: row.querySelector("[data-cache-read-price]").value, cacheWritePrice: row.querySelector("[data-cache-write-price]").value, pricingMode: row.querySelector("[data-pricing-mode]").value, tierThresholdTokens: row.querySelector("[data-tier-threshold]").value, tier2InputPrice: row.querySelector("[data-tier2-input-price]").value, tier2OutputPrice: row.querySelector("[data-tier2-output-price]").value, tier2CacheReadPrice: row.querySelector("[data-tier2-cache-read-price]").value, tier2CacheWritePrice: row.querySelector("[data-tier2-cache-write-price]").value }
           : { billingUnit: "per_task", price: row.querySelector("[data-price]").value };
         try {
           const data = await apiRequest(`/api/admin/models/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(payload) });
-          serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice), outputPrice: Number(data.outputPrice), cacheReadPrice: Number(data.cacheReadPrice), cacheWritePrice: Number(data.cacheWritePrice) };
+          serverModelPricing[name] = { amount: Number(data.price), unit: data.billingUnit, inputPrice: Number(data.inputPrice), outputPrice: Number(data.outputPrice), cacheReadPrice: Number(data.cacheReadPrice), cacheWritePrice: Number(data.cacheWritePrice), pricingMode: data.pricingMode, tierThresholdTokens: Number(data.tierThresholdTokens || 0), tier2InputPrice: Number(data.tier2InputPrice || 0), tier2OutputPrice: Number(data.tier2OutputPrice || 0), tier2CacheReadPrice: Number(data.tier2CacheReadPrice || 0), tier2CacheWritePrice: Number(data.tier2CacheWritePrice || 0) };
           renderModelSquare();
           showToast(`${name} 价格已保存`);
         } catch (error) { alert(error.message); }
@@ -1368,7 +1373,7 @@
       try {
         const catalogQuery = isSuperAdmin ? "?includeInactive=1" : "";
         const data = await apiRequest(`/api/models${catalogQuery}`);
-        serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0) }]));
+        serverModelPricing = Object.fromEntries((data.models || []).map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0), pricingMode: item.pricingMode || "static", tierThresholdTokens: Number(item.tierThresholdTokens || 0), tier2InputPrice: Number(item.tier2InputPrice || 0), tier2OutputPrice: Number(item.tier2OutputPrice || 0), tier2CacheReadPrice: Number(item.tier2CacheReadPrice || 0), tier2CacheWritePrice: Number(item.tier2CacheWritePrice || 0) }]));
         serverModelCatalog = data.models || [];
         modelCatalogLoaded = true;
         populatePlaygroundModels();
@@ -1381,9 +1386,25 @@
       return serverModelPricing[name] || modelPricing[name] || defaultModelPricing[name] || { amount: kind === "对话模型" ? 0 : kind === "图片生成" ? 0.1 : 0.5, unit: kind === "对话模型" ? "per_token" : "per_task" };
     }
 
+    function formatTokenThreshold(tokens) {
+      const value = Number(tokens || 0);
+      if (!value) return "未设置";
+      if (value >= 1000 && value % 1000 === 0) return `${value / 1000}K`;
+      return value.toLocaleString("zh-CN");
+    }
+
+    function formatTierPriceLines(pricing, prefix = "") {
+      return `${prefix}输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>${prefix}补全 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存创建 $${Number(pricing.cacheWritePrice || 0).toFixed(4)} / 1M Tokens`;
+    }
+
     function formatModelPrice(pricing) {
       if (pricing.unit === "per_token") {
-        return `输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>补全 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens<br>缓存创建 $${Number(pricing.cacheWritePrice || 0).toFixed(4)} / 1M Tokens`;
+        const tier1 = formatTierPriceLines(pricing, pricing.pricingMode === "dynamic" ? "第1档 · " : "");
+        if (pricing.pricingMode === "dynamic") {
+          const tier2 = { inputPrice: pricing.tier2InputPrice, outputPrice: pricing.tier2OutputPrice, cacheReadPrice: pricing.tier2CacheReadPrice, cacheWritePrice: pricing.tier2CacheWritePrice };
+          return `<span class="dynamic-price-label">动态计费 · 2档</span><br><span class="dynamic-price-tier">len &lt; ${formatTokenThreshold(pricing.tierThresholdTokens)}</span><br>${tier1}<br><span class="dynamic-price-tier">len ≥ ${formatTokenThreshold(pricing.tierThresholdTokens)}</span><br>${formatTierPriceLines(tier2, "第2档 · ")}`;
+        }
+        return tier1;
       }
       return `$${Number(pricing.amount || 0).toFixed(4)} / 次`;
     }

@@ -142,6 +142,21 @@ MODEL_PRICE_OVERRIDES = {
     "veo-3.1-lite-720": ("per_task", 960000), "veo-3.1-lite-1080": ("per_task", 1440000), "veo-3.1-lite-4k": ("per_task", 4800000), "veo-3.1-fast-720": ("per_task", 1560000), "veo-3.1-fast-1080": ("per_task", 2160000), "veo-3.1-fast-4k": ("per_task", 4224000),
     "veo-3.1-quality-720": ("per_task", 2000000), "veo-3.1-quality-1080": ("per_task", 2000000), "veo-3.1-quality-4k": ("per_task", 2000000),
 }
+# The upstream uses the same tier multipliers for the three dynamic models in
+# the current catalog: input/cache x2, output x1.5, with the second tier
+# starting at the context length shown in the upstream pricing cards.
+DYNAMIC_PRICING_DEFAULTS = {
+    "gpt-5.6-sol": (272_000, 2, 1.5, 2, 2),
+    "gpt-5.6-terra": (200_000, 2, 1.5, 2, 2),
+    "gpt-6-astra": (272_000, 2, 1.5, 2, 2),
+}
+# These cache-create rates were absent from the older price template. Fill
+# only a zero first-tier value now that the upstream cards expose the charge;
+# an existing non-zero administrator value remains untouched.
+DYNAMIC_CACHE_WRITE_FLOOR_DEFAULTS = {
+    "gpt-5.6-terra": (731_250, 1_462_500),
+    "gpt-6-astra": (3_656_250, 7_312_500),
+}
 CHANNEL_ROWS = [
     ("默认主渠道", "https://ai.krapi.cn", "", 1, 100, "主站默认模型渠道"),
     ("备用渠道", "https://ai.krapi.cn", "", 1, 200, "备用或灰度渠道"),
@@ -393,7 +408,13 @@ def init_db() -> None:
               input_price_micros INTEGER NOT NULL DEFAULT 0,
               output_price_micros INTEGER NOT NULL DEFAULT 0,
               cache_read_price_micros INTEGER NOT NULL DEFAULT 0,
-              cache_write_price_micros INTEGER NOT NULL DEFAULT 0
+              cache_write_price_micros INTEGER NOT NULL DEFAULT 0,
+              pricing_mode TEXT NOT NULL DEFAULT 'static',
+              tier_threshold_tokens INTEGER NOT NULL DEFAULT 0,
+              tier2_input_price_micros INTEGER NOT NULL DEFAULT 0,
+              tier2_output_price_micros INTEGER NOT NULL DEFAULT 0,
+              tier2_cache_read_price_micros INTEGER NOT NULL DEFAULT 0,
+              tier2_cache_write_price_micros INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS ledger (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -557,6 +578,12 @@ def init_db() -> None:
             ("output_price_micros", "INTEGER NOT NULL DEFAULT 0"),
             ("cache_read_price_micros", "INTEGER NOT NULL DEFAULT 0"),
             ("cache_write_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("pricing_mode", "TEXT NOT NULL DEFAULT 'static'"),
+            ("tier_threshold_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("tier2_input_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("tier2_output_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("tier2_cache_read_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("tier2_cache_write_price_micros", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if column not in model_columns:
                 db.execute(f"ALTER TABLE models ADD COLUMN {column} {definition}")
@@ -630,6 +657,40 @@ def init_db() -> None:
                     (price, input_price, output_price, cache_read, cache_write, timestamp, name, unit),
                 )
             set_setting(db, "pricing_backfill_version", "1")
+        # Add the upstream context-length tiers once, without changing any
+        # existing customer-facing first-tier prices or administrator edits.
+        if get_setting(db, "dynamic_pricing_schema_version") != "1":
+            for name, (threshold, input_multiplier, output_multiplier, cache_read_multiplier, cache_write_multiplier) in DYNAMIC_PRICING_DEFAULTS.items():
+                row = db.execute(
+                    "SELECT input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=? AND billing_unit='per_token'",
+                    (name,),
+                ).fetchone()
+                if not row:
+                    continue
+                if row[4] == "dynamic" and row[5] > 0:
+                    continue
+                input_price = row[0]
+                output_price = row[1] or input_price
+                cache_read_price = row[2]
+                cache_write_price = row[3]
+                cache_write_floor = DYNAMIC_CACHE_WRITE_FLOOR_DEFAULTS.get(name)
+                if cache_write_price <= 0 and cache_write_floor:
+                    cache_write_price = cache_write_floor[0]
+                    db.execute("UPDATE models SET cache_write_price_micros=?, updated_at=? WHERE name=?", (cache_write_price, timestamp, name))
+                tier2_cache_write = cache_write_floor[1] if cache_write_floor and row[3] <= 0 else round(cache_write_price * cache_write_multiplier)
+                db.execute(
+                    "UPDATE models SET pricing_mode='dynamic', tier_threshold_tokens=?, tier2_input_price_micros=?, tier2_output_price_micros=?, tier2_cache_read_price_micros=?, tier2_cache_write_price_micros=?, updated_at=? WHERE name=?",
+                    (
+                        threshold,
+                        round(input_price * input_multiplier),
+                        round(output_price * output_multiplier),
+                        round(cache_read_price * cache_read_multiplier),
+                        tier2_cache_write,
+                        timestamp,
+                        name,
+                    ),
+                )
+            set_setting(db, "dynamic_pricing_schema_version", "1")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
@@ -1072,14 +1133,49 @@ def has_separate_usage_counts(payload) -> bool:
     return output_tokens > 0 or not response_has_generated_content(payload)
 
 
+def model_pricing_tier(model_row, input_tokens: int) -> int:
+    """Return the customer pricing tier selected by authoritative input usage."""
+    if len(model_row) >= 17 and str(model_row[11] or "") == "dynamic":
+        try:
+            threshold = max(0, int(model_row[12] or 0))
+            if threshold and int(input_tokens) >= threshold:
+                return 2
+        except (TypeError, ValueError):
+            pass
+    return 1
+
+
+def model_pricing_values(model_row, tier: int = 1) -> tuple[int, int, int, int]:
+    """Return input, output, cache-read and cache-create prices per 1M tokens."""
+    input_price = model_row[7] if model_row[7] > 0 else model_row[5]
+    output_price = model_row[8] if model_row[8] > 0 else input_price
+    cache_read_price = model_row[9]
+    cache_write_price = model_row[10]
+    if tier == 2 and len(model_row) >= 17 and str(model_row[11] or "") == "dynamic":
+        tier2 = tuple(max(0, int(value or 0)) for value in model_row[13:17])
+        input_price, output_price, cache_read_price, cache_write_price = tier2
+    return input_price, output_price, cache_read_price, cache_write_price
+
+
+def calculate_token_estimate_micros(model_row, input_tokens: int, output_tokens: int) -> int:
+    """Estimate a reservation using the same tier rules as final settlement."""
+    tier = model_pricing_tier(model_row, input_tokens)
+    input_price, output_price, _, _ = model_pricing_values(model_row, tier)
+    return (
+        input_price * max(0, int(input_tokens))
+        + output_price * max(0, int(output_tokens))
+        + 999_999
+    ) // 1_000_000
+
+
 def calculate_token_charge_micros(model_row, response_payload):
     """Calculate a token charge only from authoritative upstream usage."""
     if not has_separate_usage_counts(response_payload):
         raise ValueError("upstream_usage_unavailable")
     input_tokens, output_tokens = extract_usage_counts(response_payload)
     cache_read_tokens, cache_write_tokens = extract_cache_usage(response_payload)
-    input_price = model_row[7] if model_row[7] > 0 else model_row[5]
-    output_price = model_row[8] if model_row[8] > 0 else input_price
+    tier = model_pricing_tier(model_row, input_tokens)
+    input_price, output_price, cache_read_price, cache_write_price = model_pricing_values(model_row, tier)
     usage = extract_usage_object(response_payload) or {}
     has_cache_details = (
         isinstance(usage.get("prompt_tokens_details"), dict)
@@ -1094,8 +1190,8 @@ def calculate_token_charge_micros(model_row, response_payload):
     amount_micros = (
         input_price * billable_input_tokens
         + output_price * output_tokens
-        + model_row[9] * cache_read_tokens
-        + model_row[10] * cache_write_tokens
+        + cache_read_price * cache_read_tokens
+        + cache_write_price * cache_write_tokens
         + 999_999
     ) // 1_000_000
     return amount_micros, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
@@ -1429,9 +1525,44 @@ def update_channel_health(channel_id: int | None, success: bool, error: str = ""
 
 def fetch_model_row(db, model_name: str):
     return db.execute(
-        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models WHERE name=?",
+        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?",
         (model_name,),
     ).fetchone()
+
+
+def serialize_model_row(row) -> dict:
+    tier1 = model_pricing_values(row, 1)
+    dynamic = len(row) >= 17 and str(row[11] or "") == "dynamic" and int(row[12] or 0) > 0
+    tier2 = model_pricing_values(row, 2) if dynamic else (0, 0, 0, 0)
+
+    def serialize_tier(values):
+        return {
+            "input": micros_to_dollars(values[0]),
+            "output": micros_to_dollars(values[1]),
+            "cacheRead": micros_to_dollars(values[2]),
+            "cacheWrite": micros_to_dollars(values[3]),
+        }
+
+    return {
+        "name": row[0],
+        "providerLabel": row[1],
+        "provider": row[2],
+        "kind": row[3],
+        "billingUnit": row[4],
+        "price": micros_to_dollars(row[5]),
+        "inputPrice": micros_to_dollars(tier1[0]),
+        "outputPrice": micros_to_dollars(tier1[1]),
+        "cacheReadPrice": micros_to_dollars(tier1[2]),
+        "cacheWritePrice": micros_to_dollars(tier1[3]),
+        "pricingMode": "dynamic" if dynamic else "static",
+        "tierThresholdTokens": int(row[12] or 0) if len(row) >= 17 else 0,
+        "tier2InputPrice": micros_to_dollars(tier2[0]),
+        "tier2OutputPrice": micros_to_dollars(tier2[1]),
+        "tier2CacheReadPrice": micros_to_dollars(tier2[2]),
+        "tier2CacheWritePrice": micros_to_dollars(tier2[3]),
+        "tiers": {"tier1": serialize_tier(tier1), "tier2": serialize_tier(tier2) if dynamic else None},
+        "active": bool(row[6]),
+    }
 
 
 def split_lines(value: str) -> list[str]:
@@ -2057,11 +2188,7 @@ class Handler(BaseHTTPRequestHandler):
                             estimated_output = 0
                         if estimated_output:
                             break
-                    reserve_amount = (
-                        (model_row[7] if model_row[7] > 0 else model_row[5]) * estimated_input
-                        + (model_row[8] if model_row[8] > 0 else (model_row[7] if model_row[7] > 0 else model_row[5])) * estimated_output
-                        + 999_999
-                    ) // 1_000_000
+                    reserve_amount = calculate_token_estimate_micros(model_row, estimated_input, estimated_output)
                     reserve_amount = cap_token_reservation(reserve_amount)
                 try:
                     db.execute("BEGIN IMMEDIATE")
@@ -2489,11 +2616,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
             model_filter = "" if include_inactive else " WHERE active=1"
             with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute(f"SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros FROM models{model_filter} ORDER BY rowid").fetchall()
-            self.send_json(200, {"models": [
-                {"name": r[0], "providerLabel": r[1], "provider": r[2], "kind": r[3], "billingUnit": r[4], "price": micros_to_dollars(r[5]), "inputPrice": micros_to_dollars(r[7] or r[5]), "outputPrice": micros_to_dollars(r[8] or r[5]), "cacheReadPrice": micros_to_dollars(r[9]), "cacheWritePrice": micros_to_dollars(r[10]), "active": bool(r[6])}
-                for r in rows
-            ]})
+                rows = db.execute(f"SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models{model_filter} ORDER BY rowid").fetchall()
+            self.send_json(200, {"models": [serialize_model_row(row) for row in rows]})
             return
         if path == "/api/dashboard":
             user = self.current_user()
@@ -3327,20 +3451,49 @@ class Handler(BaseHTTPRequestHandler):
             billing_unit = payload.get("billingUnit")
             if billing_unit not in ("per_task", "per_token"):
                 raise ValueError("billingUnit must be per_task or per_token")
-            price_micros = dollars_to_micros(payload.get("price"))
-            input_price = dollars_to_micros(payload.get("inputPrice", payload.get("price")))
-            output_price = dollars_to_micros(payload.get("outputPrice", payload.get("price")))
-            cache_read_price = dollars_to_micros(payload.get("cacheReadPrice", 0))
-            cache_write_price = dollars_to_micros(payload.get("cacheWritePrice", 0))
+            with sqlite3.connect(DB_PATH) as db:
+                current = db.execute(
+                    "SELECT price_micros, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?",
+                    (name,),
+                ).fetchone()
+            if not current:
+                self.send_json(404, {"error": "model_not_found"})
+                return
+            price_micros = dollars_to_micros(payload.get("price", micros_to_dollars(current[0])))
+            input_price = dollars_to_micros(payload.get("inputPrice", payload.get("price", micros_to_dollars(current[1] or current[0]))))
+            output_price = dollars_to_micros(payload.get("outputPrice", payload.get("price", micros_to_dollars(current[2] or input_price))))
+            cache_read_price = dollars_to_micros(payload.get("cacheReadPrice", micros_to_dollars(current[3])))
+            cache_write_price = dollars_to_micros(payload.get("cacheWritePrice", micros_to_dollars(current[4])))
+            pricing_mode = str(payload.get("pricingMode", current[5] or "static")).strip().lower()
+            if billing_unit == "per_task":
+                pricing_mode = "static"
+                tier_threshold = 0
+                tier2_input = tier2_output = tier2_cache_read = tier2_cache_write = 0
+            else:
+                if pricing_mode not in ("static", "dynamic"):
+                    raise ValueError("pricingMode must be static or dynamic")
+                try:
+                    tier_threshold = int(payload.get("tierThresholdTokens", current[6] or 0) or 0)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("tierThresholdTokens must be a valid integer") from exc
+                if tier_threshold < 0 or tier_threshold > 100_000_000:
+                    raise ValueError("tierThresholdTokens is out of range")
+                if pricing_mode == "dynamic" and tier_threshold <= 0:
+                    raise ValueError("dynamic pricing requires tierThresholdTokens")
+                tier2_input = dollars_to_micros(payload.get("tier2InputPrice", micros_to_dollars(current[7] or input_price)))
+                tier2_output = dollars_to_micros(payload.get("tier2OutputPrice", micros_to_dollars(current[8] or output_price)))
+                tier2_cache_read = dollars_to_micros(payload.get("tier2CacheReadPrice", micros_to_dollars(current[9])))
+                tier2_cache_write = dollars_to_micros(payload.get("tier2CacheWritePrice", micros_to_dollars(current[10])))
         except (ValueError, json.JSONDecodeError) as exc:
             self.send_json(400, {"error": str(exc)})
             return
         with sqlite3.connect(DB_PATH) as db:
-            cursor = db.execute("UPDATE models SET price_micros=?, billing_unit=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, updated_at=? WHERE name=?", (price_micros, billing_unit, input_price, output_price, cache_read_price, cache_write_price, now(), name))
+            cursor = db.execute("UPDATE models SET price_micros=?, billing_unit=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, pricing_mode=?, tier_threshold_tokens=?, tier2_input_price_micros=?, tier2_output_price_micros=?, tier2_cache_read_price_micros=?, tier2_cache_write_price_micros=?, updated_at=? WHERE name=?", (price_micros, billing_unit, input_price, output_price, cache_read_price, cache_write_price, pricing_mode, tier_threshold, tier2_input, tier2_output, tier2_cache_read, tier2_cache_write, now(), name))
             if cursor.rowcount != 1:
                 self.send_json(404, {"error": "model_not_found"})
                 return
-        self.send_json(200, {"model": name, "price": micros_to_dollars(price_micros), "inputPrice": micros_to_dollars(input_price), "outputPrice": micros_to_dollars(output_price), "cacheReadPrice": micros_to_dollars(cache_read_price), "cacheWritePrice": micros_to_dollars(cache_write_price), "billingUnit": billing_unit})
+            row = db.execute("SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?", (name,)).fetchone()
+        self.send_json(200, {"model": name, **serialize_model_row(row)})
 
     def do_PATCH(self):
         path = urlparse(self.path).path

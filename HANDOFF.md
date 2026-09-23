@@ -1,6 +1,14 @@
 # NBAPI Current Handoff
 
-Updated: 2026-09-22
+Updated: 2026-09-23
+
+## 2026-09-23 dynamic tier billing
+
+- The three models shown with upstream context-length pricing now use NBAPI dynamic billing: `gpt-5.6-sol` switches at `272K`, `gpt-5.6-terra` at `200K`, and `gpt-6-astra` at `272K` input tokens. The first tier remains the existing NBAPI customer price; the second tier follows the upstream multipliers: input/cache x2 and output x1.5.
+- `gpt-5.6-sol` first tier is input `1.7000`, output `14.5000`, cache read `0.1170`, cache create `1.4625`; second tier is `3.4000`, `21.7500`, `0.2340`, `2.9250` USD per 1M tokens.
+- The migration adds only dynamic pricing columns and fills them once. It does not rewrite users, balances, tokens, channels, or historical ledger rows. Missing zero cache-create prices for the two newly documented models are filled at the approved 50% uplift over the displayed upstream rates; existing non-zero administrator values are preserved.
+- Final settlement selects the tier from authoritative upstream input usage, including the threshold boundary; reservation estimates use the same selector. Input, output, cache-read and cache-create charges all use the selected tier.
+- `/api/models` and the super-admin pricing screen expose both tiers, thresholds and all four prices. The model plaza displays the same dynamic pricing information.
 
 ## 2026-09-23 pricing correction
 
@@ -29,7 +37,7 @@ Production:
 - `assets/nbapi.css`: extracted visual styles and responsive layout.
 - `assets/nbapi.js`: extracted browser logic, rendering, API calls, and event handlers.
 - `server.py`: API, authentication, SQLite migrations, upstream proxy, protocol bridge, billing, refunds, ZPAY, and static asset serving.
-- `tools/test_usage_parsing.py`: 27 regression tests covering usage parsing, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
+- `tools/test_usage_parsing.py`: 29 regression tests covering usage parsing, dynamic tier selection, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
 - `AGENTS.md`: context and safety instructions for future Codex work.
 
 The frontend extraction is behavior-preserving: CSS and JavaScript were copied byte-for-byte after line-ending normalization, and all 190 DOM IDs remain unchanged. `server.py` now serves only the fixed asset paths `/assets/nbapi.css` and `/assets/nbapi.js`; arbitrary filesystem paths are not exposed.
@@ -63,7 +71,7 @@ node --check assets/nbapi.js
 git diff --check
 ```
 
-Expected regression result: 27 tests pass.
+Expected regression result: 29 tests pass.
 
 For frontend changes, verify desktop and mobile widths, browser console errors, authentication visibility, and no horizontal overflow. For proxy or billing changes, also run a real low-cost streaming request against a controlled account and reconcile reservation, ledger amount, wallet balance, usage source, and upstream charge.
 

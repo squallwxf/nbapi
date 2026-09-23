@@ -361,6 +361,46 @@ data: [DONE]
         self.assertEqual((input_tokens, output_tokens, cache_read, cache_write), (10, 5, 3, 0))
         self.assertEqual(amount, 15)
 
+    def test_dynamic_pricing_uses_first_tier_below_threshold(self):
+        payload = {
+            "usage": {
+                "prompt_tokens": 99,
+                "completion_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 10},
+                "cache_creation_input_tokens": 3,
+            },
+        }
+        model = (
+            "dynamic-test", "GPT", "OpenAI", "chat", "per_token", 1_000_000, 1,
+            1_000_000, 1_000_000, 1_000_000, 1_000_000,
+            "dynamic", 100, 2_000_000, 3_000_000, 4_000_000, 5_000_000,
+        )
+        amount, input_tokens, output_tokens, cache_read, cache_write = server.calculate_token_charge_micros(model, payload)
+        self.assertEqual((input_tokens, output_tokens, cache_read, cache_write), (99, 5, 10, 3))
+        self.assertEqual(amount, 107)
+        self.assertEqual(server.model_pricing_tier(model, 99), 1)
+        self.assertEqual(server.calculate_token_estimate_micros(model, 99, 5), 104)
+
+    def test_dynamic_pricing_uses_second_tier_at_threshold_and_prices_cache(self):
+        payload = {
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 10},
+                "cache_creation_input_tokens": 3,
+            },
+        }
+        model = (
+            "dynamic-test", "GPT", "OpenAI", "chat", "per_token", 1_000_000, 1,
+            1_000_000, 1_000_000, 1_000_000, 1_000_000,
+            "dynamic", 100, 2_000_000, 3_000_000, 4_000_000, 5_000_000,
+        )
+        amount, input_tokens, output_tokens, cache_read, cache_write = server.calculate_token_charge_micros(model, payload)
+        self.assertEqual((input_tokens, output_tokens, cache_read, cache_write), (100, 5, 10, 3))
+        self.assertEqual(amount, 250)
+        self.assertEqual(server.model_pricing_tier(model, 100), 2)
+        self.assertEqual(server.calculate_token_estimate_micros(model, 100, 5), 215)
+
 
 class StaticAssetTests(unittest.TestCase):
     def test_frontend_entrypoints_are_served_from_fixed_paths(self):
@@ -482,7 +522,7 @@ class BillingStabilityTests(unittest.TestCase):
             b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
         )
         completed = (
-            b'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":100,"output_tokens":10}}}\n\n'
+            b'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":272000,"output_tokens":10}}}\n\n'
             b'data: [DONE]\n\n'
         )
 
@@ -553,8 +593,8 @@ class BillingStabilityTests(unittest.TestCase):
             ledger = db.execute(
                 "SELECT amount_micros,input_tokens,output_tokens,status FROM ledger WHERE request_id='request-stream-e2e'"
             ).fetchall()
-            self.assertEqual(ledger, [(312, 100, 10, "charged")])
-            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 9_999_688)
+            self.assertEqual(ledger, [(1_060_976, 272_000, 10, "charged")])
+            self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 8_939_024)
 
     def test_client_disconnect_does_not_cancel_final_settlement(self):
         class Upstream(BaseHTTPRequestHandler):
