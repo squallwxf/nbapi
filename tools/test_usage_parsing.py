@@ -19,6 +19,36 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_channel_cooldown_keeps_one_matching_probe_route(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "channels.sqlite3"
+            db = sqlite3.connect(db_path)
+            try:
+                db.execute(
+                    """CREATE TABLE channels (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT,
+                        upstream_base_url TEXT,
+                        upstream_api_key TEXT,
+                        active INTEGER,
+                        priority INTEGER,
+                        allowed_models TEXT,
+                        consecutive_failures INTEGER,
+                        last_failure_at INTEGER
+                    )"""
+                )
+                db.executemany(
+                    "INSERT INTO channels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (1, "cooling", "https://cooling.example", "key-1", 1, 100, "gpt-5.5", 3, server.now()),
+                        (2, "other-model", "https://other.example", "key-2", 1, 200, "gemini-3.1-pro-preview", 3, server.now()),
+                    ],
+                )
+                routes = server.get_upstream_routes(db, "gpt-5.5")
+            finally:
+                db.close()
+            self.assertEqual([route["channel_id"] for route in routes], [1])
+
     def test_large_json_upload_is_not_compressed(self):
         body = json.dumps({"model": "test", "input": "long context " * 30000}).encode()
         received = []

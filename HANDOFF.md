@@ -53,6 +53,7 @@ The frontend extraction is behavior-preserving: CSS and JavaScript were copied b
 - Failed upstream calls refund the reservation. Client disconnects do not cancel upstream reading or final settlement.
 - Native SSE is forwarded immediately with Nginx buffering disabled for that response.
 - Gemini native models can be bridged from OpenAI chat requests and converted back to OpenAI-compatible responses.
+- Channel routing keeps one matching enabled channel as a recovery probe when every matching channel is in health cooldown; this prevents transient `no_eligible_upstream_channel` errors without bypassing model allowlists.
 - ZPAY credits paid orders transactionally and idempotently. Current user-facing payment method is Alipay only.
 - Wallet orders, transactions, usage logs, tokens, and balances are scoped to the authenticated user. Super administrators have explicit elevated views.
 - API token secrets remain copyable from the token page and must not be invalidated by normal code deployments.

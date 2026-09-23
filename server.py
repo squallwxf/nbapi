@@ -1248,18 +1248,33 @@ def channel_allows_model(allowed_models: str, model_name: str) -> bool:
 
 def get_upstream_routes(db, model_name: str = ""):
     rows = db.execute(
-        "SELECT id, name, upstream_base_url, upstream_api_key, allowed_models FROM channels WHERE active=1 AND (consecutive_failures<3 OR last_failure_at<?) ORDER BY priority ASC, id ASC",
-        (now() - 300,),
+        "SELECT id, name, upstream_base_url, upstream_api_key, allowed_models, consecutive_failures, last_failure_at "
+        "FROM channels WHERE active=1 ORDER BY priority ASC, id ASC"
     ).fetchall()
-    routes = []
+    healthy_routes = []
+    cooldown_routes = []
+    cooldown_before = now() - 300
     for row in rows:
         if not channel_allows_model(row[4], model_name):
             continue
         base_url = str(row[2] or "").strip() or UPSTREAM
         if base_url.lower().endswith("/v1") or base_url.lower().endswith("/v1beta"):
             base_url = base_url.rsplit("/", 1)[0]
-        routes.append({"channel_id": row[0], "channel_name": row[1], "base_url": base_url.rstrip("/"), "api_key": str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")})
-    return routes
+        route = {
+            "channel_id": row[0],
+            "channel_name": row[1],
+            "base_url": base_url.rstrip("/"),
+            "api_key": str(row[3] or "").strip() or get_setting(db, "upstream_api_key", ""),
+        }
+        if row[5] < 3 or row[6] is None or row[6] < cooldown_before:
+            healthy_routes.append(route)
+        else:
+            cooldown_routes.append(route)
+    # A health cooldown should reduce priority, not make the service return
+    # "no eligible channel" forever when every configured channel failed.
+    # Retrying one matching channel lets the upstream recover naturally and
+    # preserves the normal refund path for a real upstream failure.
+    return healthy_routes or cooldown_routes[:1]
 
 
 def get_upstream_route(db, model_name: str = ""):
