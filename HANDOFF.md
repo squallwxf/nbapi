@@ -37,7 +37,7 @@ Production:
 - `assets/nbapi.css`: extracted visual styles and responsive layout.
 - `assets/nbapi.js`: extracted browser logic, rendering, API calls, and event handlers.
 - `server.py`: API, authentication, SQLite migrations, upstream proxy, protocol bridge, billing, refunds, ZPAY, and static asset serving.
-- `tools/test_usage_parsing.py`: 29 regression tests covering usage parsing, dynamic tier selection, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
+- `tools/test_usage_parsing.py`: 30 regression tests covering usage parsing, dynamic tier selection, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
 - `AGENTS.md`: context and safety instructions for future Codex work.
 
 The frontend extraction is behavior-preserving: CSS and JavaScript were copied byte-for-byte after line-ending normalization, and all 190 DOM IDs remain unchanged. `server.py` now serves only the fixed asset paths `/assets/nbapi.css` and `/assets/nbapi.js`; arbitrary filesystem paths are not exposed.
@@ -71,7 +71,7 @@ node --check assets/nbapi.js
 git diff --check
 ```
 
-Expected regression result: 29 tests pass.
+Expected regression result: 30 tests pass.
 
 For frontend changes, verify desktop and mobile widths, browser console errors, authentication visibility, and no horizontal overflow. For proxy or billing changes, also run a real low-cost streaming request against a controlled account and reconcile reservation, ledger amount, wallet balance, usage source, and upstream charge.
 
