@@ -132,7 +132,7 @@ MODEL_ROWS = [
 # USD per task for media models. Each model may use its own approved markup.
 MODEL_PRICE_OVERRIDES = {
     "T香蕉2": ("per_task", 240000), "T香蕉pro": ("per_task", 360000), "gpt-image-2": ("per_task", 220000),
-    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-6-astra": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1014000, 1014000, 5070000, 101400, 1267500), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
+    "gpt-5.5": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-6-astra": ("per_token", 1950000, 1950000, 11700000, 196000, 0), "gpt-5.6-sol": ("per_token", 1700000, 1700000, 14500000, 117000, 1462500), "gpt-5.6-terra": ("per_token", 780000, 780000, 6240000, 78000, 0),
     "claude-fable-5": ("per_token", 28800000, 28800000, 144000000, 2880000, 36000000), "claude-opus-4-6": ("per_token", 4680000, 4680000, 23400000, 468000, 5850000), "claude-opus-4-8": ("per_token", 5760000, 5760000, 28800000, 576000, 7200000), "claude-sonnet-4-6": ("per_token", 8640000, 8640000, 43200000, 864000, 10800000),
     "gemini-3.1-flash-lite-preview": ("per_token", 1200000, 1200000, 7200000, 0, 0), "gemini-3.1-pro-preview": ("per_token", 3000000, 3000000, 18000000, 300000, 0),
     "ky-fast-720p": ("per_task", 5100000), "ky-pro-720p": ("per_task", 5950000),

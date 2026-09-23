@@ -1383,7 +1383,7 @@
 
     function formatModelPrice(pricing) {
       if (pricing.unit === "per_token") {
-        return `输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>补全 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens`;
+        return `输入 $${Number(pricing.inputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>补全 $${Number(pricing.outputPrice || pricing.amount || 0).toFixed(4)} / 1M Tokens<br>缓存读 $${Number(pricing.cacheReadPrice || 0).toFixed(4)} / 1M Tokens<br>缓存创建 $${Number(pricing.cacheWritePrice || 0).toFixed(4)} / 1M Tokens`;
       }
       return `$${Number(pricing.amount || 0).toFixed(4)} / 次`;
     }
