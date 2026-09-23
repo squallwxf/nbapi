@@ -11,6 +11,7 @@ Updated: 2026-09-23
 - Final settlement selects the tier from authoritative upstream input usage, including the threshold boundary; reservation estimates use the same selector. Input, output, cache-read and cache-create charges all use the selected tier.
 - `/api/models` and the super-admin pricing screen expose both tiers, thresholds and all four prices. The model plaza displays the same dynamic pricing information.
 - The model plaza keeps dynamic cards compact by showing only the first-tier input, output, cache-read and cache-create prices. The clickable `动态计费 · 2档` label opens a responsive detail dialog with the threshold and both complete pricing tiers; this is presentation-only and does not change settlement behavior.
+- The page references the plaza CSS and JavaScript with release query `v=20260923.2` so browsers and Cloudflare do not keep serving the pre-dialog assets from the four-hour static cache.
 
 ## 2026-09-23 pricing correction
 
