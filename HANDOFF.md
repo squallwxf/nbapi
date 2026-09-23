@@ -13,7 +13,7 @@ Updated: 2026-09-23
 ## 2026-09-23 pricing correction
 
 - `gpt-5.6-sol` customer pricing is set to input `1.7000` and output `14.5000` USD per 1M tokens, with cache read `0.1170` and cache write `1.4625` USD per 1M tokens. The input/output values are the approved fixed rates; cache values are the upstream reference rates plus 50%.
-- The production row was backed up before updating, and the code defaults were aligned with these values.
+- A one-time `dynamic_pricing_correction_version` migration aligns the production row and the code defaults with these values; the production database is backed up before deployment.
 - Existing ledger rows are not rewritten. New calls use the corrected prices after the service reload.
 
 ## Read this first

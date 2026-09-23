@@ -157,6 +157,12 @@ DYNAMIC_CACHE_WRITE_FLOOR_DEFAULTS = {
     "gpt-5.6-terra": (731_250, 1_462_500),
     "gpt-6-astra": (3_656_250, 7_312_500),
 }
+# Apply the explicitly approved customer rates once after the dynamic-tier
+# migration. This repairs an older production override without touching any
+# users, balances, tokens, or historical ledger entries.
+DYNAMIC_PRICING_CORRECTIONS = {
+    "gpt-5.6-sol": (1_700_000, 1_700_000, 14_500_000, 117_000, 1_462_500, 272_000, 3_400_000, 21_750_000, 234_000, 2_925_000),
+}
 CHANNEL_ROWS = [
     ("默认主渠道", "https://ai.krapi.cn", "", 1, 100, "主站默认模型渠道"),
     ("备用渠道", "https://ai.krapi.cn", "", 1, 200, "备用或灰度渠道"),
@@ -691,6 +697,42 @@ def init_db() -> None:
                     ),
                 )
             set_setting(db, "dynamic_pricing_schema_version", "1")
+        if get_setting(db, "dynamic_pricing_correction_version") != "1":
+            for name, correction in DYNAMIC_PRICING_CORRECTIONS.items():
+                (
+                    price,
+                    input_price,
+                    output_price,
+                    cache_read_price,
+                    cache_write_price,
+                    threshold,
+                    tier2_input,
+                    tier2_output,
+                    tier2_cache_read,
+                    tier2_cache_write,
+                ) = correction
+                db.execute(
+                    """UPDATE models SET price_micros=?, input_price_micros=?, output_price_micros=?,
+                    cache_read_price_micros=?, cache_write_price_micros=?, pricing_mode='dynamic',
+                    tier_threshold_tokens=?, tier2_input_price_micros=?, tier2_output_price_micros=?,
+                    tier2_cache_read_price_micros=?, tier2_cache_write_price_micros=?, updated_at=?
+                    WHERE name=? AND billing_unit='per_token'""",
+                    (
+                        price,
+                        input_price,
+                        output_price,
+                        cache_read_price,
+                        cache_write_price,
+                        threshold,
+                        tier2_input,
+                        tier2_output,
+                        tier2_cache_read,
+                        tier2_cache_write,
+                        timestamp,
+                        name,
+                    ),
+                )
+            set_setting(db, "dynamic_pricing_correction_version", "1")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels

@@ -401,6 +401,12 @@ data: [DONE]
         self.assertEqual(server.model_pricing_tier(model, 100), 2)
         self.assertEqual(server.calculate_token_estimate_micros(model, 100, 5), 215)
 
+    def test_approved_dynamic_customer_rates_match_pricing_plan(self):
+        self.assertEqual(
+            server.DYNAMIC_PRICING_CORRECTIONS["gpt-5.6-sol"],
+            (1_700_000, 1_700_000, 14_500_000, 117_000, 1_462_500, 272_000, 3_400_000, 21_750_000, 234_000, 2_925_000),
+        )
+
 
 class StaticAssetTests(unittest.TestCase):
     def test_frontend_entrypoints_are_served_from_fixed_paths(self):
