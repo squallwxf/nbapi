@@ -2,6 +2,12 @@
 
 Updated: 2026-09-22
 
+## 2026-09-23 pricing correction
+
+- `gpt-5.6-sol` was found with production customer prices of input `1.7000`, output `14.5000`, cache read `0.1200`, and cache write `1.2000` USD per 1M tokens. These were not the requested approximately 30% markup over the upstream reference prices.
+- The approved 30% markup values are input `1.0140`, output `5.0700`, cache read `0.1014`, and cache write `1.2675` USD per 1M tokens. The production row was backed up before updating, and the code defaults were aligned with these values.
+- Existing ledger rows are not rewritten. New calls use the corrected prices after the service reload.
+
 ## Read this first
 
 This file is the concise current state. Older investigations and deployment history are preserved in `docs/HANDOFF_HISTORY.md`; search that file only when a task needs historical detail.
