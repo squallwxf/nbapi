@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NBAPI | AI 模型聚合网关</title>
-  <link rel="stylesheet" href="assets/nbapi.css?v=20260923.2" />
+  <link rel="stylesheet" href="assets/nbapi.css?v=20260925.2" />
 </head>
 <body>
   <div class="app">
@@ -20,7 +20,7 @@
         <a class="nav-item auth-required" href="#playground"><span class="icon i-model"></span><span>操练场</span></a>
         <a class="nav-item admin-only" href="#users"><span class="icon i-doc"></span><span>用户管理</span></a>
         <a class="nav-item super-admin-only" href="#pricing"><span class="icon i-money"></span><span>模型定价</span></a>
-        <a class="nav-item super-admin-only" href="#channels"><span class="icon i-channel"></span><span>供应商对接</span></a>
+        <a class="nav-item super-admin-only" href="#channels"><span class="icon i-channel"></span><span>供应商管理</span></a>
         <a class="nav-item" href="#docs"><span class="icon i-doc"></span><span>接口文档</span></a>
         <a class="nav-item" href="#wallet"><span class="icon i-money"></span><span>钱包管理</span></a>
         <a class="nav-item" href="#logs"><span class="icon i-log"></span><span>使用日志</span></a>
@@ -302,7 +302,7 @@
 
         <div class="section-head" id="models">
           <div><h2>模型价格与渠道</h2><p>参考站点的模型类型已覆盖到这里，适合直接替换成你的真实倍率。</p></div>
-          <a class="btn primary admin-only" href="#channels">渠道管理</a>
+          <a class="btn primary super-admin-only" href="#channels">供应商管理</a>
         </div>
 
         <section class="workspace">
@@ -434,37 +434,38 @@ console.log(result.choices[0].message.content);</pre></div></section>
             </article>
             <article class="panel detail-card super-admin-only" id="channels">
               <div class="management-top">
-                <h3 style="margin:0;">供应商对接</h3>
-                <button class="btn" id="refreshChannels" type="button">刷新渠道</button>
+                <h3 style="margin:0;">供应商管理</h3>
+                <button class="btn" id="refreshChannels" type="button">刷新供应商</button>
               </div>
               <p class="muted">配置上游地址、API Key 和支持模型。请求只会路由到支持当前模型的启用渠道，再按优先级切换。</p>
-              <div class="management-card">
-                <strong>新增供应商渠道</strong>
+              <form class="management-card" id="createChannelForm" novalidate>
+                <strong>新增供应商</strong>
                 <div class="management-fields">
-                  <div class="auth-field"><label for="newChannelName">渠道名称</label><input class="auth-input" id="newChannelName" placeholder="例如：主站渠道" /></div>
-                  <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" placeholder="https://provider.example" /></div>
-                  <div class="auth-field"><label for="newChannelKey">上游 API Key</label><input class="auth-input" id="newChannelKey" type="password" placeholder="可选" /></div>
-                  <div class="auth-field"><label for="newChannelPriority">优先级</label><input class="auth-input" id="newChannelPriority" type="number" value="100" /></div>
+                  <div class="auth-field"><label for="newChannelName">渠道名称</label><input class="auth-input" id="newChannelName" name="name" placeholder="例如：主站渠道" required maxlength="80" /></div>
+                  <div class="auth-field"><label for="newChannelUrl">上游地址</label><input class="auth-input" id="newChannelUrl" name="upstreamBaseUrl" type="url" placeholder="https://provider.example" required /></div>
+                  <div class="auth-field"><label for="newChannelKey">上游 API Key</label><input class="auth-input" id="newChannelKey" name="upstreamApiKey" type="password" placeholder="可选" /></div>
+                  <div class="auth-field"><label for="newChannelPriority">优先级</label><input class="auth-input" id="newChannelPriority" name="priority" type="number" min="0" value="100" required /></div>
                 </div>
                 <div class="auth-field">
                   <label for="newChannelNote">备注</label>
-                  <input class="auth-input" id="newChannelNote" placeholder="渠道说明" />
+                  <input class="auth-input" id="newChannelNote" name="note" placeholder="渠道说明" />
                 </div>
                 <div class="auth-field">
                   <label for="newChannelModels">支持模型</label>
-                  <textarea class="auth-input" id="newChannelModels" rows="3" placeholder="每行一个模型名；留空表示支持全部模型"></textarea>
+                  <textarea class="auth-input" id="newChannelModels" name="allowedModels" rows="3" placeholder="每行一个模型名；留空表示支持全部模型"></textarea>
                 </div>
                 <div class="auth-actions">
-                  <button class="btn primary" id="createChannel" type="button">创建渠道</button>
+                  <button class="btn primary" id="createChannel" type="submit">创建供应商</button>
+                  <small class="channel-create-status" id="channelCreateStatus" role="status" aria-live="polite"></small>
                 </div>
-              </div>
+              </form>
               <div class="management-grid" id="channelList"></div>
             </article>
           </aside>
         </section>
 
         <section class="panel detail-card super-admin-only" id="pricing">
-          <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">价格保存后立即用于真实调用计费。动态模型会按上游返回的输入 Token 在两档之间选择输入、补全和缓存价格。</p></div><button class="btn" id="refreshPricing" type="button">刷新价格</button></div>
+          <div class="management-top"><div><h2 style="margin:0;">模型定价</h2><p class="muted" style="margin:6px 0 0;">新增模型需选择供应商；动态模型按真实输入 Token 选择价格档位。</p></div><div class="auth-actions"><button class="btn primary" id="openModelEditor" type="button">新增模型</button><button class="btn" id="refreshPricing" type="button">刷新价格</button></div></div>
           <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th>模型名称</th><th>供应商</th><th>状态</th><th>计费方式</th><th>二档阈值</th><th>按次价格</th><th>第1档输入 / 1M</th><th>第1档补全 / 1M</th><th>第1档缓存读 / 1M</th><th>第1档缓存创建 / 1M</th><th>第2档输入 / 1M</th><th>第2档补全 / 1M</th><th>第2档缓存读 / 1M</th><th>第2档缓存创建 / 1M</th><th>操作</th></tr></thead><tbody id="pricingList"><tr><td colspan="15" class="muted">正在加载模型价格。</td></tr></tbody></table></div>
         </section>
 
@@ -547,6 +548,33 @@ console.log(result.choices[0].message.content);</pre></div></section>
       <div id="modelPricingModalBody"></div>
     </div>
   </div>
-  <script src="assets/nbapi.js?v=20260923.2"></script>
+  <div class="token-modal model-editor-modal" id="modelEditorModal" aria-hidden="true">
+    <div class="token-modal-panel model-editor-panel" role="dialog" aria-modal="true" aria-labelledby="modelEditorTitle">
+      <div class="token-modal-head"><div><span class="tag green" id="modelEditorMode">新建</span><h3 id="modelEditorTitle" style="display:inline;margin-left:8px;">新增模型</h3></div><button class="btn" id="closeModelEditor" type="button">关闭</button></div>
+      <div class="token-form-grid">
+        <div class="auth-field"><label for="modelNameInput">模型名称</label><input class="auth-input" id="modelNameInput" maxlength="120" placeholder="例如：gpt-6-sol" /></div>
+        <div class="auth-field"><label for="modelLabelInput">显示名称</label><input class="auth-input" id="modelLabelInput" maxlength="80" placeholder="例如：GPT 6 Sol" /></div>
+        <div class="auth-field"><label for="modelProviderInput">模型品牌</label><input class="auth-input" id="modelProviderInput" maxlength="80" placeholder="例如：OpenAI" /></div>
+        <div class="auth-field"><label for="modelKindInput">模型类型</label><select class="auth-input" id="modelKindInput"><option>对话模型</option><option>图片生成</option><option>视频生成</option><option>文生视频</option><option>参考图生视频</option><option>视频编辑</option></select></div>
+        <div class="auth-field"><label for="modelProtocolInput">API 协议</label><select class="auth-input" id="modelProtocolInput"><option value="openai_chat">OpenAI Chat</option><option value="openai_responses">OpenAI Responses</option><option value="anthropic_messages">Anthropic Messages</option><option value="gemini_generate_content">Gemini Generate Content</option><option value="openai_images">OpenAI 图片</option><option value="openai_video">OpenAI 视频</option></select></div>
+        <div class="auth-field"><label for="modelBillingInput">计费方式</label><select class="auth-input" id="modelBillingInput"><option value="per_token">按 Token</option><option value="per_task">按次</option></select></div>
+        <div class="auth-field"><label for="modelPricingModeInput">价格模式</label><select class="auth-input" id="modelPricingModeInput"><option value="static">静态</option><option value="dynamic">动态 2 档</option></select></div>
+        <div class="auth-field"><label for="modelThresholdInput">二档阈值</label><input class="auth-input" id="modelThresholdInput" type="number" min="0" step="1" value="0" /></div>
+        <div class="auth-field model-task-price"><label for="modelTaskPriceInput">按次价格</label><input class="auth-input" id="modelTaskPriceInput" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-token-price"><label for="modelInputPriceInput">第 1 档输入 / 1M</label><input class="auth-input" id="modelInputPriceInput" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-token-price"><label for="modelOutputPriceInput">第 1 档补全 / 1M</label><input class="auth-input" id="modelOutputPriceInput" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-token-price"><label for="modelCacheReadInput">第 1 档缓存读 / 1M</label><input class="auth-input" id="modelCacheReadInput" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-token-price"><label for="modelCacheWriteInput">第 1 档缓存创建 / 1M</label><input class="auth-input" id="modelCacheWriteInput" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-tier2-price"><label for="modelTier2Input">第 2 档输入 / 1M</label><input class="auth-input" id="modelTier2Input" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-tier2-price"><label for="modelTier2Output">第 2 档补全 / 1M</label><input class="auth-input" id="modelTier2Output" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-tier2-price"><label for="modelTier2CacheRead">第 2 档缓存读 / 1M</label><input class="auth-input" id="modelTier2CacheRead" type="number" min="0" step="0.000001" value="0" /></div>
+        <div class="auth-field model-tier2-price"><label for="modelTier2CacheWrite">第 2 档缓存创建 / 1M</label><input class="auth-input" id="modelTier2CacheWrite" type="number" min="0" step="0.000001" value="0" /></div>
+        <fieldset class="supplier-picker full"><legend>关联供应商</legend><div id="modelSupplierOptions" class="supplier-picker-grid"><span class="muted">正在加载供应商。</span></div></fieldset>
+        <div class="auth-field full"><label><input id="modelActiveInput" type="checkbox" /> 创建后立即显示</label><span class="token-form-help">至少选择一个供应商后才能显示和调用。</span></div>
+      </div>
+      <div class="token-modal-actions"><button class="btn" id="cancelModelEditor" type="button">取消</button><button class="btn primary" id="saveModelEditor" type="button">保存模型</button></div>
+    </div>
+  </div>
+  <script src="assets/nbapi.js?v=20260925.3"></script>
 </body>
 </html>

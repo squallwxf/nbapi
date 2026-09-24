@@ -81,6 +81,15 @@ HOP_BY_HOP_HEADERS = {
     "accept-encoding",
 }
 
+MODEL_PROTOCOL_ENDPOINTS = {
+    "openai_chat": "/v1/chat/completions",
+    "openai_responses": "/v1/responses",
+    "anthropic_messages": "/v1/messages",
+    "gemini_generate_content": "/v1beta/models/{model}:generateContent",
+    "openai_images": "/v1/images/generations",
+    "openai_video": "/v1/videos",
+}
+
 MODEL_ROWS = [
     ("T香蕉2", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
     ("T香蕉pro", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
@@ -422,7 +431,10 @@ def init_db() -> None:
               tier2_input_price_micros INTEGER NOT NULL DEFAULT 0,
               tier2_output_price_micros INTEGER NOT NULL DEFAULT 0,
               tier2_cache_read_price_micros INTEGER NOT NULL DEFAULT 0,
-              tier2_cache_write_price_micros INTEGER NOT NULL DEFAULT 0
+              tier2_cache_write_price_micros INTEGER NOT NULL DEFAULT 0,
+              routing_mode TEXT NOT NULL DEFAULT 'legacy',
+              api_protocol TEXT NOT NULL DEFAULT '',
+              endpoint TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS ledger (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -494,6 +506,12 @@ def init_db() -> None:
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS model_channels (
+              model_name TEXT NOT NULL REFERENCES models(name),
+              channel_id INTEGER NOT NULL REFERENCES channels(id),
+              created_at INTEGER NOT NULL,
+              PRIMARY KEY(model_name, channel_id)
+            );
             CREATE TABLE IF NOT EXISTS wallet_orders (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               user_id INTEGER NOT NULL REFERENCES users(id),
@@ -562,6 +580,7 @@ def init_db() -> None:
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_orders_provider_trade_no ON wallet_orders(provider_trade_no) WHERE provider_trade_no <> ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_billing_reservations_status ON billing_reservations(status)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_media_tasks_status ON media_tasks(status)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_model_channels_channel ON model_channels(channel_id)")
         cleanup_stale_reservations(db)
         columns = {row[1] for row in db.execute("PRAGMA table_info(ledger)")}
         if "token_id" not in columns:
@@ -592,6 +611,9 @@ def init_db() -> None:
             ("tier2_output_price_micros", "INTEGER NOT NULL DEFAULT 0"),
             ("tier2_cache_read_price_micros", "INTEGER NOT NULL DEFAULT 0"),
             ("tier2_cache_write_price_micros", "INTEGER NOT NULL DEFAULT 0"),
+            ("routing_mode", "TEXT NOT NULL DEFAULT 'legacy'"),
+            ("api_protocol", "TEXT NOT NULL DEFAULT ''"),
+            ("endpoint", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in model_columns:
                 db.execute(f"ALTER TABLE models ADD COLUMN {column} {definition}")
@@ -735,6 +757,24 @@ def init_db() -> None:
                     ),
                 )
             set_setting(db, "dynamic_pricing_correction_version", "2")
+        if get_setting(db, "gpt_6_sol_seed_version") != "1":
+            db.execute(
+                """INSERT OR IGNORE INTO models
+                (name, provider_label, provider, kind, billing_unit, price_micros, active, updated_at,
+                 input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros,
+                 pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
+                 tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint)
+                SELECT 'gpt-6-sol', 'GPT 6 Sol', 'OpenAI', '对话模型', billing_unit,
+                       price_micros, 0, ?, input_price_micros, output_price_micros,
+                       cache_read_price_micros, cache_write_price_micros, pricing_mode,
+                       tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
+                       tier2_cache_read_price_micros, tier2_cache_write_price_micros,
+                       'explicit', 'openai_responses', '/v1/responses'
+                FROM models WHERE name='gpt-5.6-sol'""",
+                (timestamp,),
+            )
+            if db.execute("SELECT 1 FROM models WHERE name='gpt-6-sol'").fetchone():
+                set_setting(db, "gpt_6_sol_seed_version", "1")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
@@ -1247,15 +1287,27 @@ def channel_allows_model(allowed_models: str, model_name: str) -> bool:
 
 
 def get_upstream_routes(db, model_name: str = ""):
-    rows = db.execute(
-        "SELECT id, name, upstream_base_url, upstream_api_key, allowed_models, consecutive_failures, last_failure_at "
-        "FROM channels WHERE active=1 ORDER BY priority ASC, id ASC"
-    ).fetchall()
+    routing_row = db.execute("SELECT routing_mode FROM models WHERE name=?", (model_name,)).fetchone() if model_name else None
+    if routing_row and routing_row[0] == "explicit":
+        rows = db.execute(
+            """SELECT c.id, c.name, c.upstream_base_url, c.upstream_api_key, c.allowed_models,
+                      c.consecutive_failures, c.last_failure_at
+               FROM channels c JOIN model_channels mc ON mc.channel_id=c.id
+               WHERE mc.model_name=? AND c.active=1 ORDER BY c.priority ASC, c.id ASC""",
+            (model_name,),
+        ).fetchall()
+        explicit = True
+    else:
+        rows = db.execute(
+            "SELECT id, name, upstream_base_url, upstream_api_key, allowed_models, consecutive_failures, last_failure_at "
+            "FROM channels WHERE active=1 ORDER BY priority ASC, id ASC"
+        ).fetchall()
+        explicit = False
     healthy_routes = []
     cooldown_routes = []
     cooldown_before = now() - 300
     for row in rows:
-        if not channel_allows_model(row[4], model_name):
+        if not explicit and not channel_allows_model(row[4], model_name):
             continue
         base_url = str(row[2] or "").strip() or UPSTREAM
         if base_url.lower().endswith("/v1") or base_url.lower().endswith("/v1beta"):
@@ -1584,7 +1636,7 @@ def update_channel_health(channel_id: int | None, success: bool, error: str = ""
 
 def fetch_model_row(db, model_name: str):
     return db.execute(
-        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?",
+        "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint FROM models WHERE name=?",
         (model_name,),
     ).fetchone()
 
@@ -1621,7 +1673,61 @@ def serialize_model_row(row) -> dict:
         "tier2CacheWritePrice": micros_to_dollars(tier2[3]),
         "tiers": {"tier1": serialize_tier(tier1), "tier2": serialize_tier(tier2) if dynamic else None},
         "active": bool(row[6]),
+        "routingMode": row[17] if len(row) > 17 else "legacy",
+        "apiProtocol": row[18] if len(row) > 18 and row[18] else infer_model_protocol(row[2], row[3]),
+        "endpoint": row[19] if len(row) > 19 and row[19] else infer_model_endpoint(row[0], row[2], row[3]),
     }
+
+
+def infer_model_protocol(provider: str, kind: str) -> str:
+    if provider == "Google" and kind == "对话模型":
+        return "gemini_generate_content"
+    if provider == "Anthropic" and kind == "对话模型":
+        return "anthropic_messages"
+    if kind == "图片生成":
+        return "openai_images"
+    if "视频" in kind:
+        return "openai_video"
+    return "openai_chat"
+
+
+def infer_model_endpoint(name: str, provider: str, kind: str) -> str:
+    protocol = infer_model_protocol(provider, kind)
+    endpoint = MODEL_PROTOCOL_ENDPOINTS[protocol]
+    return endpoint.replace("{model}", name)
+
+
+def model_supplier_ids(db, model_name: str) -> list[int]:
+    return [row[0] for row in db.execute(
+        "SELECT channel_id FROM model_channels WHERE model_name=? ORDER BY channel_id", (model_name,)
+    ).fetchall()]
+
+
+def validate_supplier_ids(db, values) -> list[int]:
+    if values in (None, ""):
+        return []
+    if not isinstance(values, list) or len(values) > 100:
+        raise ValueError("invalid_supplier_ids")
+    try:
+        supplier_ids = sorted({int(value) for value in values})
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_supplier_ids") from exc
+    if any(value <= 0 for value in supplier_ids):
+        raise ValueError("invalid_supplier_ids")
+    if supplier_ids:
+        placeholders = ",".join("?" for _ in supplier_ids)
+        count = db.execute(f"SELECT COUNT(*) FROM channels WHERE id IN ({placeholders})", supplier_ids).fetchone()[0]
+        if count != len(supplier_ids):
+            raise ValueError("supplier_not_found")
+    return supplier_ids
+
+
+def replace_model_suppliers(db, model_name: str, supplier_ids: list[int]) -> None:
+    db.execute("DELETE FROM model_channels WHERE model_name=?", (model_name,))
+    db.executemany(
+        "INSERT INTO model_channels(model_name, channel_id, created_at) VALUES (?, ?, ?)",
+        [(model_name, channel_id, now()) for channel_id in supplier_ids],
+    )
 
 
 def split_lines(value: str) -> list[str]:
@@ -2602,6 +2708,26 @@ class Handler(BaseHTTPRequestHandler):
                 items = read_announcements(db, active_only=False)
             self.send_json(200, {"items": items})
             return
+        if path == "/v1/models":
+            api_user = self.require_api_token()
+            if not api_user:
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute(
+                    "SELECT name, provider FROM models WHERE active=1 ORDER BY rowid"
+                ).fetchall()
+            models = [
+                {
+                    "id": row[0],
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": str(row[1] or "nbapi").lower(),
+                }
+                for row in rows
+                if token_allows_model(api_user[9], row[0])
+            ]
+            self.send_json(200, {"object": "list", "data": models})
+            return
         if self._proxy_upstream("GET"):
             return
         if path == "/api/admin/config":
@@ -2661,7 +2787,32 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with sqlite3.connect(DB_PATH) as db:
                 rows = db.execute("SELECT id, name, upstream_base_url, upstream_api_key, active, priority, note, created_at, updated_at, health_status, consecutive_failures, last_checked_at, last_success_at, last_failure_at, last_error, allowed_models FROM channels ORDER BY priority ASC, id ASC").fetchall()
-            self.send_json(200, {"items": [serialize_channel(row) for row in rows]})
+                items = []
+                for row in rows:
+                    item = serialize_channel(row)
+                    item["assignedModels"] = [model[0] for model in db.execute(
+                        "SELECT model_name FROM model_channels WHERE channel_id=? ORDER BY model_name", (row[0],)
+                    ).fetchall()]
+                    items.append(item)
+            self.send_json(200, {"items": items})
+            return
+        if path == "/api/admin/models":
+            admin = self.require_user(admin=True)
+            if not admin:
+                return
+            if admin[2] != "super_admin":
+                self.send_json(403, {"error": "super_admin_only"})
+                return
+            with sqlite3.connect(DB_PATH) as db:
+                rows = db.execute(
+                    "SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint FROM models ORDER BY rowid"
+                ).fetchall()
+                models = []
+                for row in rows:
+                    item = serialize_model_row(row)
+                    item["supplierIds"] = model_supplier_ids(db, row[0])
+                    models.append(item)
+            self.send_json(200, {"models": models})
             return
         if path == "/api/models":
             query = parse_qs(urlparse(self.path).query)
@@ -2675,7 +2826,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
             model_filter = "" if include_inactive else " WHERE active=1"
             with sqlite3.connect(DB_PATH) as db:
-                rows = db.execute(f"SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models{model_filter} ORDER BY rowid").fetchall()
+                rows = db.execute(f"SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint FROM models{model_filter} ORDER BY rowid").fetchall()
             self.send_json(200, {"models": [serialize_model_row(row) for row in rows]})
             return
         if path == "/api/dashboard":
@@ -3324,6 +3475,88 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(502, {"ok": False, "error": "upstream_test_failed", "detail": detail})
                 return
 
+            if path == "/api/admin/models":
+                admin = self.require_user(admin=True)
+                if not admin:
+                    return
+                if admin[2] != "super_admin":
+                    self.send_json(403, {"error": "super_admin_only"})
+                    return
+                try:
+                    name = str(payload.get("name", "")).strip()
+                    provider_label = str(payload.get("providerLabel", "")).strip()
+                    provider = str(payload.get("provider", "")).strip()
+                    kind = str(payload.get("kind", "")).strip()
+                    billing_unit = str(payload.get("billingUnit", "")).strip()
+                    pricing_mode = str(payload.get("pricingMode", "static")).strip().lower()
+                    api_protocol = str(payload.get("apiProtocol", "")).strip()
+                    if not name or len(name) > 120 or any(char.isspace() or ord(char) < 32 for char in name):
+                        raise ValueError("invalid_model_name")
+                    if not provider_label or len(provider_label) > 80 or not provider or len(provider) > 80:
+                        raise ValueError("invalid_model_provider")
+                    if not kind or len(kind) > 80:
+                        raise ValueError("invalid_model_kind")
+                    if billing_unit not in ("per_task", "per_token"):
+                        raise ValueError("invalid_billing_unit")
+                    if api_protocol not in MODEL_PROTOCOL_ENDPOINTS:
+                        raise ValueError("invalid_api_protocol")
+                    price_micros = dollars_to_micros(payload.get("price", payload.get("inputPrice", 0)))
+                    input_price = dollars_to_micros(payload.get("inputPrice", payload.get("price", 0)))
+                    output_price = dollars_to_micros(payload.get("outputPrice", input_price / MICROS_PER_DOLLAR))
+                    cache_read_price = dollars_to_micros(payload.get("cacheReadPrice", 0))
+                    cache_write_price = dollars_to_micros(payload.get("cacheWritePrice", 0))
+                    if billing_unit == "per_task":
+                        pricing_mode = "static"
+                        input_price = output_price = cache_read_price = cache_write_price = 0
+                        tier_threshold = 0
+                        tier2_input = tier2_output = tier2_cache_read = tier2_cache_write = 0
+                    else:
+                        if pricing_mode not in ("static", "dynamic"):
+                            raise ValueError("invalid_pricing_mode")
+                        tier_threshold = int(payload.get("tierThresholdTokens", 0) or 0)
+                        if tier_threshold < 0 or tier_threshold > 100_000_000 or (pricing_mode == "dynamic" and tier_threshold == 0):
+                            raise ValueError("invalid_tier_threshold")
+                        tier2_input = dollars_to_micros(payload.get("tier2InputPrice", 0))
+                        tier2_output = dollars_to_micros(payload.get("tier2OutputPrice", 0))
+                        tier2_cache_read = dollars_to_micros(payload.get("tier2CacheReadPrice", 0))
+                        tier2_cache_write = dollars_to_micros(payload.get("tier2CacheWritePrice", 0))
+                    requested_active = bool(payload.get("active", False))
+                    endpoint = MODEL_PROTOCOL_ENDPOINTS[api_protocol].replace("{model}", name)
+                except (TypeError, ValueError) as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                try:
+                    with sqlite3.connect(DB_PATH) as db:
+                        db.execute("BEGIN IMMEDIATE")
+                        supplier_ids = validate_supplier_ids(db, payload.get("supplierIds", []))
+                        if requested_active and not supplier_ids:
+                            raise ValueError("active_model_requires_supplier")
+                        db.execute(
+                            """INSERT INTO models
+                            (name, provider_label, provider, kind, billing_unit, price_micros, active, updated_at,
+                             input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros,
+                             pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
+                             tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'explicit', ?, ?)""",
+                            (name, provider_label, provider, kind, billing_unit, price_micros, 1 if requested_active else 0,
+                             now(), input_price, output_price, cache_read_price, cache_write_price, pricing_mode,
+                             tier_threshold, tier2_input, tier2_output, tier2_cache_read, tier2_cache_write,
+                             api_protocol, endpoint),
+                        )
+                        replace_model_suppliers(db, name, supplier_ids)
+                        row = fetch_model_row(db, name)
+                        db.execute("COMMIT")
+                except sqlite3.IntegrityError:
+                    self.send_json(409, {"error": "model_already_exists"})
+                    return
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+                item = serialize_model_row(row)
+                item["supplierIds"] = supplier_ids
+                self.send_json(201, {"model": item})
+                return
+
             if path == "/api/admin/channels":
                 admin = self.require_user(admin=True)
                 if not admin:
@@ -3332,7 +3565,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(403, {"error": "super_admin_only"})
                     return
                 try:
-                    payload = self.read_json()
                     name = str(payload.get("name", "")).strip()
                     base_url = str(payload.get("upstreamBaseUrl", "")).strip().rstrip("/")
                     api_key = str(payload.get("upstreamApiKey", "")).strip()
@@ -3500,10 +3732,14 @@ class Handler(BaseHTTPRequestHandler):
         action = payload.get("action")
         if action in ("hide", "show"):
             with sqlite3.connect(DB_PATH) as db:
+                model = db.execute("SELECT routing_mode FROM models WHERE name=?", (name,)).fetchone()
+                if not model:
+                    self.send_json(404, {"error": "model_not_found"})
+                    return
+                if action == "show" and model[0] == "explicit" and not model_supplier_ids(db, name):
+                    self.send_json(400, {"error": "active_model_requires_supplier"})
+                    return
                 cursor = db.execute("UPDATE models SET active=?, updated_at=? WHERE name=?", (1 if action == "show" else 0, now(), name))
-            if cursor.rowcount != 1:
-                self.send_json(404, {"error": "model_not_found"})
-                return
             self.send_json(200, {"model": name, "active": action == "show"})
             return
         try:
@@ -3512,7 +3748,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("billingUnit must be per_task or per_token")
             with sqlite3.connect(DB_PATH) as db:
                 current = db.execute(
-                    "SELECT price_micros, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?",
+                    "SELECT price_micros, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros, provider_label, provider, kind, routing_mode, api_protocol, endpoint FROM models WHERE name=?",
                     (name,),
                 ).fetchone()
             if not current:
@@ -3543,16 +3779,37 @@ class Handler(BaseHTTPRequestHandler):
                 tier2_output = dollars_to_micros(payload.get("tier2OutputPrice", micros_to_dollars(current[8] or output_price)))
                 tier2_cache_read = dollars_to_micros(payload.get("tier2CacheReadPrice", micros_to_dollars(current[9])))
                 tier2_cache_write = dollars_to_micros(payload.get("tier2CacheWritePrice", micros_to_dollars(current[10])))
+            provider_label = str(payload.get("providerLabel", current[11])).strip()
+            provider = str(payload.get("provider", current[12])).strip()
+            kind = str(payload.get("kind", current[13])).strip()
+            api_protocol = str(payload.get("apiProtocol", current[15] or infer_model_protocol(current[12], current[13]))).strip()
+            if not provider_label or len(provider_label) > 80 or not provider or len(provider) > 80:
+                raise ValueError("invalid_model_provider")
+            if not kind or len(kind) > 80 or api_protocol not in MODEL_PROTOCOL_ENDPOINTS:
+                raise ValueError("invalid_model_metadata")
+            endpoint = MODEL_PROTOCOL_ENDPOINTS[api_protocol].replace("{model}", name)
         except (ValueError, json.JSONDecodeError) as exc:
             self.send_json(400, {"error": str(exc)})
             return
         with sqlite3.connect(DB_PATH) as db:
-            cursor = db.execute("UPDATE models SET price_micros=?, billing_unit=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, pricing_mode=?, tier_threshold_tokens=?, tier2_input_price_micros=?, tier2_output_price_micros=?, tier2_cache_read_price_micros=?, tier2_cache_write_price_micros=?, updated_at=? WHERE name=?", (price_micros, billing_unit, input_price, output_price, cache_read_price, cache_write_price, pricing_mode, tier_threshold, tier2_input, tier2_output, tier2_cache_read, tier2_cache_write, now(), name))
+            supplier_ids = model_supplier_ids(db, name)
+            if "supplierIds" in payload:
+                if current[14] != "explicit":
+                    self.send_json(400, {"error": "legacy_model_supplier_assignment_locked"})
+                    return
+                try:
+                    supplier_ids = validate_supplier_ids(db, payload.get("supplierIds"))
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                    return
+            cursor = db.execute("UPDATE models SET provider_label=?, provider=?, kind=?, api_protocol=?, endpoint=?, price_micros=?, billing_unit=?, input_price_micros=?, output_price_micros=?, cache_read_price_micros=?, cache_write_price_micros=?, pricing_mode=?, tier_threshold_tokens=?, tier2_input_price_micros=?, tier2_output_price_micros=?, tier2_cache_read_price_micros=?, tier2_cache_write_price_micros=?, active=CASE WHEN routing_mode='explicit' AND ?=0 THEN 0 ELSE active END, updated_at=? WHERE name=?", (provider_label, provider, kind, api_protocol, endpoint, price_micros, billing_unit, input_price, output_price, cache_read_price, cache_write_price, pricing_mode, tier_threshold, tier2_input, tier2_output, tier2_cache_read, tier2_cache_write, len(supplier_ids), now(), name))
             if cursor.rowcount != 1:
                 self.send_json(404, {"error": "model_not_found"})
                 return
-            row = db.execute("SELECT name, provider_label, provider, kind, billing_unit, price_micros, active, input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros, pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros, tier2_cache_read_price_micros, tier2_cache_write_price_micros FROM models WHERE name=?", (name,)).fetchone()
-        self.send_json(200, {"model": name, **serialize_model_row(row)})
+            if "supplierIds" in payload:
+                replace_model_suppliers(db, name, supplier_ids)
+            row = fetch_model_row(db, name)
+        self.send_json(200, {"model": name, **serialize_model_row(row), "supplierIds": supplier_ids})
 
     def do_PATCH(self):
         path = urlparse(self.path).path
@@ -3617,11 +3874,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "invalid_channel_id"})
                 return
             with sqlite3.connect(DB_PATH) as db:
+                db.execute("BEGIN IMMEDIATE")
+                affected = [row[0] for row in db.execute(
+                    "SELECT model_name FROM model_channels WHERE channel_id=?", (channel_id,)
+                ).fetchall()]
+                db.execute("DELETE FROM model_channels WHERE channel_id=?", (channel_id,))
                 cursor = db.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+                hidden_models = []
+                for model_name in affected:
+                    if not model_supplier_ids(db, model_name):
+                        db.execute("UPDATE models SET active=0, updated_at=? WHERE name=? AND routing_mode='explicit'", (now(), model_name))
+                        hidden_models.append(model_name)
             if cursor.rowcount != 1:
                 self.send_json(404, {"error": "channel_not_found"})
                 return
-            self.send_json(200, {"id": channel_id, "deleted": True})
+            self.send_json(200, {"id": channel_id, "deleted": True, "hiddenModels": hidden_models})
             return
         prefix = "/api/admin/models/"
         if path.startswith(prefix):
@@ -3633,6 +3900,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             name = unquote(path[len(prefix):])
             with sqlite3.connect(DB_PATH) as db:
+                db.execute("DELETE FROM model_channels WHERE model_name=?", (name,))
                 cursor = db.execute("DELETE FROM models WHERE name=?", (name,))
             if cursor.rowcount != 1:
                 self.send_json(404, {"error": "model_not_found"})

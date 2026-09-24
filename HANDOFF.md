@@ -1,6 +1,28 @@
 # NBAPI Current Handoff
 
-Updated: 2026-09-23
+Updated: 2026-09-25
+
+## 2026-09-25 explicit model supplier management
+
+- Added `gpt-6-sol` as a hidden OpenAI Responses model with the same approved dynamic two-tier prices and `272K` threshold as `gpt-5.6-sol`. It has no supplier assignment by default and cannot be shown until a super administrator assigns at least one supplier.
+- Existing models keep the legacy `channels.allowed_models` routing behavior unchanged. Only newly created models use explicit many-to-many supplier assignments, preserving every historical model/channel relationship.
+- The super-admin “供应商对接” area is now “供应商管理” with create, edit, test, enable/disable and delete actions. Deleting the final assigned supplier automatically hides affected explicit models.
+- Fixed supplier creation consuming the POST body twice. The create form now validates required fields, shows a submitting state and reports API errors inline.
+- Added the OpenAI-compatible `GET /v1/models` catalog for Codex and other clients. It lists active models allowed by the requesting API token, and the playground refreshes its model list when opened or after visibility changes.
+- The pricing page can create and configure models with protocol, pricing, visibility and multiple supplier selections. Supported protocol metadata covers OpenAI Chat/Responses, Anthropic Messages, Gemini Generate Content, images and videos.
+- `/api/admin/models` provides super-admin model creation/listing; the existing model update endpoint now supports metadata and explicit supplier assignments. Public `/api/models` includes protocol and endpoint metadata without exposing API keys.
+- The playground recognizes OpenAI Responses models and extracts Responses API output text. Frontend JavaScript uses release query `v=20260925.3` so the model list refresh fix is not hidden by browser or CDN caches.
+- Regression coverage is now 37 tests, including seed idempotency, legacy routing preservation, explicit supplier routing, API validation, model discovery and automatic hiding after supplier deletion.
+
+### New-server deployment status
+
+- Deployed on 2026-09-25 only to the current server `195.72.185.130` in `/opt/nbapi`; the legacy server was not changed.
+- Pre-deployment rollback archive: `/opt/nbapi-backups/nbapi-pre-model-discovery-20260925-0224.tar.gz`, SHA-256 `eff1e565efd81504d385453e29b27b417421c2a131e07610072808b4669ad3e0`.
+- `nbapi.service` is active, `https://nbapi.win/health` returns `ok`, and the public page references `assets/nbapi.js?v=20260925.3`.
+- A real active NBAPI token verified that `GET /v1/models` returns an OpenAI-compatible list containing active `gpt-6-sol`. Requests without a token return `401`.
+- The `qiaomo` supplier base URL was normalized in production from `https://qiaomoapi.cn/v1` to `https://qiaomoapi.cn`; the proxy appends `/v1/responses` itself.
+- Remaining external blocker: TLS negotiation from the new server to `qiaomoapi.cn:443` times out. The supplier must allow the new server IP `195.72.185.130` or remove the applicable region/CDN/firewall restriction. Until then the model is discoverable but real calls through this supplier will fail.
+- After supplier access is restored, run the supplier connection test and confirm a healthy status before selecting `gpt-6-sol` in Codex. Codex uses `base_url = "https://nbapi.win/v1"`, `wire_api = "responses"`, and `model = "gpt-6-sol"`.
 
 ## 2026-09-23 dynamic tier billing
 
@@ -40,7 +62,7 @@ Production:
 - `assets/nbapi.css`: extracted visual styles and responsive layout.
 - `assets/nbapi.js`: extracted browser logic, rendering, API calls, and event handlers.
 - `server.py`: API, authentication, SQLite migrations, upstream proxy, protocol bridge, billing, refunds, ZPAY, and static asset serving.
-- `tools/test_usage_parsing.py`: 30 regression tests covering usage parsing, dynamic tier selection, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
+- `tools/test_usage_parsing.py`: 37 regression tests covering usage parsing, dynamic tier selection, supplier routing, model management and discovery, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
 - `AGENTS.md`: context and safety instructions for future Codex work.
 
 The frontend extraction is behavior-preserving: CSS and JavaScript were copied byte-for-byte after line-ending normalization, and all 190 DOM IDs remain unchanged. `server.py` now serves only the fixed asset paths `/assets/nbapi.css` and `/assets/nbapi.js`; arbitrary filesystem paths are not exposed.
@@ -75,7 +97,7 @@ node --check assets/nbapi.js
 git diff --check
 ```
 
-Expected regression result: 30 tests pass.
+Expected regression result: 37 tests pass.
 
 For frontend changes, verify desktop and mobile widths, browser console errors, authentication visibility, and no horizontal overflow. For proxy or billing changes, also run a real low-cost streaming request against a controlled account and reconcile reservation, ledger amount, wallet balance, usage source, and upstream charge.
 

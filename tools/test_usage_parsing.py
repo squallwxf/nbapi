@@ -37,6 +37,9 @@ class UsageParsingTests(unittest.TestCase):
                         last_failure_at INTEGER
                     )"""
                 )
+                db.execute("CREATE TABLE models (name TEXT PRIMARY KEY, routing_mode TEXT NOT NULL DEFAULT 'legacy')")
+                db.execute("CREATE TABLE model_channels (model_name TEXT, channel_id INTEGER)")
+                db.execute("INSERT INTO models(name, routing_mode) VALUES ('gpt-5.5', 'legacy')")
                 db.executemany(
                     "INSERT INTO channels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [
@@ -503,12 +506,48 @@ class BillingStabilityTests(unittest.TestCase):
             )
             self.token_id = cursor.lastrowid
 
+    def admin_api_request(self, method, path, payload=None, token="test-super-session"):
+        app = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=app.handle_request)
+        thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", app.server_port, timeout=3)
+        try:
+            body = json.dumps(payload or {}).encode() if payload is not None else None
+            connection.request(method, path, body=body, headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            })
+            response = connection.getresponse()
+            data = json.loads(response.read() or b"{}")
+            return response.status, data
+        finally:
+            connection.close()
+            app.server_close()
+            thread.join(timeout=3)
+
+    def api_token_request(self, method, path, token=None):
+        app = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=app.handle_request)
+        thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", app.server_port, timeout=3)
+        try:
+            headers = {"Authorization": f"Bearer {token or self.token}"}
+            connection.request(method, path, headers=headers)
+            response = connection.getresponse()
+            data = json.loads(response.read() or b"{}")
+            return response.status, data
+        finally:
+            connection.close()
+            app.server_close()
+            thread.join(timeout=3)
+
     def test_reserve_and_settle_charge_exactly_once(self):
         with sqlite3.connect(server.DB_PATH) as db:
             first = server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-1", 3_000_000)
             duplicate = server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-1", 3_000_000)
             self.assertFalse(first["idempotent"])
             self.assertTrue(duplicate["idempotent"])
+
             self.assertEqual(db.execute("SELECT balance_micros FROM users WHERE id=?", (self.user_id,)).fetchone()[0], 7_000_000)
 
             settled = server.settle_billing(
@@ -527,6 +566,103 @@ class BillingStabilityTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT used_micros FROM api_tokens WHERE id=?", (self.token_id,)).fetchone()[0], 129_645)
             ledger = db.execute("SELECT amount_micros,input_tokens,output_tokens,cache_read_tokens,status FROM ledger WHERE request_id='request-1'").fetchall()
             self.assertEqual(ledger, [(129_645, 189_426, 2_840, 189_312, "charged")])
+
+    def test_gpt_6_sol_seed_is_hidden_explicit_and_idempotent(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            before_channels = db.execute("SELECT id, allowed_models FROM channels ORDER BY id").fetchall()
+            row = db.execute(
+                "SELECT active,routing_mode,api_protocol,endpoint,billing_unit,price_micros,input_price_micros,output_price_micros,cache_read_price_micros,cache_write_price_micros,pricing_mode,tier_threshold_tokens,tier2_input_price_micros,tier2_output_price_micros,tier2_cache_read_price_micros,tier2_cache_write_price_micros FROM models WHERE name='gpt-6-sol'"
+            ).fetchone()
+            source_prices = db.execute(
+                "SELECT billing_unit,price_micros,input_price_micros,output_price_micros,cache_read_price_micros,cache_write_price_micros,pricing_mode,tier_threshold_tokens,tier2_input_price_micros,tier2_output_price_micros,tier2_cache_read_price_micros,tier2_cache_write_price_micros FROM models WHERE name='gpt-5.6-sol'"
+            ).fetchone()
+            self.assertEqual(row[:4], (0, "explicit", "openai_responses", "/v1/responses"))
+            self.assertEqual(row[4:], source_prices)
+            self.assertEqual(server.model_supplier_ids(db, "gpt-6-sol"), [])
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM models WHERE name='gpt-6-sol'").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT id, allowed_models FROM channels ORDER BY id").fetchall(), before_channels)
+
+    def test_openai_model_list_returns_active_token_allowed_models(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("UPDATE models SET active=1 WHERE name='gpt-6-sol'")
+            db.execute("UPDATE api_tokens SET allowed_models='gpt-6-sol' WHERE id=?", (self.token_id,))
+        status, data = self.api_token_request("GET", "/v1/models")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["object"], "list")
+        self.assertEqual([item["id"] for item in data["data"]], ["gpt-6-sol"])
+        self.assertEqual(data["data"][0]["object"], "model")
+
+    def test_openai_model_list_requires_api_token(self):
+        status, data = self.api_token_request("GET", "/v1/models", token="invalid")
+        self.assertEqual(status, 401)
+        self.assertEqual(data["error"], "api_key_required")
+
+    def test_explicit_model_routes_only_to_assigned_suppliers(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            channels = db.execute("SELECT id FROM channels ORDER BY id").fetchall()
+            first_id, second_id = channels[0][0], channels[1][0]
+            db.execute("UPDATE channels SET active=1, upstream_api_key='key', allowed_models='' WHERE id IN (?,?)", (first_id, second_id))
+            db.execute("INSERT INTO model_channels(model_name,channel_id,created_at) VALUES ('gpt-6-sol',?,?)", (second_id, server.now()))
+            explicit_routes = server.get_upstream_routes(db, "gpt-6-sol")
+            legacy_routes = server.get_upstream_routes(db, "gpt-5.5")
+        self.assertEqual([route["channel_id"] for route in explicit_routes], [second_id])
+        self.assertEqual([route["channel_id"] for route in legacy_routes], [first_id, second_id])
+
+    def test_admin_model_api_requires_supplier_and_hides_after_supplier_delete(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            super_id = db.execute("SELECT id FROM users WHERE role='super_admin'").fetchone()[0]
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-super-session',?,?)", (super_id, server.now() + 3600))
+            admin_id = db.execute(
+                "INSERT INTO users(username,email,password_hash,role,active,balance_micros,created_at) VALUES ('api-admin','',?,'admin',1,0,?)",
+                (server.hash_password("password"), server.now()),
+            ).lastrowid
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-admin-session',?,?)", (admin_id, server.now() + 3600))
+            channel_id = db.execute("SELECT id FROM channels ORDER BY id LIMIT 1").fetchone()[0]
+        status, data = self.admin_api_request("GET", "/api/admin/models", token="test-admin-session")
+        self.assertEqual((status, data["error"]), (403, "super_admin_only"))
+        payload = {
+            "name": "api-test-model", "providerLabel": "API Test", "provider": "OpenAI", "kind": "对话模型",
+            "billingUnit": "per_token", "pricingMode": "static", "apiProtocol": "openai_responses",
+            "inputPrice": "1", "outputPrice": "2", "supplierIds": [], "active": True,
+        }
+        status, data = self.admin_api_request("POST", "/api/admin/models", payload)
+        self.assertEqual((status, data["error"]), (400, "active_model_requires_supplier"))
+        payload["supplierIds"] = [channel_id]
+        status, data = self.admin_api_request("POST", "/api/admin/models", payload)
+        self.assertEqual(status, 201)
+        self.assertEqual(data["model"]["supplierIds"], [channel_id])
+        status, data = self.admin_api_request("DELETE", f"/api/admin/channels/{channel_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("api-test-model", data["hiddenModels"])
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute("SELECT active FROM models WHERE name='api-test-model'").fetchone()[0], 0)
+
+    def test_super_admin_can_create_supplier_with_all_fields(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            super_id = db.execute("SELECT id FROM users WHERE role='super_admin'").fetchone()[0]
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-super-session',?,?)", (super_id, server.now() + 3600))
+        payload = {
+            "name": "qiaomo",
+            "upstreamBaseUrl": "https://qiaomoapi.cn/v1",
+            "upstreamApiKey": "provider-secret",
+            "priority": "100",
+            "note": "格斗",
+            "allowedModels": "gpt-6-sol",
+            "active": True,
+        }
+        status, data = self.admin_api_request("POST", "/api/admin/channels", payload)
+        self.assertEqual(status, 201)
+        self.assertEqual(data["channel"]["name"], "qiaomo")
+        self.assertEqual(data["channel"]["allowedModels"], ["gpt-6-sol"])
+        self.assertTrue(data["channel"]["upstreamApiKeySet"])
+        with sqlite3.connect(server.DB_PATH) as db:
+            row = db.execute(
+                "SELECT name,upstream_base_url,upstream_api_key,priority,note,allowed_models,active FROM channels WHERE name='qiaomo'"
+            ).fetchone()
+        self.assertEqual(row, ("qiaomo", "https://qiaomoapi.cn/v1", "provider-secret", 100, "格斗", "gpt-6-sol", 1))
+
 
     def test_failed_call_refunds_reservation_exactly_once(self):
         with sqlite3.connect(server.DB_PATH) as db:

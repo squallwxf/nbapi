@@ -120,6 +120,32 @@
     const managerCustomerList = document.getElementById("managerCustomerList");
     const refreshPricing = document.getElementById("refreshPricing");
     const pricingList = document.getElementById("pricingList");
+    const openModelEditor = document.getElementById("openModelEditor");
+    const modelEditorModal = document.getElementById("modelEditorModal");
+    const modelEditorMode = document.getElementById("modelEditorMode");
+    const modelEditorTitle = document.getElementById("modelEditorTitle");
+    const closeModelEditor = document.getElementById("closeModelEditor");
+    const cancelModelEditor = document.getElementById("cancelModelEditor");
+    const saveModelEditor = document.getElementById("saveModelEditor");
+    const modelNameInput = document.getElementById("modelNameInput");
+    const modelLabelInput = document.getElementById("modelLabelInput");
+    const modelProviderInput = document.getElementById("modelProviderInput");
+    const modelKindInput = document.getElementById("modelKindInput");
+    const modelProtocolInput = document.getElementById("modelProtocolInput");
+    const modelBillingInput = document.getElementById("modelBillingInput");
+    const modelPricingModeInput = document.getElementById("modelPricingModeInput");
+    const modelThresholdInput = document.getElementById("modelThresholdInput");
+    const modelTaskPriceInput = document.getElementById("modelTaskPriceInput");
+    const modelInputPriceInput = document.getElementById("modelInputPriceInput");
+    const modelOutputPriceInput = document.getElementById("modelOutputPriceInput");
+    const modelCacheReadInput = document.getElementById("modelCacheReadInput");
+    const modelCacheWriteInput = document.getElementById("modelCacheWriteInput");
+    const modelTier2Input = document.getElementById("modelTier2Input");
+    const modelTier2Output = document.getElementById("modelTier2Output");
+    const modelTier2CacheRead = document.getElementById("modelTier2CacheRead");
+    const modelTier2CacheWrite = document.getElementById("modelTier2CacheWrite");
+    const modelSupplierOptions = document.getElementById("modelSupplierOptions");
+    const modelActiveInput = document.getElementById("modelActiveInput");
     const refreshChannels = document.getElementById("refreshChannels");
     const userManagementList = document.getElementById("userManagementList");
     const userSearch = document.getElementById("userSearch");
@@ -128,7 +154,9 @@
     const nextUsersPage = document.getElementById("nextUsersPage");
     const usersPageInfo = document.getElementById("usersPageInfo");
     const channelList = document.getElementById("channelList");
+    const createChannelForm = document.getElementById("createChannelForm");
     const createChannelButton = document.getElementById("createChannel");
+    const channelCreateStatus = document.getElementById("channelCreateStatus");
     const newChannelName = document.getElementById("newChannelName");
     const newChannelUrl = document.getElementById("newChannelUrl");
     const newChannelKey = document.getElementById("newChannelKey");
@@ -169,6 +197,8 @@
     let isSuperAdmin = false;
     let activeApiKey = localStorage.getItem("nbapi-active-api-key") || "";
     let announcements = [];
+    let adminChannels = [];
+    let editingModelName = "";
 
     function tokenCacheKey() {
       return currentUser ? `nbapi-token-cache:${currentUser.username}` : "nbapi-token-cache:guest";
@@ -692,7 +722,7 @@
           <td>${token ? `<input class="auth-input" data-tier2-output-price type="number" min="0" step="0.000001" value="${pricing.tier2OutputPrice || 0}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-tier2-cache-read-price type="number" min="0" step="0.000001" value="${pricing.tier2CacheReadPrice || 0}" />` : "-"}</td>
           <td>${token ? `<input class="auth-input" data-tier2-cache-write-price type="number" min="0" step="0.000001" value="${pricing.tier2CacheWritePrice || 0}" />` : "-"}</td>
-          <td><div class="auth-actions"><button class="btn primary" type="button" data-save-pricing>保存</button><button class="btn" type="button" data-toggle-model>${active ? "隐藏" : "显示"}</button><button class="btn" type="button" data-delete-model>永久删除</button></div></td></tr>`;
+          <td><div class="auth-actions"><button class="btn primary" type="button" data-save-pricing>保存价格</button>${catalogItem?.routingMode === "explicit" ? '<button class="btn" type="button" data-config-model>配置</button>' : ""}<button class="btn" type="button" data-toggle-model>${active ? "隐藏" : "显示"}</button><button class="btn danger" type="button" data-delete-model>永久删除</button></div></td></tr>`;
       }).join("");
       pricingList.querySelectorAll("[data-save-pricing]").forEach((button) => button.addEventListener("click", async () => {
         const row = button.closest("[data-pricing-model]");
@@ -718,6 +748,10 @@
           showToast(`${name} 已${hidden ? "显示" : "隐藏"}`);
         } catch (error) { alert(error.message); }
       }));
+      pricingList.querySelectorAll("[data-config-model]").forEach((button) => button.addEventListener("click", () => {
+        const name = button.closest("[data-pricing-model]").dataset.pricingModel;
+        openModelEditorModal(serverModelCatalog.find((item) => item.name === name));
+      }));
       pricingList.querySelectorAll("[data-delete-model]").forEach((button) => button.addEventListener("click", async () => {
         const row = button.closest("[data-pricing-model]");
         const name = row.dataset.pricingModel;
@@ -732,8 +766,109 @@
 
     async function loadModelPricing() {
       if (!isSuperAdmin || !sessionToken) return;
-      await loadModelCatalog();
-      renderPricingTable();
+      try {
+        const data = await apiRequest("/api/admin/models");
+        serverModelCatalog = data.models || [];
+        serverModelPricing = Object.fromEntries(serverModelCatalog.map((item) => [item.name, { amount: Number(item.price || 0), unit: item.billingUnit, inputPrice: Number(item.inputPrice || item.price || 0), outputPrice: Number(item.outputPrice || item.price || 0), cacheReadPrice: Number(item.cacheReadPrice || 0), cacheWritePrice: Number(item.cacheWritePrice || 0), pricingMode: item.pricingMode || "static", tierThresholdTokens: Number(item.tierThresholdTokens || 0), tier2InputPrice: Number(item.tier2InputPrice || 0), tier2OutputPrice: Number(item.tier2OutputPrice || 0), tier2CacheReadPrice: Number(item.tier2CacheReadPrice || 0), tier2CacheWritePrice: Number(item.tier2CacheWritePrice || 0) }]));
+        modelCatalogLoaded = true;
+        renderPricingTable();
+        populatePlaygroundModels();
+        renderDocsModelList();
+        renderModelSquare();
+      } catch (error) {
+        pricingList.innerHTML = `<tr><td colspan="15" class="muted">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    function syncModelEditorPricingFields() {
+      const perToken = modelBillingInput.value === "per_token";
+      const dynamic = perToken && modelPricingModeInput.value === "dynamic";
+      document.querySelectorAll(".model-token-price").forEach((field) => { field.style.display = perToken ? "grid" : "none"; });
+      document.querySelectorAll(".model-tier2-price").forEach((field) => { field.style.display = dynamic ? "grid" : "none"; });
+      document.querySelectorAll(".model-task-price").forEach((field) => { field.style.display = perToken ? "none" : "grid"; });
+      modelPricingModeInput.disabled = !perToken;
+      modelThresholdInput.disabled = !dynamic;
+    }
+
+    function renderModelSupplierOptions(selectedIds = []) {
+      const selected = new Set((selectedIds || []).map(Number));
+      modelSupplierOptions.innerHTML = adminChannels.length ? adminChannels.map((channel) => `<label class="supplier-choice"><input type="checkbox" value="${channel.id}" ${selected.has(Number(channel.id)) ? "checked" : ""} /><span><strong>${escapeHtml(channel.name)}</strong><small>${channel.active ? "已启用" : "已停用"} · 优先级 ${Number(channel.priority)}</small></span></label>`).join("") : '<span class="muted">暂无供应商，请先在供应商管理中创建。</span>';
+    }
+
+
+    async function openModelEditorModal(model = null) {
+      if (!adminChannels.length) {
+        const data = await apiRequest("/api/admin/channels");
+        adminChannels = data.items || [];
+      }
+      editingModelName = model?.name || "";
+      modelEditorMode.textContent = model ? "编辑" : "新建";
+      modelEditorTitle.textContent = model ? `配置 ${model.name}` : "新增模型";
+      modelNameInput.value = model?.name || "";
+      modelNameInput.disabled = Boolean(model);
+      modelLabelInput.value = model?.providerLabel || "";
+      modelProviderInput.value = model?.provider || "";
+      modelKindInput.value = model?.kind || "对话模型";
+      modelProtocolInput.value = model?.apiProtocol || "openai_chat";
+      modelBillingInput.value = model?.billingUnit || "per_token";
+      modelPricingModeInput.value = model?.pricingMode || "static";
+      modelThresholdInput.value = Number(model?.tierThresholdTokens || 0);
+      modelTaskPriceInput.value = Number(model?.price || 0);
+      modelInputPriceInput.value = Number(model?.inputPrice || 0);
+      modelOutputPriceInput.value = Number(model?.outputPrice || 0);
+      modelCacheReadInput.value = Number(model?.cacheReadPrice || 0);
+      modelCacheWriteInput.value = Number(model?.cacheWritePrice || 0);
+      modelTier2Input.value = Number(model?.tier2InputPrice || 0);
+      modelTier2Output.value = Number(model?.tier2OutputPrice || 0);
+      modelTier2CacheRead.value = Number(model?.tier2CacheReadPrice || 0);
+      modelTier2CacheWrite.value = Number(model?.tier2CacheWritePrice || 0);
+      modelActiveInput.checked = Boolean(model?.active);
+      modelActiveInput.disabled = Boolean(model);
+      renderModelSupplierOptions(model?.supplierIds || []);
+      syncModelEditorPricingFields();
+      modelEditorModal.classList.add("show");
+      modelEditorModal.setAttribute("aria-hidden", "false");
+      modelNameInput.focus();
+    }
+
+    function closeModelEditorModal() {
+      modelEditorModal.classList.remove("show");
+      modelEditorModal.setAttribute("aria-hidden", "true");
+      editingModelName = "";
+    }
+
+    function modelEditorPayload() {
+      const supplierIds = Array.from(modelSupplierOptions.querySelectorAll("input:checked")).map((input) => Number(input.value));
+      return {
+        name: modelNameInput.value.trim(), providerLabel: modelLabelInput.value.trim(), provider: modelProviderInput.value.trim(), kind: modelKindInput.value,
+        apiProtocol: modelProtocolInput.value, billingUnit: modelBillingInput.value, pricingMode: modelPricingModeInput.value,
+        price: modelTaskPriceInput.value, inputPrice: modelInputPriceInput.value, outputPrice: modelOutputPriceInput.value,
+        cacheReadPrice: modelCacheReadInput.value, cacheWritePrice: modelCacheWriteInput.value, tierThresholdTokens: modelThresholdInput.value,
+        tier2InputPrice: modelTier2Input.value, tier2OutputPrice: modelTier2Output.value, tier2CacheReadPrice: modelTier2CacheRead.value,
+        tier2CacheWritePrice: modelTier2CacheWrite.value, supplierIds, active: modelActiveInput.checked
+      };
+    }
+
+    async function saveModelConfiguration() {
+      const payload = modelEditorPayload();
+      saveModelEditor.disabled = true;
+      try {
+        if (editingModelName) {
+          delete payload.name;
+          delete payload.active;
+          await apiRequest(`/api/admin/models/${encodeURIComponent(editingModelName)}`, { method: "PUT", body: JSON.stringify(payload) });
+          showToast(`${editingModelName} 配置已保存`);
+        } else {
+          await apiRequest("/api/admin/models", { method: "POST", body: JSON.stringify(payload) });
+          showToast(`${payload.name} 已创建`);
+        }
+        closeModelEditorModal();
+        await Promise.all([loadModelPricing(), loadAdminChannels()]);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        saveModelEditor.disabled = false;
+      }
     }
 
     function renderUserCard(user) {
@@ -822,6 +957,7 @@
       const healthClass = channel.healthStatus === "healthy" ? "green" : channel.healthStatus === "unhealthy" ? "orange" : "gray";
       const healthText = healthLabels[channel.healthStatus] || "未检测";
       const errorText = channel.lastError ? `最近错误：${channel.lastError}` : "尚无失败记录";
+      const assignedText = channel.assignedModels?.length ? channel.assignedModels.join("、") : "暂无显式关联模型";
       return `
         <div class="management-card" data-channel-id="${channel.id}">
           <div class="management-top">
@@ -842,11 +978,13 @@
             <label>支持模型</label>
             <textarea class="auth-input" rows="3" placeholder="留空表示支持全部模型" data-channel-models>${(channel.allowedModels || []).map(escapeHtml).join("\n")}</textarea>
           </div>
+          <small class="muted">新模型关联：${escapeHtml(assignedText)}</small>
           <small class="muted">连续失败：${Number(channel.consecutiveFailures || 0)}；${escapeHtml(errorText)}</small>
           <div class="auth-actions">
             <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" ${channel.active ? "checked" : ""} data-channel-active /> 启用渠道</label>
             <button class="btn" type="button" data-test-channel>测试渠道</button>
             <button class="btn primary" type="button" data-save-channel>保存修改</button>
+            <button class="btn danger" type="button" data-delete-channel>删除供应商</button>
           </div>
         </div>`;
     }
@@ -858,7 +996,8 @@
       }
       try {
         const data = await apiRequest("/api/admin/channels");
-        channelList.innerHTML = data.items.length ? data.items.map(renderChannelCard).join("") : "<small>暂无渠道。</small>";
+        adminChannels = data.items || [];
+        channelList.innerHTML = adminChannels.length ? adminChannels.map(renderChannelCard).join("") : "<small>暂无供应商。</small>";
         channelList.querySelectorAll("[data-save-channel]").forEach((button) => {
           button.addEventListener("click", async () => {
             const card = button.closest("[data-channel-id]");
@@ -900,39 +1039,78 @@
             }
           });
         });
+        channelList.querySelectorAll("[data-delete-channel]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const card = button.closest("[data-channel-id]");
+            const channel = adminChannels.find((item) => String(item.id) === card.dataset.channelId);
+            if (!confirm(`确定删除供应商 ${channel?.name || ""} 吗？失去最后一个供应商的新模型会自动隐藏。`)) return;
+            try {
+              const result = await apiRequest(`/api/admin/channels/${card.dataset.channelId}`, { method: "DELETE" });
+              const suffix = result.hiddenModels?.length ? `；已隐藏模型：${result.hiddenModels.join("、")}` : "";
+              showToast(`供应商已删除${suffix}`);
+              await Promise.all([loadAdminChannels(), loadModelPricing()]);
+            } catch (error) { alert(error.message); }
+          });
+        });
       } catch (error) {
         channelList.innerHTML = `<small>${error.message}</small>`;
       }
     }
 
-    async function createChannel() {
+    function channelCreateErrorMessage(error) {
+      const messages = {
+        channel_name_required: "请填写渠道名称。",
+        invalid_upstream_url: "请填写以 http:// 或 https:// 开头的上游地址。",
+        invalid_priority: "优先级必须是大于或等于 0 的数字。",
+        channel_name_exists: "该渠道名称已存在，请换一个名称。",
+        super_admin_only: "只有超级管理员可以创建供应商。"
+      };
+      return messages[error.message] || `创建失败：${error.message}`;
+    }
+
+    async function createChannel(event) {
+      event?.preventDefault();
       if (!isSuperAdmin || !sessionToken) {
-        alert("请先登录超级管理员账号。");
+        channelCreateStatus.textContent = "请先登录超级管理员账号。";
+        channelCreateStatus.classList.add("error");
         return;
       }
+      if (!createChannelForm.reportValidity()) return;
+      const formData = new FormData(createChannelForm);
+      const payload = {
+        name: String(formData.get("name") || "").trim(),
+        upstreamBaseUrl: String(formData.get("upstreamBaseUrl") || "").trim(),
+        upstreamApiKey: String(formData.get("upstreamApiKey") || ""),
+        priority: String(formData.get("priority") || "100"),
+        note: String(formData.get("note") || "").trim(),
+        allowedModels: String(formData.get("allowedModels") || ""),
+        active: true
+      };
+      if (!payload.name) {
+        newChannelName.focus();
+        channelCreateStatus.textContent = "请填写渠道名称。";
+        channelCreateStatus.classList.add("error");
+        return;
+      }
+      createChannelButton.disabled = true;
+      createChannelButton.textContent = "创建中...";
+      channelCreateStatus.textContent = "正在保存供应商配置。";
+      channelCreateStatus.classList.remove("error");
       try {
         await apiRequest("/api/admin/channels", {
           method: "POST",
-          body: JSON.stringify({
-            name: newChannelName.value.trim(),
-            upstreamBaseUrl: newChannelUrl.value.trim(),
-            upstreamApiKey: newChannelKey.value,
-            priority: newChannelPriority.value,
-            note: newChannelNote.value.trim(),
-            allowedModels: newChannelModels.value,
-            active: true
-          })
+          body: JSON.stringify(payload)
         });
-        newChannelName.value = "";
-        newChannelUrl.value = "";
-        newChannelKey.value = "";
-        newChannelPriority.value = "100";
-        newChannelNote.value = "";
-        newChannelModels.value = "";
-        showToast("渠道已创建");
+        createChannelForm.reset();
+        channelCreateStatus.textContent = `${payload.name} 已创建。`;
+        showToast("供应商已创建");
         await loadAdminChannels();
       } catch (error) {
-        alert(error.message);
+        channelCreateStatus.textContent = channelCreateErrorMessage(error);
+        channelCreateStatus.classList.add("error");
+      } finally {
+        createChannelButton.disabled = false;
+        createChannelButton.textContent = "创建供应商";
       }
     }
 
@@ -1045,7 +1223,7 @@
         history.replaceState(null, "", `#${route}`);
       }
       if (route === "channels" && !isSuperAdmin) {
-        alert("供应商对接仅超级管理员可用。");
+        alert("供应商管理仅超级管理员可用。");
         route = currentUser ? "console" : "square";
         history.replaceState(null, "", `#${route}`);
       }
@@ -1057,6 +1235,7 @@
       if (route === "logs") loadUsageLogs();
       if (route === "pricing") loadModelPricing();
       if (route === "channels") loadAdminChannels();
+      if (route === "playground") loadModelCatalog();
       if (route === "users" && isSuperAdmin) loadManagerAccounts();
     }
     window.addEventListener("hashchange", applyRoute);
@@ -1098,7 +1277,7 @@
         const known = documentedModels.find((row) => row[0] === item.name);
         if (known) return known;
         const kind = item.kind || "对话模型";
-        const endpoint = kind === "图片生成" ? "/v1/images/generations" : kind.includes("视频") ? "/v1/videos" : "/v1/chat/completions";
+        const endpoint = item.endpoint || (kind === "图片生成" ? "/v1/images/generations" : kind.includes("视频") ? "/v1/videos" : "/v1/chat/completions");
         return [item.name, item.providerLabel || item.provider || "上游模型", item.provider || "Unknown", kind, endpoint, "a-blue", (item.provider || "N").slice(0, 1).toUpperCase(), item.billingUnit === "per_task" ? "按次" : "按 Token"];
     }
 
@@ -1286,6 +1465,9 @@
     }
 
     function playgroundResponseText(data) {
+      if (typeof data?.output_text === "string" && data.output_text) return data.output_text;
+      const responsesText = data?.output?.flatMap((item) => item?.content || []).map((part) => part?.text || part?.output_text || "").join("");
+      if (responsesText) return responsesText;
       const content = data?.choices?.[0]?.message?.content;
       if (Array.isArray(content)) return content.map((part) => part?.text || "").join("");
       if (typeof content === "string") return content;
@@ -1310,6 +1492,7 @@
       const modelMeta = getModelMeta(getPlaygroundModelRows().find((item) => item[0] === model));
       const isGemini = modelMeta.endpoint.includes("generateContent");
       const isClaude = modelMeta.provider === "Anthropic" || modelMeta.endpoint.includes("/v1/messages");
+      const isResponses = modelMeta.endpoint === "/v1/responses";
       const isGeminiImage = isGemini && modelMeta.kind === "图片生成";
       const isAsyncMedia = modelMeta.kind === "图片生成" || modelMeta.kind.includes("视频");
       const userMessage = { role: "user", content: prompt };
@@ -1318,7 +1501,7 @@
       playgroundPrompt.value = "";
       playgroundStatus.textContent = `正在调用 ${model}，请稍候...`;
       try {
-        const endpoint = isGemini ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : isClaude ? "/v1/messages" : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
+        const endpoint = isGemini ? `/v1beta/models/${encodeURIComponent(model)}:generateContent` : isClaude ? "/v1/messages" : isResponses ? "/v1/responses" : modelMeta.kind === "图片生成" ? "/v1/images/generations" : modelMeta.kind.includes("视频") ? (model.startsWith("sora-v3-") ? "/v1/video/submit/generate" : "/v1/videos") : "/v1/chat/completions";
         const selectedVideoResolution = playgroundVideoResolution.value;
         const resolvedVideoModel = modelMeta.kind.includes("视频") ? resolveVideoModel(model, selectedVideoResolution) : model;
         const requestBody = isGeminiImage
@@ -1335,7 +1518,9 @@
                   : { model: resolvedVideoModel, prompt, ...(model.startsWith("veo-") ? {} : { seconds: String(playgroundVideoDuration.value) }), aspect_ratio: playgroundVideoRatio.value, n: 1 }
               : isClaude
                 ? { model, messages: playgroundConversation.map((message) => ({ role: message.role, content: message.content })), temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), max_tokens: Number(playgroundMaxTokens.value), stream: false }
-                : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
+                : isResponses
+                  ? { model, input: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), max_output_tokens: Number(playgroundMaxTokens.value), stream: false }
+                  : { model, messages: playgroundConversation, temperature: Number(playgroundTemperature.value), top_p: Number(playgroundTopP.value), frequency_penalty: Number(playgroundFrequencyPenalty.value), presence_penalty: Number(playgroundPresencePenalty.value), max_tokens: Number(playgroundMaxTokens.value), stream: false };
         const requestId = `playground-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
         const response = await fetch(`${API_BASE}${endpoint}`, {
           method: "POST",
@@ -1865,6 +2050,13 @@
     generateUserCredentials.addEventListener("click", generateManagedCredentials);
     createManagedUser.addEventListener("click", createManagedAccount);
     refreshPricing.addEventListener("click", loadModelPricing);
+    openModelEditor?.addEventListener("click", () => openModelEditorModal().catch((error) => alert(error.message)));
+    closeModelEditor?.addEventListener("click", closeModelEditorModal);
+    cancelModelEditor?.addEventListener("click", closeModelEditorModal);
+    saveModelEditor?.addEventListener("click", saveModelConfiguration);
+    modelBillingInput?.addEventListener("change", syncModelEditorPricingFields);
+    modelPricingModeInput?.addEventListener("change", syncModelEditorPricingFields);
+    modelEditorModal?.addEventListener("click", (event) => { if (event.target === modelEditorModal) closeModelEditorModal(); });
     refreshChannels?.addEventListener("click", loadAdminChannels);
     refreshUsageLogs.addEventListener("click", loadUsageLogs);
     queryUsageLogs.addEventListener("click", () => { usageLogsPage = 1; loadUsageLogs(); });
@@ -1873,7 +2065,7 @@
     usagePageSize.addEventListener("change", () => { usageLogsPage = 1; loadUsageLogs(); });
     usagePrevPage.addEventListener("click", () => { if (usageLogsPage > 1) { usageLogsPage -= 1; loadUsageLogs(); } });
     usageNextPage.addEventListener("click", () => { if (usageLogsPage < usageLogsTotalPages) { usageLogsPage += 1; loadUsageLogs(); } });
-    createChannelButton?.addEventListener("click", createChannel);
+    createChannelForm?.addEventListener("submit", createChannel);
     userSearch.addEventListener("input", () => {
       usersPage = 1;
       loadAdminUsers();
