@@ -44,7 +44,7 @@ ALLOWED_ORIGINS = {
     ).split(",")
     if origin.strip()
 }
-MAX_REQUEST_BODY = int(os.environ.get("NBAPI_MAX_REQUEST_BODY", "52428800"))
+MAX_REQUEST_BODY = int(os.environ.get("NBAPI_MAX_REQUEST_BODY", "524288000"))
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 10
 UPSTREAM_TIMEOUT = int(os.environ.get("NBAPI_UPSTREAM_TIMEOUT", "90"))

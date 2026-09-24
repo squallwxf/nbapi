@@ -11,6 +11,7 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name nbapi.win www.nbapi.win;
+    client_max_body_size 500m;
 
     ssl_certificate /etc/nginx/ssl/nbapi.crt;
     ssl_certificate_key /etc/nginx/ssl/nbapi.key;
