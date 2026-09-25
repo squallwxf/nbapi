@@ -7,6 +7,8 @@ Updated: 2026-09-25
 - Added the transparent client alias `gpt-6` for the canonical `gpt-6-sol` model because current Codex clients recognize `gpt-6` but do not expose `gpt-6-sol` in their built-in picker.
 - `/v1/models` now publishes both IDs when `gpt-6-sol` is active and allowed for the token. Requests using `gpt-6` are normalized before authorization, supplier routing, reservation, settlement and ledger writes; the supplier always receives `gpt-6-sol`.
 - The model plaza labels the Codex compatibility name and remains searchable by either ID. Pricing and historical identity remain attached only to `gpt-6-sol`.
+- Deployed to `195.72.185.130` on 2026-09-25. Database and replaced-source backups are in `/opt/nbapi-backups/alias-20260925-123901`; checksums are recorded in that directory.
+- Production verification returned HTTP `200` through the `gpt-6` alias with authoritative usage of 3,714 input and 5 output tokens. The ledger recorded canonical model `gpt-6-sol`, charge `$0.007354`, and `openai_compatible` usage; the supplier remained healthy. The verification charge was fully returned to the affected account with a `deployment_test_refund` audit transaction.
 
 ## 2026-09-25 explicit model supplier management
 
