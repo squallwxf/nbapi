@@ -2,6 +2,12 @@
 
 Updated: 2026-09-25
 
+## 2026-09-25 Codex compatibility alias
+
+- Added the transparent client alias `gpt-6` for the canonical `gpt-6-sol` model because current Codex clients recognize `gpt-6` but do not expose `gpt-6-sol` in their built-in picker.
+- `/v1/models` now publishes both IDs when `gpt-6-sol` is active and allowed for the token. Requests using `gpt-6` are normalized before authorization, supplier routing, reservation, settlement and ledger writes; the supplier always receives `gpt-6-sol`.
+- The model plaza labels the Codex compatibility name and remains searchable by either ID. Pricing and historical identity remain attached only to `gpt-6-sol`.
+
 ## 2026-09-25 explicit model supplier management
 
 - Added `gpt-6-sol` as a hidden OpenAI Responses model with the same approved dynamic two-tier prices and `272K` threshold as `gpt-5.6-sol`. It has no supplier assignment by default and cannot be shown until a super administrator assigns at least one supplier.
@@ -12,7 +18,7 @@ Updated: 2026-09-25
 - The pricing page can create and configure models with protocol, pricing, visibility and multiple supplier selections. Supported protocol metadata covers OpenAI Chat/Responses, Anthropic Messages, Gemini Generate Content, images and videos.
 - `/api/admin/models` provides super-admin model creation/listing; the existing model update endpoint now supports metadata and explicit supplier assignments. Public `/api/models` includes protocol and endpoint metadata without exposing API keys.
 - The playground recognizes OpenAI Responses models and extracts Responses API output text. Frontend JavaScript uses release query `v=20260925.3` so the model list refresh fix is not hidden by browser or CDN caches.
-- Regression coverage is now 37 tests, including seed idempotency, legacy routing preservation, explicit supplier routing, API validation, model discovery and automatic hiding after supplier deletion.
+- Regression coverage is now 39 tests, including seed idempotency, legacy routing preservation, explicit supplier routing, alias normalization, API validation, model discovery and automatic hiding after supplier deletion.
 
 ### New-server deployment status
 
@@ -62,7 +68,7 @@ Production:
 - `assets/nbapi.css`: extracted visual styles and responsive layout.
 - `assets/nbapi.js`: extracted browser logic, rendering, API calls, and event handlers.
 - `server.py`: API, authentication, SQLite migrations, upstream proxy, protocol bridge, billing, refunds, ZPAY, and static asset serving.
-- `tools/test_usage_parsing.py`: 37 regression tests covering usage parsing, dynamic tier selection, supplier routing, model management and discovery, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
+- `tools/test_usage_parsing.py`: 39 regression tests covering usage parsing, dynamic tier selection, supplier routing, model aliases, model management and discovery, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
 - `AGENTS.md`: context and safety instructions for future Codex work.
 
 The frontend extraction is behavior-preserving: CSS and JavaScript were copied byte-for-byte after line-ending normalization, and all 190 DOM IDs remain unchanged. `server.py` now serves only the fixed asset paths `/assets/nbapi.css` and `/assets/nbapi.js`; arbitrary filesystem paths are not exposed.
@@ -97,7 +103,7 @@ node --check assets/nbapi.js
 git diff --check
 ```
 
-Expected regression result: 37 tests pass.
+Expected regression result: 39 tests pass.
 
 For frontend changes, verify desktop and mobile widths, browser console errors, authentication visibility, and no horizontal overflow. For proxy or billing changes, also run a real low-cost streaming request against a controlled account and reconcile reservation, ledger amount, wallet balance, usage source, and upstream charge.
 

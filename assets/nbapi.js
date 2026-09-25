@@ -1242,13 +1242,15 @@
 
     function getModelMeta(model) {
       const [name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode] = model;
+      const catalogItem = serverModelCatalog.find((item) => item.name === name);
+      const clientAliases = Array.isArray(catalogItem?.clientAliases) ? catalogItem.clientAliases : [];
       const tags = [];
       if (name.includes("720p")) tags.push("720p");
       if (/(fast|speed)/i.test(name)) tags.push("速度快");
       if (/(pro|quality)/i.test(name)) tags.push("稳定");
       if (/(edit|components)/i.test(name) || kind.includes("视频")) tags.push("支持真人");
       const endpointType = endpoint.includes("generateContent") ? "gemini" : endpoint.includes("messages") ? "anthropic" : "openai";
-      return { name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode, tags, endpointType };
+      return { name, providerLabel, provider, kind, endpoint, avatarClass, initial, mode, tags, endpointType, clientAliases };
     }
 
     const defaultModelPricing = Object.fromEntries(documentedModels.map(([name, providerLabel, provider, kind]) => [name, {
@@ -1702,7 +1704,7 @@
       const query = (modelSearch?.value || "").trim().toLowerCase();
       const modelRows = getPlaygroundModelRows();
       const visibleModels = modelRows.map(getModelMeta).filter((model) =>
-        `${model.name} ${model.providerLabel} ${model.provider} ${model.kind} ${model.tags.join(" ")} ${model.endpointType}`.toLowerCase().includes(query) &&
+        `${model.name} ${model.clientAliases.join(" ")} ${model.providerLabel} ${model.provider} ${model.kind} ${model.tags.join(" ")} ${model.endpointType}`.toLowerCase().includes(query) &&
         (selectedFilters.provider === "all" || model.provider === selectedFilters.provider) &&
         (selectedFilters.kind === "all" || model.kind === selectedFilters.kind) &&
         (selectedFilters.billing === "all" || getModelPricing(model.name, model.kind).unit === selectedFilters.billing) &&
@@ -1722,7 +1724,7 @@
             <button class="copy-model" type="button" data-copy-model="${model.name.replace(/"/g, "&quot;")}" title="复制模型名称" aria-label="复制 ${model.name}"><span class="copy-icon"></span></button>
           </div>
           ${showPlazaPrices ? `<div class="plaza-price">${priceMarkup}<br><span>计费方式：${pricing.unit === "per_token" ? "按 1M Token，按输入/输出分别计费" : "按次"}</span></div>` : ""}
-          <p class="plaza-description">${model.kind}，提交任务后通过对应查询接口获取结果。</p>
+          <p class="plaza-description">${model.kind}，提交任务后通过对应查询接口获取结果。${model.clientAliases.length ? ` Codex 中显示为 <code>${escapeHtml(model.clientAliases[0])}</code>，实际模型与计费均为 <code>${escapeHtml(model.name)}</code>。` : ""}</p>
           <div class="plaza-card-foot"><span class="tag green">已接入</span><span class="tag gray">${model.kind}</span><span class="tag blue">${model.mode}</span><code>${model.endpoint}</code></div>
         </article>
       `;

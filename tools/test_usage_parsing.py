@@ -591,13 +591,77 @@ class BillingStabilityTests(unittest.TestCase):
         status, data = self.api_token_request("GET", "/v1/models")
         self.assertEqual(status, 200)
         self.assertEqual(data["object"], "list")
-        self.assertEqual([item["id"] for item in data["data"]], ["gpt-6-sol"])
+        self.assertEqual([item["id"] for item in data["data"]], ["gpt-6-sol", "gpt-6"])
         self.assertEqual(data["data"][0]["object"], "model")
+
+    def test_gpt_6_alias_routes_bills_and_forwards_as_gpt_6_sol(self):
+        received_models = []
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+                received_models.append(payload.get("model"))
+                response = json.dumps({
+                    "id": "resp-alias", "object": "response", "output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+        upstream = HTTPServer(("127.0.0.1", 0), Upstream)
+        upstream_thread = threading.Thread(target=upstream.handle_request)
+        upstream_thread.start()
+        with sqlite3.connect(server.DB_PATH) as db:
+            channel_id = db.execute("SELECT id FROM channels ORDER BY id LIMIT 1").fetchone()[0]
+            db.execute("UPDATE models SET active=1 WHERE name='gpt-6-sol'")
+            db.execute(
+                "UPDATE channels SET active=1,upstream_base_url=?,upstream_api_key='provider-key' WHERE id=?",
+                (f"http://127.0.0.1:{upstream.server_port}", channel_id),
+            )
+            db.execute("INSERT INTO model_channels(model_name,channel_id,created_at) VALUES ('gpt-6-sol',?,?)", (channel_id, server.now()))
+
+        proxy = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        proxy_thread = threading.Thread(target=proxy.handle_request)
+        proxy_thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=3)
+        try:
+            connection.request(
+                "POST", "/v1/responses",
+                body=json.dumps({"model": "gpt-6", "input": "hello"}).encode(),
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}", "Idempotency-Key": "request-gpt-6-alias"},
+            )
+            response = connection.getresponse()
+            response.read()
+            self.assertEqual(response.status, 200)
+        finally:
+            connection.close()
+            proxy.server_close()
+            upstream.server_close()
+            proxy_thread.join(timeout=3)
+            upstream_thread.join(timeout=3)
+
+        self.assertEqual(received_models, ["gpt-6-sol"])
+        with sqlite3.connect(server.DB_PATH) as db:
+            ledger = db.execute(
+                "SELECT model_name,amount_micros,input_tokens,output_tokens,status FROM ledger WHERE request_id='request-gpt-6-alias'"
+            ).fetchone()
+        self.assertEqual(ledger, ("gpt-6-sol", 90, 10, 5, "charged"))
 
     def test_openai_model_list_requires_api_token(self):
         status, data = self.api_token_request("GET", "/v1/models", token="invalid")
         self.assertEqual(status, 401)
         self.assertEqual(data["error"], "api_key_required")
+
+    def test_model_alias_and_canonical_id_share_token_permission(self):
+        self.assertTrue(server.token_allows_model("gpt-6-sol", "gpt-6"))
+        self.assertTrue(server.token_allows_model("gpt-6", "gpt-6-sol"))
+        self.assertFalse(server.token_allows_model("gpt-6-astra", "gpt-6"))
 
     def test_explicit_model_routes_only_to_assigned_suppliers(self):
         with sqlite3.connect(server.DB_PATH) as db:

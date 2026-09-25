@@ -90,6 +90,12 @@ MODEL_PROTOCOL_ENDPOINTS = {
     "openai_video": "/v1/videos",
 }
 
+# Client-facing compatibility IDs are resolved before routing and billing.
+# The canonical ID remains the only identity sent upstream or stored in ledgers.
+MODEL_COMPATIBILITY_ALIASES = {
+    "gpt-6": "gpt-6-sol",
+}
+
 MODEL_ROWS = [
     ("T香蕉2", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
     ("T香蕉pro", "Gemini 图片", "Google", "图片生成", "per_task", 100000),
@@ -970,6 +976,14 @@ def extract_model_name(path: str, payload) -> str:
     return ""
 
 
+def canonical_model_name(model_name: str) -> str:
+    return MODEL_COMPATIBILITY_ALIASES.get(str(model_name or "").strip(), str(model_name or "").strip())
+
+
+def client_aliases_for_model(model_name: str) -> list[str]:
+    return [alias for alias, canonical in MODEL_COMPATIBILITY_ALIASES.items() if canonical == model_name]
+
+
 def extract_response_payload(body: bytes):
     """Extract response usage, merging the start and end events of SSE streams."""
     payload = try_parse_json_bytes(body)
@@ -1676,6 +1690,7 @@ def serialize_model_row(row) -> dict:
         "routingMode": row[17] if len(row) > 17 else "legacy",
         "apiProtocol": row[18] if len(row) > 18 and row[18] else infer_model_protocol(row[2], row[3]),
         "endpoint": row[19] if len(row) > 19 and row[19] else infer_model_endpoint(row[0], row[2], row[3]),
+        "clientAliases": client_aliases_for_model(row[0]),
     }
 
 
@@ -1736,7 +1751,8 @@ def split_lines(value: str) -> list[str]:
 
 def token_allows_model(allowed_models: str, model_name: str) -> bool:
     models = split_lines(allowed_models)
-    return not models or model_name in models
+    canonical = canonical_model_name(model_name)
+    return not models or any(canonical_model_name(item) == canonical for item in models)
 
 
 def token_allows_ip(ip_allowlist: str, client_ip: str) -> bool:
@@ -2299,7 +2315,12 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(length) if length else b""
         body_read_ms = round((time.perf_counter() - started_at) * 1000)
         payload = try_parse_json_bytes(body)
-        model_name = extract_model_name(path, payload)
+        requested_model_name = extract_model_name(path, payload)
+        model_name = canonical_model_name(requested_model_name)
+        if model_name != requested_model_name and isinstance(payload, dict):
+            payload = dict(payload)
+            payload["model"] = model_name
+            body = json_bytes(payload)
         idempotency_key = (
             str(self.headers.get("Idempotency-Key", "")).strip()
             or secrets.token_urlsafe(24)
@@ -2726,6 +2747,18 @@ class Handler(BaseHTTPRequestHandler):
                 for row in rows
                 if token_allows_model(api_user[9], row[0])
             ]
+            listed_ids = {item["id"] for item in models}
+            for alias, canonical in MODEL_COMPATIBILITY_ALIASES.items():
+                if alias in listed_ids:
+                    continue
+                canonical_row = next((row for row in rows if row[0] == canonical), None)
+                if canonical_row and token_allows_model(api_user[9], canonical):
+                    models.append({
+                        "id": alias,
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": str(canonical_row[1] or "nbapi").lower(),
+                    })
             self.send_json(200, {"object": "list", "data": models})
             return
         if self._proxy_upstream("GET"):
