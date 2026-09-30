@@ -584,6 +584,31 @@ class BillingStabilityTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM models WHERE name='gpt-6-sol'").fetchone()[0], 1)
             self.assertEqual(db.execute("SELECT id, allowed_models FROM channels ORDER BY id").fetchall(), before_channels)
 
+    def test_gpt_6_1_sol_seed_is_hidden_explicit_and_preserves_existing_prices(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            source = db.execute(
+                "SELECT billing_unit,input_price_micros,output_price_micros,pricing_mode,tier_threshold_tokens,tier2_input_price_micros,tier2_output_price_micros FROM models WHERE name='gpt-6-sol'"
+            ).fetchone()
+            seeded = db.execute(
+                "SELECT active,routing_mode,api_protocol,endpoint,billing_unit,input_price_micros,output_price_micros,pricing_mode,tier_threshold_tokens,tier2_input_price_micros,tier2_output_price_micros FROM models WHERE name='gpt-6.1-sol'"
+            ).fetchone()
+            self.assertEqual(seeded[:4], (0, "explicit", "openai_responses", "/v1/responses"))
+            self.assertEqual(seeded[4:], source)
+            self.assertEqual(server.model_supplier_ids(db, "gpt-6.1-sol"), [])
+            db.execute("UPDATE models SET input_price_micros=1234567 WHERE name='gpt-6.1-sol'")
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute("SELECT input_price_micros FROM models WHERE name='gpt-6.1-sol'").fetchone()[0], 1234567)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM models WHERE name='gpt-6.1-sol'").fetchone()[0], 1)
+
+    def test_gpt_6_1_sol_requires_supplier_before_discovery(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(server.get_upstream_routes(db, "gpt-6.1-sol"), [])
+            db.execute("UPDATE models SET active=1 WHERE name='gpt-6.1-sol'")
+        status, data = self.api_token_request("GET", "/v1/models")
+        self.assertEqual(status, 200)
+        self.assertIn("gpt-6.1-sol", [item["id"] for item in data["data"]])
+
     def test_openai_model_list_returns_active_token_allowed_models(self):
         with sqlite3.connect(server.DB_PATH) as db:
             db.execute("UPDATE models SET active=1 WHERE name='gpt-6-sol'")

@@ -1,6 +1,13 @@
 # NBAPI Current Handoff
 
-Updated: 2026-09-25
+Updated: 2026-09-30
+
+## 2026-09-30 GPT 6.1 Sol preparation
+
+- Added `gpt-6.1-sol` as a hidden, explicit-supplier OpenAI Responses model. The one-time seed copies the current `gpt-6-sol` pricing and dynamic tiers, then preserves any later super-admin price changes. It does not change the existing `gpt-6` alias or its canonical `gpt-6-sol` route.
+- Before making the new model visible, confirm the upstream supplier accepts the exact model ID `gpt-6.1-sol` through `/v1/responses`, assign that supplier in the model pricing page, and set the customer price from confirmed upstream pricing. The copied `gpt-6-sol` rates are provisional.
+- Codex support for the exact new ID depends on its installed client model picker/configuration. Do not repoint the existing `gpt-6` alias; if Codex rejects `gpt-6.1-sol` before sending an HTTP request, verify client support and choose an unused compatible alias only after checking for collisions.
+- Local regression tests cover seed idempotency, hidden state, supplier requirement and model discovery. No live upstream or Codex end-to-end verification has been completed for this new model.
 
 ## 2026-09-25 Codex compatibility alias
 

@@ -781,6 +781,24 @@ def init_db() -> None:
             )
             if db.execute("SELECT 1 FROM models WHERE name='gpt-6-sol'").fetchone():
                 set_setting(db, "gpt_6_sol_seed_version", "1")
+        if get_setting(db, "gpt_6_1_sol_seed_version") != "1":
+            db.execute(
+                """INSERT OR IGNORE INTO models
+                (name, provider_label, provider, kind, billing_unit, price_micros, active, updated_at,
+                 input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros,
+                 pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
+                 tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint)
+                SELECT 'gpt-6.1-sol', 'GPT 6.1 Sol', provider, kind, billing_unit,
+                       price_micros, 0, ?, input_price_micros, output_price_micros,
+                       cache_read_price_micros, cache_write_price_micros, pricing_mode,
+                       tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
+                       tier2_cache_read_price_micros, tier2_cache_write_price_micros,
+                       'explicit', 'openai_responses', '/v1/responses'
+                FROM models WHERE name='gpt-6-sol'""",
+                (timestamp,),
+            )
+            if db.execute("SELECT 1 FROM models WHERE name='gpt-6.1-sol'").fetchone():
+                set_setting(db, "gpt_6_1_sol_seed_version", "1")
         for name, upstream_base_url, upstream_api_key, active, priority, note in CHANNEL_ROWS:
             db.execute(
                 """INSERT OR IGNORE INTO channels
