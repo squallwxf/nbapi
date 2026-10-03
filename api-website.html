@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NBAPI | AI 模型聚合网关</title>
-  <link rel="stylesheet" href="assets/nbapi.css?v=20260925.2" />
+  <link rel="stylesheet" href="assets/nbapi.css?v=20261003.1" />
 </head>
 <body>
   <div class="app">
@@ -40,11 +40,11 @@
     </aside>
 
     <main class="main">
-      <div class="mobile-nav"><a class="chip auth-required active" href="#console">控制台</a><a class="chip auth-required" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
+      <div class="mobile-nav"><a class="chip auth-required active" href="#console">控制台</a><a class="chip auth-required" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip" href="#downloads">NB ai工具下载</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
       <header class="topbar">
-        <nav class="top-nav"><a class="auth-required active" href="#console">控制台</a><a class="auth-required" href="#playground">操练场</a><a href="#square">模型广场</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
+        <nav class="top-nav"><a class="auth-required active" href="#console">控制台</a><a class="auth-required" href="#playground">操练场</a><a href="#square">模型广场</a><a href="#downloads">NB ai工具下载</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
-          <span class="pill" id="balancePill" style="display:none;">余额 <strong class="account-balance" id="balanceDisplay">$ 0.00</strong></span>
+          <span class="pill" id="balancePill" style="display:none;">余额 <strong class="account-balance" id="balanceDisplay">¥ 0.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
           <span class="pill" id="adminState">访客</span>
           <a class="btn guest-only" id="authLogin" href="#login">登录</a>
@@ -55,6 +55,33 @@
       </header>
 
       <section class="content">
+        <section id="downloads" class="software-page">
+          <div class="panel software-intro"><div><h1>NB ai工具下载</h1><p class="muted">发现适合你的 AI 工具，查看软件界面、版本说明与安装要求。</p></div><button class="btn primary" id="softwareNew" type="button" hidden>上传软件</button></div>
+          <div class="software-toolbar"><input class="auth-input" id="softwareSearch" placeholder="搜索软件名称、功能或版本" aria-label="搜索软件" /><select class="auth-input" id="softwarePlatform" aria-label="筛选系统"><option value="">全部系统</option><option>Windows</option><option>macOS</option><option>Linux</option><option>跨平台</option></select><span class="muted" id="softwareCount"></span></div>
+          <div id="softwareStatus" class="muted" role="status"></div>
+          <div class="software-grid" id="softwareGrid"></div>
+          <section class="panel software-detail" id="softwareDetail" hidden></section>
+          <section class="panel software-editor" id="softwareEditor" hidden>
+            <div class="software-heading"><h2 id="softwareEditorTitle">上传软件</h2><button class="btn" id="softwareCancel" type="button">关闭</button></div>
+            <p class="muted">完善软件资料，上传安装包与真实界面截图。版本更新可作为新版本上传，旧版本仍可查看和下载。</p>
+            <form id="softwareForm">
+              <div class="software-form-grid">
+                <div class="auth-field"><label for="softwareName">软件名称 *</label><input class="auth-input" id="softwareName" name="name" required maxlength="80" /></div>
+                <div class="auth-field"><label for="softwareVersion">版本号 *</label><input class="auth-input" id="softwareVersion" name="version" required maxlength="40" placeholder="例如 1.0.0" /></div>
+                <div class="auth-field"><label for="softwareSystem">支持系统 *</label><select class="auth-input" id="softwareSystem" name="platform"><option>Windows</option><option>macOS</option><option>Linux</option><option>跨平台</option></select></div>
+                <div class="auth-field"><label for="softwareCategory">分类 *</label><select class="auth-input" id="softwareCategory" name="category"><option>AI 创作</option><option>图像处理</option><option>视频工具</option><option>效率工具</option><option>开发工具</option><option>其他</option></select></div>
+                <div class="auth-field full"><label for="softwareSummary">简短介绍 *</label><input class="auth-input" id="softwareSummary" name="summary" required maxlength="240" /></div>
+                <div class="auth-field full"><label for="softwareDescription">功能说明与安装方法 *</label><textarea class="auth-input" id="softwareDescription" name="description" required maxlength="12000" rows="5"></textarea></div>
+                <div class="auth-field"><label for="softwareRequirements">系统要求</label><textarea class="auth-input" id="softwareRequirements" name="requirements" maxlength="2000" rows="3" placeholder="操作系统、内存、显卡等"></textarea></div>
+                <div class="auth-field"><label for="softwareChangelog">版本更新说明</label><textarea class="auth-input" id="softwareChangelog" name="changelog" maxlength="6000" rows="3"></textarea></div>
+                <div class="auth-field full"><label for="softwareInstaller">软件安装包 *</label><input class="auth-input" id="softwareInstaller" type="file" multiple accept=".exe,.msi,.zip,.7z,.dmg,.pkg,.deb,.rpm,.AppImage,.gz" /><small class="muted">可同时选择 Windows、macOS 等多个安装包，共用截图与说明。每个不超过 1 GB（1024 MB），支持分片上传和完整性校验。编辑时选择文件可追加安装包，也可移除现有安装包。</small><div id="softwarePackages"></div></div>
+                <div class="auth-field full"><label for="softwareScreenshots">软件界面截图 *</label><input class="auth-input" id="softwareScreenshots" type="file" accept="image/png,image/jpeg,image/webp" multiple /><small class="muted">上传 1–6 张 PNG / JPG / WebP，每张不超过 8 MB。编辑时不选择即保留原截图。</small><div id="softwarePreview" class="software-preview"></div></div>
+              </div>
+              <label class="software-publish"><input type="checkbox" id="softwarePublished" checked /> 发布后允许用户下载（取消勾选可保存为草稿或下架）</label>
+              <div class="auth-actions"><button class="btn primary" id="softwareSubmit" type="submit">保存并发布</button><span class="muted" id="softwareUploadStatus" role="status"></span></div>
+            </form>
+          </section>
+        </section>
         <section class="auth-shell" id="login">
           <div class="auth-card auth-hero">
             <div class="auth-brand">
@@ -403,6 +430,13 @@ console.log(result.choices[0].message.content);</pre></div></section>
                 <button class="btn" id="refreshUsers" type="button">刷新用户</button>
               </div>
               <p class="muted">管理员可查看用户并创建普通用户；超级管理员可设置余额和调整普通用户、管理员的权限。</p>
+              <div class="management-card" id="ownBalancePanel" style="display:none;">
+                <strong>我的余额（超级管理员）</strong>
+                <div class="auth-field"><label for="ownBalanceInput">账户余额（人民币）</label><input class="auth-input" id="ownBalanceInput" type="number" min="0" max="1000000" step="0.000001" /></div>
+                <p class="muted">输入保存后的余额总额。</p>
+                <div class="auth-actions"><button class="btn primary" id="saveOwnBalance" type="button">保存我的余额</button></div>
+                <small class="muted" id="ownBalanceStatus" role="status"></small>
+              </div>
               <div class="management-card">
                 <strong>添加用户</strong>
                 <div class="management-fields">
@@ -472,7 +506,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         <section class="panel detail-card" id="logs">
           <div class="log-toolbar"><div><h3>使用日志</h3><p class="muted">查看真实模型调用、令牌归属、耗时与扣费记录。</p></div><button class="btn" id="refreshUsageLogs" type="button">刷新</button></div>
           <div class="usage-stats">
-            <div class="usage-stat"><span>消耗额度</span><strong id="usageAmount">$0.000000</strong></div>
+            <div class="usage-stat"><span>消耗额度</span><strong id="usageAmount">¥0.000000</strong></div>
             <div class="usage-stat"><span>调用次数</span><strong id="usageRequests">0</strong></div>
             <div class="usage-stat"><span>输入 Token</span><strong id="usageInputTokens">0</strong></div>
             <div class="usage-stat"><span>输出 Token</span><strong id="usageOutputTokens">0</strong></div>
@@ -527,7 +561,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
         <div class="auth-field"><label for="tokenGroupInput">令牌分组</label><input class="auth-input" id="tokenGroupInput" value="default" maxlength="64" placeholder="default" /></div>
         <div class="auth-field"><label for="tokenCountInput">新建数量 *</label><input class="auth-input" id="tokenCountInput" type="number" min="1" max="50" value="1" /></div>
         <div class="auth-field"><label for="tokenExpiryInput">过期时间</label><input class="auth-input" id="tokenExpiryInput" type="datetime-local" /></div>
-        <div class="auth-field"><label for="tokenQuotaInput">额度（美元）</label><input class="auth-input" id="tokenQuotaInput" type="number" min="0" step="0.000001" value="0" disabled /></div>
+        <div class="auth-field"><label for="tokenQuotaInput">额度（人民币）</label><input class="auth-input" id="tokenQuotaInput" type="number" min="0" step="0.000001" value="0" disabled /></div>
         <div class="auth-field" style="align-content:end;"><label><input id="tokenUnlimitedInput" type="checkbox" checked /> 无限额度</label></div>
         <div class="auth-field full"><label for="tokenModelsInput">模型限制列表</label><textarea class="auth-input" id="tokenModelsInput" rows="3" placeholder="每行一个模型；留空表示支持全部模型"></textarea><span class="token-form-help">例如：gpt-5.5、gpt-5.6-sol。填写后，令牌只能调用这些模型。</span></div>
         <div class="auth-field full"><label for="tokenIpInput">IP 白名单（支持 CIDR）</label><textarea class="auth-input" id="tokenIpInput" rows="3" placeholder="每行一个 IP 或网段；留空表示不限制"></textarea><span class="token-form-help">例如：203.0.113.10 或 203.0.113.0/24。</span></div>
@@ -575,6 +609,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
       <div class="token-modal-actions"><button class="btn" id="cancelModelEditor" type="button">取消</button><button class="btn primary" id="saveModelEditor" type="button">保存模型</button></div>
     </div>
   </div>
-  <script src="assets/nbapi.js?v=20260925.4"></script>
+  <script src="assets/nbapi.js?v=20261002.4"></script>
+  <script src="assets/software.js?v=20261003.1"></script>
 </body>
 </html>

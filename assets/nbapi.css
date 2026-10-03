@@ -832,3 +832,44 @@
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
     @media (max-width: 1100px) { .welcome { grid-template-columns: 1fr; } .neural-visual { min-height: 165px; } }
     @media (max-width: 720px) { .welcome { padding: 21px; min-height: 0; } .welcome h1 { font-size: 28px; } .neural-visual { min-height: 148px; } .plaza-banner { min-height: 132px; padding: 18px; } .plaza-banner h3 { font-size: 21px; } .stat .value { font-size: 27px; } }
+
+/* Software downloads reuse the existing application palette and panels. */
+.content > #downloads { display:none; }
+body.route-downloads .content { align-content:start; }
+body.route-downloads .content > #downloads { display:grid; gap:20px; align-content:start; min-width:0; }
+body.route-downloads { background-image:linear-gradient(var(--ai-grid) 1px,transparent 1px),linear-gradient(90deg,var(--ai-grid) 1px,transparent 1px);background-size:28px 28px; }
+.software-page [hidden] { display:none !important; }
+.software-intro,.software-heading { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+.software-intro { padding:24px 28px; }
+.software-intro p { margin:0; }
+.software-page > #softwareStatus:empty { display:none; }
+.software-intro h1 { margin:0 0 12px;font-size:28px; }
+.software-toolbar { display:flex;gap:12px;align-items:center; }
+.software-toolbar input { flex:1;min-width:0; }
+.software-toolbar #softwareCount { flex-shrink:0; }
+.software-toolbar select { max-width:170px; }
+.software-grid { display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start; }
+.software-card { overflow:hidden;padding:0;display:grid;grid-template-columns:minmax(220px,36%) minmax(0,1fr);align-items:start; }
+.software-card > img,.software-cover { width:100%;aspect-ratio:16/10;object-fit:contain;background:rgba(100,130,180,.08);display:block;align-self:center; }
+.software-cover { display:grid;place-items:center;font-size:48px;font-weight:700;color:var(--blue); }
+.software-card-body { padding:24px;min-width:0; }
+.software-card h2 { font-size:20px;margin:16px 0 10px; }
+.software-card p { line-height:1.7;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden; }
+.software-page .auth-actions .btn { max-width:100%;height:auto;min-height:36px;padding:8px 12px;white-space:normal;overflow-wrap:anywhere;text-align:left; }
+.software-card .auth-actions { margin-top:18px;flex-wrap:wrap; }
+.software-meta { display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;font-size:13px; }
+.software-detail,.software-editor { padding:28px;scroll-margin-top:24px; }
+.software-form-grid { display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:24px 0; }
+.software-form-grid .full { grid-column:1/-1; }
+.software-gallery,.software-preview { display:flex;gap:12px;overflow-x:auto;padding:12px 0; }
+.software-gallery img { height:240px;max-width:420px;object-fit:contain;border-radius:8px; }
+.software-preview img { height:100px;max-width:180px;object-fit:contain;border-radius:6px; }
+.software-text { white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8;max-width:80ch; }
+.software-file-info { display:grid;gap:8px;margin:24px 0;overflow-wrap:anywhere;font-size:13px; }
+.software-publish { display:block;margin:20px 0; }
+.software-empty { padding:36px;grid-column:1/-1;text-align:center; }
+.software-package-row { display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line); }
+.software-package-row span { flex:1;min-width:180px;overflow-wrap:anywhere; }
+.software-package-row select { width:130px; }
+@media(max-width:900px){.software-card{grid-template-columns:minmax(0,1fr)}.software-card > img,.software-cover{max-height:300px}.software-card-body{padding:20px}}
+@media(max-width:700px){.software-intro,.software-toolbar{flex-wrap:wrap}.software-intro{padding:20px}.software-intro h1{font-size:24px}.software-form-grid{grid-template-columns:minmax(0,1fr)}.software-gallery img{height:180px;max-width:280px}.software-detail,.software-editor{padding:18px;min-width:0}.software-toolbar input{flex-basis:100%}.software-toolbar select{flex:1;max-width:none}.software-card .auth-actions{align-items:stretch}.software-card .auth-actions a{width:100%}}

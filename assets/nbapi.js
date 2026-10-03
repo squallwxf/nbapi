@@ -148,6 +148,10 @@
     const modelActiveInput = document.getElementById("modelActiveInput");
     const refreshChannels = document.getElementById("refreshChannels");
     const userManagementList = document.getElementById("userManagementList");
+    const ownBalancePanel = document.getElementById("ownBalancePanel");
+    const ownBalanceInput = document.getElementById("ownBalanceInput");
+    const saveOwnBalance = document.getElementById("saveOwnBalance");
+    const ownBalanceStatus = document.getElementById("ownBalanceStatus");
     const userSearch = document.getElementById("userSearch");
     const clearUserSearch = document.getElementById("clearUserSearch");
     const prevUsersPage = document.getElementById("prevUsersPage");
@@ -228,6 +232,9 @@
     function syncAuthState() {
       canManage = Boolean(currentUser && currentUser.role !== "user");
       isSuperAdmin = Boolean(currentUser && currentUser.role === "super_admin");
+      ownBalancePanel.style.display = isSuperAdmin ? "block" : "none";
+      ownBalanceInput.value = isSuperAdmin ? currentUser.balance : "";
+      ownBalanceStatus.textContent = "";
       document.body.classList.toggle("logged-in", Boolean(currentUser));
       document.body.classList.toggle("can-manage", canManage);
       document.body.classList.toggle("is-super-admin", isSuperAdmin);
@@ -286,7 +293,7 @@
     function clearUsageLogView() {
       usageLogsPage = 1;
       usageLogsTotalPages = 1;
-      if (usageAmount) usageAmount.textContent = "$0.000000";
+      if (usageAmount) usageAmount.textContent = "¥0.000000";
       if (usageRequests) usageRequests.textContent = "0";
       if (usageInputTokens) usageInputTokens.textContent = "0";
       if (usageOutputTokens) usageOutputTokens.textContent = "0";
@@ -343,7 +350,7 @@
     async function loadDashboard() {
       try {
         const data = await apiRequest("/api/dashboard");
-        const money = (value) => `$${Number(value || 0).toFixed(6)}`;
+        const money = (value) => `¥${Number(value || 0).toFixed(6)}`;
         const requests = Number(data.todayRequests || 0).toLocaleString();
         dashboardModels.textContent = Number(data.models || 0).toLocaleString();
         dashboardTodayRequests.textContent = requests;
@@ -372,16 +379,16 @@
       try {
         const data = await apiRequest(`/api/wallet?period=${encodeURIComponent(consumptionPeriod.value)}`);
         if (requestVersion !== authVersion || requestToken !== sessionToken || requestUserId !== currentUser?.id) return;
-        walletStatus.textContent = `当前余额：$${Number(data.balance || 0).toFixed(6)}。支付成功后余额会自动到账。`;
+        walletStatus.textContent = `当前余额：¥${Number(data.balance || 0).toFixed(6)}。支付成功后余额会自动到账。`;
         const consumptionAmount = Number(data.consumption?.amount || 0);
         const consumptionRequests = Number(data.consumption?.requests || 0);
-        consumptionSummary.innerHTML = `${data.consumption?.label || "所选周期"}消费总额：<strong>$${consumptionAmount.toFixed(6)}</strong>，共 ${consumptionRequests.toLocaleString()} 次已扣费调用。`;
+        consumptionSummary.innerHTML = `${data.consumption?.label || "所选周期"}消费总额：<strong>¥${consumptionAmount.toFixed(6)}</strong>，共 ${consumptionRequests.toLocaleString()} 次已扣费调用。`;
         const models = data.consumption?.models || [];
         const maxModelAmount = Math.max(...models.map((item) => Number(item.amount || 0)), 0);
         walletModelChart.innerHTML = models.length ? models.map((item) => {
           const amount = Number(item.amount || 0);
           const width = maxModelAmount > 0 ? Math.max(2, amount / maxModelAmount * 100) : 2;
-          return `<div class="wallet-model-row"><div class="wallet-model-name">${escapeHtml(item.model || "未知模型")}</div><div class="wallet-model-track" title="${amount.toFixed(6)}"><div class="wallet-model-bar" style="width:${width.toFixed(2)}%"></div></div><div class="wallet-model-value">$${amount.toFixed(6)} · ${Number(item.requests || 0).toLocaleString()} 次</div></div>`;
+          return `<div class="wallet-model-row"><div class="wallet-model-name">${escapeHtml(item.model || "未知模型")}</div><div class="wallet-model-track" title="${amount.toFixed(6)}"><div class="wallet-model-bar" style="width:${width.toFixed(2)}%"></div></div><div class="wallet-model-value">¥${amount.toFixed(6)} · ${Number(item.requests || 0).toLocaleString()} 次</div></div>`;
         }).join("") : '<div class="wallet-chart-empty">该统计周期暂无模型消费记录。</div>';
         walletOrders.innerHTML = data.orders?.length ? data.orders.map((item) => {
           const canSync = item.status === "pending" && item.paymentProvider === "zpay";
@@ -405,7 +412,7 @@
 
     function renderUsageLogs(data) {
       const stats = data.stats || {};
-      usageAmount.textContent = `$${Number(stats.amount || 0).toFixed(6)}`;
+      usageAmount.textContent = `¥${Number(stats.amount || 0).toFixed(6)}`;
       usageRequests.textContent = Number(stats.requests || 0).toLocaleString();
       usageInputTokens.textContent = Number(stats.inputTokens || 0).toLocaleString();
       usageOutputTokens.textContent = Number(stats.outputTokens || 0).toLocaleString();
@@ -417,8 +424,8 @@
       usageLogBody.innerHTML = data.items.map((item) => `<tr>
         <td>${escapeHtml(formatTokenDate(item.createdAt))}</td><td><strong>${escapeHtml(item.userName || "-")}</strong></td><td><strong>${escapeHtml(item.tokenName)}</strong><br><code>${escapeHtml(item.tokenHint || "-")}</code></td>
         <td>${item.billingUnit === "per_token" ? "按 Token" : "按次"}</td><td><code>${escapeHtml(item.model)}</code></td><td>${renderTimingBadges(item)}</td>
-        <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>$${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
-        <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}<br>计费来源：${escapeHtml(item.usageSource || "-")}<br>预扣：$${Number(item.reserved || 0).toFixed(6)}<br>结算差额：$${Number(item.adjustment || 0).toFixed(6)}<br>缓存读：${Number(item.cacheReadTokens || 0).toLocaleString()} · 缓存写：${Number(item.cacheWriteTokens || 0).toLocaleString()}</div></td></tr>`).join("");
+        <td>${Number(item.inputTokens || 0).toLocaleString()}</td><td>${Number(item.outputTokens || 0).toLocaleString()}</td><td><strong>¥${Number(item.amount || 0).toFixed(6)}</strong></td><td>${escapeHtml(item.ip || "-")}</td>
+        <td><button class="btn" type="button" data-log-detail="${item.id}">查看</button><div class="usage-detail" id="log-detail-${item.id}" hidden>${escapeHtml(item.path || "-")}<br>Request ID: ${escapeHtml(item.requestId || "-")}<br>状态：${escapeHtml(item.status || "-")}<br>计费来源：${escapeHtml(item.usageSource || "-")}<br>预扣：¥${Number(item.reserved || 0).toFixed(6)}<br>结算差额：¥${Number(item.adjustment || 0).toFixed(6)}<br>缓存读：${Number(item.cacheReadTokens || 0).toLocaleString()} · 缓存写：${Number(item.cacheWriteTokens || 0).toLocaleString()}</div></td></tr>`).join("");
       usageLogBody.querySelectorAll("[data-log-detail]").forEach((button) => button.addEventListener("click", () => { const detail = document.getElementById(`log-detail-${button.dataset.logDetail}`); detail.hidden = !detail.hidden; button.textContent = detail.hidden ? "查看" : "收起"; }));
     }
 
@@ -689,7 +696,7 @@
         const data = await apiRequest(`/api/admin/manager-customers?managerId=${encodeURIComponent(customerManagerSelect.value)}`);
         const manager = managerAccounts.find((item) => String(item.id) === String(customerManagerSelect.value));
         if (managerCustomerSummary) managerCustomerSummary.textContent = `${manager ? manager.username : "当前管理员"} 名下共有 ${data.items?.length || 0} 个客户。可在下方解除归属，也可在用户列表中转移客户。`;
-        managerCustomerList.innerHTML = data.items?.length ? data.items.map((user) => `<div class="management-card"><div class="management-top"><strong>${escapeHtml(user.username)}</strong><span class="tag green">当前客户</span></div><div class="management-fields"><div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div><div class="auth-field"><label>账户余额（美元）</label><input class="auth-input" value="$${Number(user.balance || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本周充值</label><input class="auth-input" value="$${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="$${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div></div><small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small><div class="auth-actions"><button class="btn" type="button" data-unassign-customer="${user.id}">解除归属</button></div></div>`).join("") : "<small>该管理员暂无客户。</small>";
+        managerCustomerList.innerHTML = data.items?.length ? data.items.map((user) => `<div class="management-card"><div class="management-top"><strong>${escapeHtml(user.username)}</strong><span class="tag green">当前客户</span></div><div class="management-fields"><div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div><div class="auth-field"><label>账户余额（人民币）</label><input class="auth-input" value="¥${Number(user.balance || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本周充值</label><input class="auth-input" value="¥${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="¥${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div></div><small>用户 ID：${user.id} · 创建时间：${new Date(user.createdAt * 1000).toLocaleString("zh-CN", { hour12: false })}</small><div class="auth-actions"><button class="btn" type="button" data-unassign-customer="${user.id}">解除归属</button></div></div>`).join("") : "<small>该管理员暂无客户。</small>";
         managerCustomerList.querySelectorAll("[data-unassign-customer]").forEach((button) => button.addEventListener("click", () => updateCustomerAssignment(button.dataset.unassignCustomer, "unassign")));
       } catch (error) { managerCustomerList.innerHTML = `<small>${escapeHtml(error.message)}</small>`; }
     }
@@ -886,8 +893,8 @@
           </div>
           <div class="management-fields">
             <div class="auth-field"><label>账户状态</label><input class="auth-input" value="${user.active ? "启用" : "禁用"}" readonly /></div>
-            ${user.role === "user" ? `<div class="auth-field"><label>本周充值</label><input class="auth-input" value="$${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="$${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div>` : ""}
-            ${isSuperAdmin ? `<div class="auth-field"><label>账户余额（美元）</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>` : ""}
+            ${user.role === "user" ? `<div class="auth-field"><label>本周充值</label><input class="auth-input" value="¥${Number(user.weekRecharge || 0).toFixed(6)}" readonly /></div><div class="auth-field"><label>本月充值</label><input class="auth-input" value="¥${Number(user.monthRecharge || 0).toFixed(6)}" readonly /></div>` : ""}
+            ${isSuperAdmin ? `<div class="auth-field"><label>账户余额（人民币）</label><input class="auth-input" type="number" min="0" step="0.000001" value="${user.balance}" data-user-balance /></div>` : ""}
             ${roleAction}
             ${assignment}
           </div>
@@ -902,6 +909,10 @@
         return;
       }
       try {
+        if (isSuperAdmin) {
+          const me = await refreshAccountBalance();
+          if (me && isSuperAdmin && String(me.id) === String(currentUser?.id)) ownBalanceInput.value = me.balance;
+        }
         const query = userSearch?.value?.trim() || "";
         const data = await apiRequest(`/api/admin/users?q=${encodeURIComponent(query)}&page=${usersPage}&pageSize=${usersPageSize}`);
         usersTotalPages = data.totalPages || 1;
@@ -925,6 +936,7 @@
                 body: JSON.stringify({ balance })
               });
               showToast("用户余额已保存");
+              if (String(userId) === String(currentUser?.id)) await refreshAccountBalance();
               await loadAdminUsers();
             } catch (error) {
               alert(error.message);
@@ -1191,7 +1203,7 @@
     let usersTotalPages = 1;
     let managerAccounts = [];
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup", "forgot-password", "reset-password"];
+    const routes = ["console", "square", "downloads", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup", "forgot-password", "reset-password"];
 
     function applyRoute() {
       const hashValue = (location.hash || "#console").slice(1) || "console";
@@ -1395,6 +1407,18 @@
       }
     });
 
+    function gptImageRequestSize(aspect, resolution) {
+      const edge = { "1K": 1024, "2K": 2048, "4K": 4096 }[resolution] || 1024;
+      const [width, height] = aspect.split(":").map(Number);
+      const ratio = width > 0 && height > 0 ? width / height : 1;
+      const shortEdge = Math.max(64, Math.round(edge / Math.max(ratio, 1 / ratio) / 64) * 64);
+      return ratio >= 1 ? `${edge}x${shortEdge}` : `${shortEdge}x${edge}`;
+    }
+
+    function playgroundImageResults(data) {
+      return (Array.isArray(data?.data) ? data.data : []).map((item) => item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : "")).filter(Boolean);
+    }
+
     function appendPlaygroundMedia(url, taskType) {
       const message = document.createElement("div");
       message.className = "playground-message assistant";
@@ -1511,7 +1535,7 @@
           : isGemini
             ? { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: Number(playgroundTemperature.value), topP: Number(playgroundTopP.value), maxOutputTokens: Number(playgroundMaxTokens.value) } }
           : modelMeta.kind === "图片生成"
-            ? { model, prompt, n: 1, size: playgroundImageAspect.value, image_size: playgroundImageSize.value, quality: "auto", response_format: "url" }
+            ? { model, prompt, n: 1, size: model.startsWith("gpt-image-2") ? gptImageRequestSize(playgroundImageAspect.value, playgroundImageSize.value) : playgroundImageAspect.value, ...(model.startsWith("gpt-image-2") ? {} : { image_size: playgroundImageSize.value }), quality: "auto", response_format: "url" }
           : modelMeta.kind.includes("视频")
               ? endpoint.includes("submit/generate")
                 ? { model: resolvedVideoModel, prompt, duration: Number(playgroundVideoDuration.value), metadata: { modeType: "text2video", ratio: playgroundVideoRatio.value, enableSound: "on" } }
@@ -1533,11 +1557,18 @@
         if (!response.ok) {
           const refunded = response.headers.get("X-NBAPI-Refunded") === "1" || data.refunded;
           const refundAmount = response.headers.get("X-NBAPI-Refunded-Amount") || data.refundAmount || "";
-          const refundText = refunded ? `，预扣费用已自动退回${refundAmount ? ` $${refundAmount}` : ""}` : "";
+          const refundText = refunded ? `，预扣费用已自动退回${refundAmount ? ` ¥${refundAmount}` : ""}` : "";
           throw new Error(`${data.error?.message || data.error || `调用失败（${response.status}）`}${refundText}`);
         }
         const charged = response.headers.get("X-NBAPI-Charged");
         const latestBalance = response.headers.get("X-NBAPI-Balance");
+        const imageResults = modelMeta.kind === "图片生成" ? playgroundImageResults(data) : [];
+        if (imageResults.length) {
+          imageResults.forEach((url) => appendPlaygroundMedia(url, "image"));
+          await refreshAccountBalance();
+          playgroundStatus.textContent = `图片生成成功，本次扣费 ¥${charged || "0.000000"}，当前余额 ¥${latestBalance || accountBalance.toFixed(6)}。`;
+          return;
+        }
         const asyncTaskId = isAsyncMedia ? (data.task_id || data.taskId || data.id) : "";
         if (asyncTaskId) {
           const taskType = modelMeta.kind.includes("视频") ? "video" : "image";
@@ -1547,7 +1578,7 @@
           const mediaUrl = await pollAsyncTask(apiKey, asyncTaskId, taskType, queryPath);
           appendPlaygroundMedia(mediaUrl, taskType);
           await refreshAccountBalance();
-          playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}生成成功，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
+          playgroundStatus.textContent = `${taskType === "video" ? "视频" : "图片"}生成成功，本次扣费 ¥${charged || "0.000000"}，当前余额 ¥${latestBalance || accountBalance.toFixed(6)}。`;
           return;
         }
         const text = playgroundResponseText(data);
@@ -1556,7 +1587,7 @@
         const usageObject = data.usage || data.usageMetadata;
         const usage = usageObject ? `，使用 ${usageObject.total_tokens || usageObject.totalTokens || usageObject.totalTokenCount || 0} tokens` : "";
         await refreshAccountBalance();
-        playgroundStatus.textContent = `调用成功${usage}，本次扣费 $${charged || "0.000000"}，当前余额 $${latestBalance || accountBalance.toFixed(6)}。`;
+        playgroundStatus.textContent = `调用成功${usage}，本次扣费 ¥${charged || "0.000000"}，当前余额 ¥${latestBalance || accountBalance.toFixed(6)}。`;
       } catch (error) {
         removePlaygroundConversationMessage(userMessage);
         appendPlaygroundMessage("system", error.message);
@@ -1606,11 +1637,11 @@
     }
 
     function formatTierPriceLines(pricing, prefix = "") {
-      return `${prefix}输入 $${Number(pricing.inputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}补全 $${Number(pricing.outputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存读 $${Number(pricing.cacheReadPrice ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存创建 $${Number(pricing.cacheWritePrice ?? 0).toFixed(4)} / 1M Tokens`;
+      return `${prefix}输入 ¥${Number(pricing.inputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}补全 ¥${Number(pricing.outputPrice ?? pricing.amount ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存读 ¥${Number(pricing.cacheReadPrice ?? 0).toFixed(4)} / 1M Tokens<br>${prefix}缓存创建 ¥${Number(pricing.cacheWritePrice ?? 0).toFixed(4)} / 1M Tokens`;
     }
 
     function formatPricingValue(value) {
-      return `$${Number(value ?? 0).toFixed(4)}`;
+      return `¥${Number(value ?? 0).toFixed(4)}`;
     }
 
     function formatModelPrice(pricing, modelName = "") {
@@ -1621,7 +1652,7 @@
         }
         return `<strong>${tier1}</strong>`;
       }
-      return `<strong>$${Number(pricing.amount || 0).toFixed(4)} / 次</strong>`;
+      return `<strong>¥${Number(pricing.amount || 0).toFixed(4)} / 次</strong>`;
     }
 
     function renderModelPricingDetails(pricing) {
@@ -1670,7 +1701,7 @@
     }
 
     function updateBalance() {
-      balanceDisplay.textContent = currentUser ? `$ ${accountBalance.toFixed(2)}` : "-";
+      balanceDisplay.textContent = currentUser ? `¥ ${accountBalance.toFixed(2)}` : "-";
       balancePill.style.display = currentUser ? "inline-flex" : "none";
       if (currentUser) localStorage.setItem("nbapi-balance", accountBalance.toFixed(2));
     }
@@ -2045,6 +2076,29 @@
         renderAnnouncements();
         showToast("公告已保存");
       } catch (error) { alert(error.message); }
+    });
+    saveOwnBalance.addEventListener("click", async () => {
+      if (!isSuperAdmin || !sessionToken || saveOwnBalance.disabled) return;
+      if (!ownBalanceInput.value.trim() || !ownBalanceInput.reportValidity()) return;
+      const userId = currentUser.id;
+      const requestVersion = authVersion;
+      saveOwnBalance.disabled = true;
+      ownBalanceStatus.textContent = "正在保存...";
+      try {
+        const data = await apiRequest(`/api/admin/users/${userId}`, { method: "PUT", body: JSON.stringify({ balance: ownBalanceInput.value }) });
+        if (requestVersion !== authVersion || String(currentUser?.id) !== String(userId)) return;
+        currentUser.balance = data.user.balance;
+        accountBalance = Number(data.user.balance);
+        ownBalanceInput.value = data.user.balance;
+        updateBalance();
+        ownBalanceStatus.textContent = "我的余额已保存。";
+        showToast("我的余额已保存");
+        await loadAdminUsers();
+      } catch (error) {
+        if (requestVersion === authVersion) ownBalanceStatus.textContent = `保存失败：${error.message}`;
+      } finally {
+        saveOwnBalance.disabled = false;
+      }
     });
     refreshUsers.addEventListener("click", loadAdminUsers);
     customerManagerSelect?.addEventListener("change", loadManagerCustomers);

@@ -19,6 +19,16 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_image_edit_form_model_ignores_files_and_rejects_ambiguous_models(self):
+        content_type = 'multipart/form-data; boundary="image-test"'
+        model = b'--image-test\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-2-super\r\n'
+        image = b'--image-test\r\nContent-Disposition: form-data; name="image"; filename="model.png"\r\nContent-Type: image/png\r\n\r\n\x89PNG\x00\xffmodel=other\r\n'
+        ending = b'--image-test--\r\n'
+        self.assertEqual(server.image_edit_model(model + image + ending, content_type), 'gpt-image-2-super')
+        self.assertEqual(server.image_edit_model(model + model + ending, content_type), '')
+        self.assertEqual(server.image_edit_model(image + ending, content_type), '')
+        self.assertEqual(server.image_edit_model(model + ending, 'application/json'), '')
+
     def test_channel_cooldown_keeps_one_matching_probe_route(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "channels.sqlite3"
@@ -567,6 +577,29 @@ class BillingStabilityTests(unittest.TestCase):
             ledger = db.execute("SELECT amount_micros,input_tokens,output_tokens,cache_read_tokens,status FROM ledger WHERE request_id='request-1'").fetchall()
             self.assertEqual(ledger, [(129_645, 189_426, 2_840, 189_312, "charged")])
 
+    def test_gpt_image_supplier_seed_preserves_routes_prices_and_admin_edits(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("DELETE FROM settings WHERE key='gpt_image_supplier_seed_version'")
+            db.execute("DELETE FROM models WHERE name='gpt-image-2-super'")
+            db.execute("UPDATE models SET routing_mode='legacy',price_micros=345678 WHERE name='gpt-image-2'")
+            db.execute("UPDATE channels SET allowed_models='gpt-image-2'")
+            db.execute("INSERT INTO channels(name,upstream_base_url,upstream_api_key,active,priority,allowed_models,created_at,updated_at) VALUES ('qiaomo','https://qiaomoapi.cn','test-key',1,100,'gpt-6-sol',?,?)", (server.now(),server.now()))
+            qiaomo_id = db.execute("SELECT id FROM channels WHERE name='qiaomo'").fetchone()[0]
+            previous_routes = [route['channel_id'] for route in server.get_upstream_routes(db, 'gpt-image-2')]
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual([route['channel_id'] for route in server.get_upstream_routes(db, 'gpt-image-2')], previous_routes)
+            self.assertEqual(db.execute("SELECT routing_mode,api_protocol,endpoint,price_micros FROM models WHERE name='gpt-image-2'").fetchone(), ('explicit','openai_images','/v1/images/generations',345678))
+            self.assertEqual(server.model_supplier_ids(db, 'gpt-image-2-super'), [qiaomo_id])
+            self.assertEqual([route['channel_id'] for route in server.get_upstream_routes(db, 'gpt-image-2-super')], [qiaomo_id])
+            self.assertEqual(db.execute("SELECT provider,active,price_micros FROM models WHERE name='gpt-image-2-super'").fetchone(), ('巧模',1,345678))
+            db.execute("UPDATE models SET active=0,price_micros=456789 WHERE name='gpt-image-2-super'")
+            server.replace_model_suppliers(db, 'gpt-image-2-super', [])
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute("SELECT active,price_micros FROM models WHERE name='gpt-image-2-super'").fetchone(), (0,456789))
+            self.assertEqual(server.model_supplier_ids(db, 'gpt-image-2-super'), [])
+
     def test_gpt_6_sol_seed_is_hidden_explicit_and_idempotent(self):
         with sqlite3.connect(server.DB_PATH) as db:
             before_channels = db.execute("SELECT id, allowed_models FROM channels ORDER BY id").fetchall()
@@ -698,6 +731,28 @@ class BillingStabilityTests(unittest.TestCase):
             legacy_routes = server.get_upstream_routes(db, "gpt-5.5")
         self.assertEqual([route["channel_id"] for route in explicit_routes], [second_id])
         self.assertEqual([route["channel_id"] for route in legacy_routes], [first_id, second_id])
+
+    def test_super_admin_own_balance_edit_preserves_role_and_other_accounts(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            super_id = db.execute("SELECT id FROM users WHERE role='super_admin'").fetchone()[0]
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-super-session',?,?)", (super_id,server.now()+3600))
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-user-session',?,?)", (self.user_id,server.now()+3600))
+            admin_id = db.execute("INSERT INTO users(username,email,password_hash,role,active,balance_micros,created_at) VALUES ('balance-admin','',?,'admin',1,0,?)", (server.hash_password('password'),server.now())).lastrowid
+            db.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES ('test-admin-session',?,?)", (admin_id,server.now()+3600))
+        path = f'/api/admin/users/{super_id}'
+        status,data = self.admin_api_request('PUT',path,{'balance':'12.345678'})
+        self.assertEqual(status,200)
+        self.assertEqual(data['user']['balance'],'12.345678')
+        status,data = self.admin_api_request('GET','/api/me')
+        self.assertEqual((status,data['balance']),(200,'12.345678'))
+        for token in ('test-admin-session','test-user-session'):
+            self.assertEqual(self.admin_api_request('PUT',path,{'balance':'999'},token=token)[0],403)
+        for value in ('-1','1000001','invalid'):
+            self.assertEqual(self.admin_api_request('PUT',path,{'balance':value})[0],400)
+        self.assertEqual(self.admin_api_request('PUT',path,{'role':'user'})[0],403)
+        with sqlite3.connect(server.DB_PATH) as db:
+            self.assertEqual(db.execute('SELECT role,balance_micros FROM users WHERE id=?',(super_id,)).fetchone(),('super_admin',12345678))
+            self.assertEqual(db.execute('SELECT balance_micros FROM users WHERE id=?',(self.user_id,)).fetchone()[0],10000000)
 
     def test_admin_model_api_requires_supplier_and_hides_after_supplier_delete(self):
         with sqlite3.connect(server.DB_PATH) as db:

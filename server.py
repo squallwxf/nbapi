@@ -14,12 +14,15 @@ import zlib
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPHandler, HTTPSHandler
 from zoneinfo import ZoneInfo
+import software_downloads
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +31,7 @@ HTML_PATH = ROOT / "api-website.html"
 STATIC_ASSETS = {
     "/assets/nbapi.css": (ROOT / "assets" / "nbapi.css", "text/css; charset=utf-8"),
     "/assets/nbapi.js": (ROOT / "assets" / "nbapi.js", "text/javascript; charset=utf-8"),
+    "/assets/software.js": (ROOT / "assets" / "software.js", "text/javascript; charset=utf-8"),
 }
 UPSTREAM = "https://ai.krapi.cn"
 MICROS_PER_DOLLAR = 1_000_000
@@ -372,6 +376,7 @@ def sync_zpay_order(order_id: int, user_id: int, caller_ip: str):
 
 
 def init_db() -> None:
+    software_downloads.init_db(DB_PATH)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as db:
         db.executescript(
@@ -788,7 +793,7 @@ def init_db() -> None:
                  input_price_micros, output_price_micros, cache_read_price_micros, cache_write_price_micros,
                  pricing_mode, tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
                  tier2_cache_read_price_micros, tier2_cache_write_price_micros, routing_mode, api_protocol, endpoint)
-                SELECT 'gpt-6.1-sol', 'GPT 6.1 Sol', provider, kind, billing_unit,
+                SELECT 'gpt-6.1-sol', 'GPT 6.1 Sol', 'OpenAI', '对话模型', billing_unit,
                        price_micros, 0, ?, input_price_micros, output_price_micros,
                        cache_read_price_micros, cache_write_price_micros, pricing_mode,
                        tier_threshold_tokens, tier2_input_price_micros, tier2_output_price_micros,
@@ -806,6 +811,27 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (name, upstream_base_url, upstream_api_key, active, priority, note, timestamp, timestamp),
             )
+        if get_setting(db, "gpt_image_supplier_seed_version") != "1":
+            image = db.execute("SELECT routing_mode FROM models WHERE name='gpt-image-2'").fetchone()
+            if image and image[0] == "legacy":
+                # Preserve the suppliers eligible under the original allowlists.
+                supplier_ids = [row[0] for row in db.execute(
+                    "SELECT id, allowed_models FROM channels WHERE active=1 ORDER BY priority,id"
+                ) if channel_allows_model(row[1], "gpt-image-2")]
+                replace_model_suppliers(db, "gpt-image-2", supplier_ids)
+                db.execute("UPDATE models SET routing_mode='explicit', api_protocol='openai_images', endpoint='/v1/images/generations', active=CASE WHEN ?=0 THEN 0 ELSE active END, updated_at=? WHERE name='gpt-image-2'", (len(supplier_ids), timestamp))
+            existing = db.execute("SELECT 1 FROM models WHERE name='gpt-image-2-super'").fetchone()
+            if not existing:
+                db.execute(
+                    """INSERT INTO models(name,provider_label,provider,kind,billing_unit,price_micros,active,updated_at,routing_mode,api_protocol,endpoint)
+                    SELECT 'gpt-image-2-super','GPT 图片 Super','巧模','图片生成','per_task',price_micros,0,?,'explicit','openai_images','/v1/images/generations'
+                    FROM models WHERE name='gpt-image-2'""", (timestamp,)
+                )
+                qiaomo = db.execute("SELECT id,active FROM channels WHERE lower(name)='qiaomo' OR name='巧模' ORDER BY id LIMIT 1").fetchone()
+                if qiaomo:
+                    replace_model_suppliers(db, "gpt-image-2-super", [qiaomo[0]])
+                    db.execute("UPDATE models SET active=? WHERE name='gpt-image-2-super'", (qiaomo[1],))
+            set_setting(db, "gpt_image_supplier_seed_version", "1")
         db.execute(
             "INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES ('upstream_api_key', '', ?)",
             (timestamp,),
@@ -992,6 +1018,25 @@ def extract_model_name(path: str, payload) -> str:
         if model:
             return model
     return ""
+
+
+def image_edit_model(body: bytes, content_type: str) -> str:
+    """Read only the model form field; forward uploaded image bytes unchanged."""
+    if not content_type.lower().startswith("multipart/form-data"):
+        return ""
+    message = BytesParser(policy=email_policy).parsebytes(
+        ("Content-Type: " + content_type + "\r\nMIME-Version: 1.0\r\n\r\n").encode() + body
+    )
+    if not message.is_multipart():
+        return ""
+    models = [part for part in message.iter_parts()
+              if part.get_param("name", header="content-disposition") == "model"]
+    if len(models) != 1 or models[0].get_filename() is not None:
+        return ""
+    value = models[0].get_payload(decode=True) or b""
+    if len(value) > 200:
+        return ""
+    return value.decode("utf-8", errors="replace").strip()
 
 
 def canonical_model_name(model_name: str) -> str:
@@ -2334,6 +2379,8 @@ class Handler(BaseHTTPRequestHandler):
         body_read_ms = round((time.perf_counter() - started_at) * 1000)
         payload = try_parse_json_bytes(body)
         requested_model_name = extract_model_name(path, payload)
+        if path == "/v1/images/edits" and not requested_model_name:
+            requested_model_name = image_edit_model(body, self.headers.get("Content-Type", ""))
         model_name = canonical_model_name(requested_model_name)
         if model_name != requested_model_name and isinstance(payload, dict):
             payload = dict(payload)
@@ -2708,6 +2755,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if software_downloads.handle(self, "GET", DB_PATH):
+            return
         path = urlparse(self.path).path
         static_asset = STATIC_ASSETS.get(path)
         if static_asset:
@@ -3049,6 +3098,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if software_downloads.handle(self, "POST", DB_PATH):
+            return
         if self._proxy_upstream("POST"):
             return
         try:
@@ -3658,6 +3709,8 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     def do_PUT(self):
+        if software_downloads.handle(self, "PUT", DB_PATH):
+            return
         path = urlparse(self.path).path
         if self._proxy_upstream("PUT"):
             return
