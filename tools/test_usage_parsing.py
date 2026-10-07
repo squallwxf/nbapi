@@ -551,6 +551,58 @@ class BillingStabilityTests(unittest.TestCase):
             app.server_close()
             thread.join(timeout=3)
 
+    def test_account_balance_is_scoped_precise_and_free(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("UPDATE users SET balance_micros=12345678 WHERE id=?", (self.user_id,))
+            db.execute("UPDATE api_tokens SET quota_unlimited=0,quota_micros=1,used_micros=1,allowed_models='unavailable' WHERE id=?", (self.token_id,))
+            before = (db.execute("SELECT id,balance_micros FROM users ORDER BY id").fetchall(),
+                      db.execute("SELECT id,used_micros FROM api_tokens ORDER BY id").fetchall(),
+                      db.execute("SELECT COUNT(*) FROM ledger").fetchone())
+        with patch.object(server.Handler, "_rate_limited", return_value=False):
+            status, data = self.api_token_request("GET", "/v1/account/balance?user_id=1")
+        self.assertEqual((status, data), (200, {"balance": "12.345678", "currency": "CNY"}))
+        with sqlite3.connect(server.DB_PATH) as db:
+            after = (db.execute("SELECT id,balance_micros FROM users ORDER BY id").fetchall(),
+                     db.execute("SELECT id,used_micros FROM api_tokens ORDER BY id").fetchall(),
+                     db.execute("SELECT COUNT(*) FROM ledger").fetchone())
+        self.assertEqual(before, after)
+
+    def test_account_balance_rejects_invalid_expired_disabled_and_ip(self):
+        with patch.object(server.Handler, "_rate_limited", return_value=False):
+            self.assertEqual(self.api_token_request("GET", "/v1/account/balance", token="invalid")[0], 401)
+            for update, restore, status in [
+                ("UPDATE api_tokens SET expires_at=1", "UPDATE api_tokens SET expires_at=NULL", 401),
+                ("UPDATE api_tokens SET active=0", "UPDATE api_tokens SET active=1", 401),
+                ("UPDATE users SET active=0", "UPDATE users SET active=1", 401),
+                ("UPDATE api_tokens SET ip_allowlist='192.0.2.0/24'", "UPDATE api_tokens SET ip_allowlist=''", 403),
+            ]:
+                with sqlite3.connect(server.DB_PATH) as db:
+                    db.execute(update)
+                self.assertEqual(self.api_token_request("GET", "/v1/account/balance")[0], status)
+                with sqlite3.connect(server.DB_PATH) as db:
+                    db.execute(restore)
+
+    def test_account_balance_no_store_and_rate_limit(self):
+        app = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=app.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection("127.0.0.1", app.server_port, timeout=3)
+        try:
+            for limited, token, expected in [(False, self.token, 200), (False, "invalid", 401), (True, self.token, 429)]:
+                with patch.object(server.Handler, "_rate_limited", return_value=limited):
+                    connection.request("GET", "/v1/account/balance", headers={"Authorization": f"Bearer {token}"})
+                    response = connection.getresponse()
+                    response.read()
+                self.assertEqual(response.status, expected)
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                if limited:
+                    self.assertEqual(response.getheader("Retry-After"), str(server.RATE_LIMIT_WINDOW))
+        finally:
+            connection.close()
+            app.shutdown()
+            app.server_close()
+            thread.join(timeout=3)
+
     def test_reserve_and_settle_charge_exactly_once(self):
         with sqlite3.connect(server.DB_PATH) as db:
             first = server.reserve_billing(db, self.user_id, self.token_id, "gpt-6-astra", "request-1", 3_000_000)

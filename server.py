@@ -2249,6 +2249,8 @@ class Handler(BaseHTTPRequestHandler):
         body = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if urlparse(self.path).path == "/v1/account/balance":
+            self.send_header("Cache-Control", "no-store")
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
@@ -2795,6 +2797,15 @@ class Handler(BaseHTTPRequestHandler):
             with sqlite3.connect(DB_PATH) as db:
                 items = read_announcements(db, active_only=False)
             self.send_json(200, {"items": items})
+            return
+        if path == "/v1/account/balance":
+            if self._rate_limited("account_balance"):
+                self.send_json(429, {"error": "rate_limited"}, {"Retry-After": str(RATE_LIMIT_WINDOW)})
+                return
+            api_user = self.require_api_token()
+            if not api_user:
+                return
+            self.send_json(200, {"balance": micros_to_dollars(api_user[4]), "currency": "CNY"})
             return
         if path == "/v1/models":
             api_user = self.require_api_token()

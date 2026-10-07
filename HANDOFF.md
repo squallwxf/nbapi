@@ -1,6 +1,19 @@
 # NBAPI Current Handoff
 
-Updated: 2026-10-03
+Updated: 2026-10-07
+
+## 2026-10-07 API Key account balance — deployed
+
+- Added `GET /v1/account/balance`, reusing API token authentication and IP checks. Returns only six-decimal string `balance` and `currency: CNY`; account derives exclusively from the token. No billing, quota consumption, model call or schema migration; existing authentication updates `last_used_at`.
+- Success/authentication/rate-limit JSON responses use `Cache-Control: no-store`. Dedicated existing IP limiter: 10 requests/60 seconds, 429 with Retry-After. Token quota/model allowlists do not block this account-level read.
+- All 55 regressions passed locally and in server-isolated staging; Python/JavaScript syntax/diff checks passed. Contract: `docs/ACCOUNT_BALANCE_API.md`. Deployed after VPN was disabled and SSH recovered. Verified production source differed only by the 11 added lines and tests by the 3 added tests. Replaced only backend/test source, preserving all existing production edits, frontend, environment and database. Backup source and consistent SQLite snapshot: `/opt/nbapi-backups/balance-20261007`. Restart/health, existing real API Key balance, no quota/ledger charge, no-store and anonymous rejection verified. No model calls or paid generation performed.
+
+## 2026-10-05 Grok 4.7 — configured in production
+
+- Created visible `grok-4.7` through the existing super-admin model API; provider xAI, explicit supplier assignment to existing active qiaomo channel 217. No source deployment or service restart. Production source has local modifications and HEAD `575750b`; do not reset or overwrite it.
+- Uses `openai_responses` and `/v1/responses`. Both upstream protocols returned HTTP 200, but Chat usage included zero `input_tokens`/`output_tokens` alongside positive `prompt_tokens`/`completion_tokens`; the current parser prioritizes the zero fields. Use Responses for this model. Responses usage parsing and settlement fixture passed (210 input, 287 output, 192 cached input; charge 643 micros). No real NBAPI gateway generation/ledger test was performed; direct upstream tests incurred supplier usage only.
+- User approved 3x supplier pricing. Qiaomo public pricing has model ratio 1, completion ratio 3, model-specific default group ratio 0.1: upstream USD 0.20 input / 0.60 output per million tokens. NBAPI numerical rates are 0.60 input / 1.80 output per million, with cache read/write at the input rate because no separate cache discount was published. Existing website currency presentation is unchanged.
+- Consistent pre-change SQLite backup: `/opt/nbapi-backups/grok47-20261005-100233/nbapi.sqlite3`; configuration record beside it in `change.json`. Temporary administration sessions were removed. Public catalog, supplier routing and active service verified. Server requests to the public domain encountered HTTP 403; verify the public catalog from the local host as well.
 
 ## 2026-10-03 download layout — deployed
 
