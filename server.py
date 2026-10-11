@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NBAPI_DB_PATH", str(ROOT / "nbapi.sqlite3"))).expanduser()
 HTML_PATH = ROOT / "api-website.html"
 STATIC_ASSETS = {
+    "/assets/contact.js": (ROOT / "assets" / "contact.js", "text/javascript; charset=utf-8"),
     "/assets/nbapi.css": (ROOT / "assets" / "nbapi.css", "text/css; charset=utf-8"),
     "/assets/nbapi.js": (ROOT / "assets" / "nbapi.js", "text/javascript; charset=utf-8"),
     "/assets/software.js": (ROOT / "assets" / "software.js", "text/javascript; charset=utf-8"),
@@ -1692,6 +1693,8 @@ def maybe_bridge_openai_chat_to_gemini(path: str, payload, model_row):
     if path != "/v1/chat/completions" or not isinstance(payload, dict) or not model_row:
         return None
     if model_row[2] != "Google" or model_row[3] != "对话模型":
+        return None
+    if len(model_row) > 18 and model_row[18] and model_row[18] != "gemini_generate_content":
         return None
     model_name = str(payload.get("model", "")).strip()
     if not model_name:

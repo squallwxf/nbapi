@@ -1,6 +1,25 @@
 # NBAPI Current Handoff
 
+## 2026-10-10 Contact page revision — local, not deployed
+
+- Public `#contact` with top/mobile/sidebar and console shortcut. Two equal QQ/email cards, responsive light/dark styling, copy actions and mailto. QQ `1109594338`, email `yk@nb-api.cn`. Revised copy explains channel purpose and useful troubleshooting details.
+- User removed WeChat entirely. QR asset, upload editor/dialog, QR backend module, public metadata/upload endpoints and QR tests removed. Contact information is static and requires no routine maintenance. Existing settings data is left untouched; no schema or account changes.
+- Deploy HTML/CSS/main JS/contact JS and updated backend while preserving other uncommitted local/production edits. No push or deployment performed.
+
 Updated: 2026-10-07
+
+## 2026-10-09 Gemini Chat protocol correction — deployed
+
+- Fixed Google dialogue bridging to honor explicit protocol metadata: only native `gemini_generate_content` models (and legacy rows without protocol metadata) bridge Chat to Gemini. `gemini-3.8-flash` now forwards Chat media fields and max_tokens without native conversion. Native Gemini behavior preserved.
+- Confirmed user requests `ac3792cb803b43b691b546b4ddcfae86` and `bcf0676a3fd74885b565592f3b4769c4` were bridged, shrinking audio 219623 bytes to 286 and video 368254 to 317. Converter omitted input_audio/video_url. Ledger: audio 50 input/998 output, 5670 micros charged; video 65 input/1269 output, 7212 micros charged. No refund applied.
+- 56 local and isolated production regressions passed. Patched only two backend lines and appended focused regression; preserved production changes. Backup DB/source/tests: `/opt/nbapi-backups/gemini-protocol-20261008-161024` (UTC timestamp). Restart active, health verified. Exact user media not available, so supplier audio/video semantic support is still unverified. Old converted completion_tokens includes candidates plus thoughts; max_tokens maps to maxOutputTokens, not a gateway truncation guarantee.
+
+## 2026-10-07 Gemini 3.8 Flash — configured in production
+
+- Visible `gemini-3.8-flash`, provider Google, explicit qiaomo supplier 217. Use `openai_chat` and `/v1/chat/completions`; supplier pricing lists only OpenAI Chat for this model. Do not use the native Gemini endpoint for it.
+- User approved 3x supplier default-group pricing: ratio 0.375, completion ratio 5, group ratio 0.5 gives upstream 0.375 input / 1.875 output per million; customer rates 1.125 input / 5.625 output. Cache read/write use input rate; supplier publishes no separate cache discount.
+- Direct production-to-supplier generation returned 200, usage 7 input / 87 output; existing parser and settlement verified (498 micros). No real gateway generation or ledger charge test performed. Existing 55 local regressions and JS syntax/diff checks pass.
+- Added website documentation with dedicated copyable Chat curl example and preserved native Gemini example. Patched only the Gemini documentation block in production HTML; no backend deployment or restart. Database and original HTML backup: `/opt/nbapi-backups/gemini38flash-20261007-090147`. Temporary admin session removed; service active.
 
 ## 2026-10-07 API Key account balance — deployed
 
@@ -204,3 +223,12 @@ For future work:
 - Add response-byte and per-user traffic metrics before making hosting decisions.
 - Add HTTP-level tests for authentication scope, wallet queries, token persistence, static assets, and administrative permissions.
 - Only after those tests exist, consider splitting backend domains out of `server.py`. Do not refactor billing, proxy, payment, and auth simultaneously.
+
+## 2026-10-12 Production server migration completed
+- Migrated actual production files, software assets, environment, Nginx config and origin certificate from 195.72.185.130 to 154.36.173.186, preserving uncommitted production changes. Local contact-page revision remains undeployed.
+- Old NBAPI stopped before final SQLite backup and disabled to prevent duplicate writes. Old data retained. New nbapi/nginx enabled and active.
+- Final snapshot integrity OK; exact table row digests match after startup for users (45), tokens (16), balance transactions (836), ledger (15407), wallet orders (22), models (49), channels/settings/software files.
+- Python/JS syntax, Nginx config and 48 production-source regressions passed. diff check shows pre-existing HANDOFF EOF blank line after accounting for CRLF; no source edits made.
+- Public HTTPS health returned 200 through Cloudflare and confirmed in new server access log; homepage/model catalog 200. Origin certificate uses Cloudflare trust; localhost HTTPS checked with -k.
+- Protected backups on both servers: /root/nbapi-migration-20261012. Local copy: C:/Users/Administrator/Documents/ChatGPT/nbapi-migration-20261012. Final DB SHA256 8f6d9e117779d18a34edb81e5a4eb0e677846efc3748322a2ae20c050f099d3d.
+- Temporary reverse SSH tunnel on new server loopback port 22022 remains attached to user's old-server VNC shell; may close after migration.

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NBAPI | AI 模型聚合网关</title>
-  <link rel="stylesheet" href="assets/nbapi.css?v=20261003.1" />
+  <link rel="stylesheet" href="assets/nbapi.css?v=20261010.contact2" />
 </head>
 <body>
   <div class="app">
@@ -29,6 +29,7 @@
       <div class="nav-section">
         <div class="nav-title">入口</div>
         <a class="nav-item" href="#square"><span class="icon i-model"></span><span>模型广场</span></a>
+        <a class="nav-item" href="#contact"><span class="icon i-channel"></span><span>联系我们</span></a>
         <a class="nav-item guest-only" href="#login"><span class="icon i-token"></span><span>登录</span></a>
         <a class="nav-item guest-only" href="#signup"><span class="icon i-doc"></span><span>注册</span></a>
       </div>
@@ -40,9 +41,9 @@
     </aside>
 
     <main class="main">
-      <div class="mobile-nav"><a class="chip auth-required active" href="#console">控制台</a><a class="chip auth-required" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip" href="#downloads">NB ai工具下载</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
+      <div class="mobile-nav"><a class="chip auth-required active" href="#console">控制台</a><a class="chip auth-required" href="#playground">操练场</a><a class="chip" href="#square">模型广场</a><a class="chip" href="#downloads">NB ai工具下载</a><a class="chip" href="#contact">联系我们</a><a class="chip guest-only" href="#login">登录</a><a class="chip guest-only" href="#signup">注册</a></div>
       <header class="topbar">
-        <nav class="top-nav"><a class="auth-required active" href="#console">控制台</a><a class="auth-required" href="#playground">操练场</a><a href="#square">模型广场</a><a href="#downloads">NB ai工具下载</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
+        <nav class="top-nav"><a class="auth-required active" href="#console">控制台</a><a class="auth-required" href="#playground">操练场</a><a href="#square">模型广场</a><a href="#downloads">NB ai工具下载</a><a href="#contact">联系我们</a><a class="guest-only" href="#login">登录</a><a class="guest-only" href="#signup">注册</a></nav>
         <div class="top-actions">
           <span class="pill" id="balancePill" style="display:none;">余额 <strong class="account-balance" id="balanceDisplay">¥ 0.00</strong></span>
           <button class="btn" id="themeToggle" type="button">深色模式</button>
@@ -55,6 +56,15 @@
       </header>
 
       <section class="content">
+        <section id="contact" aria-labelledby="contactTitle">
+          <header class="contact-intro"><h1 id="contactTitle">联系我们</h1><p>从模型接入到日常使用，有问题，欢迎与我们沟通。</p></header>
+          <div class="contact-layout">
+            <article class="panel contact-card"><span class="contact-symbol" aria-hidden="true">QQ</span><h2>QQ 客服群</h2><p>接入咨询、使用答疑，也欢迎分享你的 AI 应用与经验。</p><div class="contact-detail"><span>客服群号</span><strong class="contact-address">1109594338</strong></div><button class="btn primary" type="button" data-contact-copy="1109594338">复制群号</button><small>在 QQ 中搜索群号，申请加入。</small></article>
+            <article class="panel contact-card"><span class="contact-symbol contact-mail" aria-hidden="true">@</span><h2>邮箱联系</h2><p>问题反馈、充值咨询或合作事宜，可通过邮件详细说明。</p><div class="contact-detail"><span>联系邮箱</span><strong class="contact-address">yk@nb-api.cn</strong></div><div class="contact-actions"><a class="btn primary" href="mailto:yk@nb-api.cn">发送邮件</a><button class="btn" type="button" data-contact-copy="yk@nb-api.cn">复制邮箱</button></div><small>支持附上截图与相关信息，方便我们了解问题。</small></article>
+          </div>
+          <aside class="contact-guidance"><h2>让问题更容易被定位</h2><p>遇到调用异常时，请提供模型名称、发生时间、报错信息或请求 ID；充值问题可提供订单号。</p><p>请勿发送密码或完整 API Key。</p></aside>
+          <p id="contactStatus" class="muted" role="status" aria-live="polite"></p>
+        </section>
         <section id="downloads" class="software-page">
           <div class="panel software-intro"><div><h1>NB ai工具下载</h1><p class="muted">发现适合你的 AI 工具，查看软件界面、版本说明与安装要求。</p></div><button class="btn primary" id="softwareNew" type="button" hidden>上传软件</button></div>
           <div class="software-toolbar"><input class="auth-input" id="softwareSearch" placeholder="搜索软件名称、功能或版本" aria-label="搜索软件" /><select class="auth-input" id="softwarePlatform" aria-label="筛选系统"><option value="">全部系统</option><option>Windows</option><option>macOS</option><option>Linux</option><option>跨平台</option></select><span class="muted" id="softwareCount"></span></div>
@@ -187,7 +197,7 @@
               <span class="tag blue">NBAPI / AI GATEWAY</span>
               <h1>统一连接你的 <span class="accent">AI 模型能力</span></h1>
               <p>面向开发者的统一 AI 模型网关。通过一套令牌和兼容接口，接入对话、图像与视频模型调用。</p>
-              <div class="hero-actions"><a class="btn primary" href="#tokens">创建令牌</a><a class="btn" href="#docs">查看 API 文档</a><a class="btn" href="#square">模型广场</a></div>
+              <div class="hero-actions"><a class="btn" href="#contact">联系客服</a><a class="btn primary" href="#tokens">创建令牌</a><a class="btn" href="#docs">查看 API 文档</a><a class="btn" href="#square">模型广场</a></div>
             </div>
             <div class="neural-visual" aria-label="NBAPI AI 核心视觉">
               <span class="neural-node n1"></span><span class="neural-node n2"></span><span class="neural-node n3"></span><span class="neural-node n4"></span>
@@ -383,7 +393,12 @@ Idempotency-Key: your-unique-request-id</pre></div></section>
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: claude-001" \
   -d '{"model":"claude-sonnet-4-6","max_tokens":256,"messages":[{"role":"user","content":"你好"}]}'</pre></div></section>
-                <section class="panel docs-section"><h3>Gemini 对话</h3><p>使用 Gemini 原生 `v1beta` 格式。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsGeminiCode">复制</button><pre class="code docs-code" id="docsGeminiCode">curl "https://nbapi.win/v1beta/models/gemini-3.1-pro-preview:generateContent" \
+                <section class="panel docs-section"><h3>Gemini 3.8 Flash</h3><p>巧模供应商使用 OpenAI Chat 兼容格式。输入价格 1.125、输出价格 5.625，单位为每百万 Token；缓存按输入价格计费。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsGemini38Code">复制</button><pre class="code docs-code" id="docsGemini38Code">curl https://nbapi.win/v1/chat/completions \
+  -H "Authorization: Bearer nb_sk_你的NBAPI令牌" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 你的唯一请求ID" \
+  -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"你好"}],"max_tokens":256,"stream":false}'</pre></div></section>
+                <section class="panel docs-section"><h3>Gemini 原生对话</h3><p>原生 Gemini 模型使用 v1beta 格式；gemini-3.8-flash 请使用上面的 OpenAI Chat 示例。</p><div class="docs-code-wrap"><button class="btn copy-doc" type="button" data-copy-target="docsGeminiCode">复制</button><pre class="code docs-code" id="docsGeminiCode">curl "https://nbapi.win/v1beta/models/gemini-3.1-pro-preview:generateContent" \
   -H "X-NBAPI-Key: nb_sk_xxx" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: gemini-001" \
@@ -609,7 +624,8 @@ console.log(result.choices[0].message.content);</pre></div></section>
       <div class="token-modal-actions"><button class="btn" id="cancelModelEditor" type="button">取消</button><button class="btn primary" id="saveModelEditor" type="button">保存模型</button></div>
     </div>
   </div>
-  <script src="assets/nbapi.js?v=20261002.4"></script>
+  <script src="assets/nbapi.js?v=20261010.contact2"></script>
+  <script src="assets/contact.js?v=20261010.contact2"></script>
   <script src="assets/software.js?v=20261003.1"></script>
 </body>
 </html>

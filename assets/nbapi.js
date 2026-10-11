@@ -1203,7 +1203,7 @@
     let usersTotalPages = 1;
     let managerAccounts = [];
     const selectedFilters = { provider: "all", billing: "all", kind: "all", tag: "all", endpoint: "all" };
-    const routes = ["console", "square", "downloads", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup", "forgot-password", "reset-password"];
+    const routes = ["console", "square", "downloads", "contact", "playground", "tokens", "docs", "users", "pricing", "channels", "logs", "wallet", "settings", "login", "signup", "forgot-password", "reset-password"];
 
     function applyRoute() {
       const hashValue = (location.hash || "#console").slice(1) || "console";

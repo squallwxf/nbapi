@@ -19,6 +19,18 @@ import server  # noqa: E402
 
 
 class UsageParsingTests(unittest.TestCase):
+    def test_google_chat_protocol_preserves_multimodal_payload(self):
+        payload = {"model": "gemini-3.8-flash", "max_tokens": 256, "messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": "UklGRg==", "format": "wav"}}, {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,AAAA"}}]}]}
+        before = json.dumps(payload)
+        row = [None] * 20
+        row[2], row[3], row[18] = "Google", "对话模型", "openai_chat"
+        self.assertIsNone(server.maybe_bridge_openai_chat_to_gemini("/v1/chat/completions", payload, row))
+        self.assertEqual(json.dumps(payload), before)
+        row[18] = "gemini_generate_content"
+        native = server.maybe_bridge_openai_chat_to_gemini("/v1/chat/completions", {"model": "gemini-native", "messages": [{"role": "user", "content": "hello"}], "max_tokens": 256}, row)
+        self.assertEqual(native[0], "/v1beta/models/gemini-native:generateContent")
+        self.assertEqual(json.loads(native[1])["generationConfig"]["maxOutputTokens"], 256)
+
     def test_image_edit_form_model_ignores_files_and_rejects_ambiguous_models(self):
         content_type = 'multipart/form-data; boundary="image-test"'
         model = b'--image-test\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-2-super\r\n'
