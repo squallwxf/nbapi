@@ -81,6 +81,32 @@ class SoftwareTests(unittest.TestCase):
         self.assertEqual(self.request('GET',item['screenshots'][0])[0],404)
         self.assertEqual(len(self.request('GET','/api/admin/software',token='super')[1]['items']),1)
 
+    def test_mobile_installers_upload_publish_download_and_hide(self):
+        for platform, filename in [('Android', 'tool.apk'), ('iOS', 'tool.IPA')]:
+            with self.subTest(platform=platform):
+                payload, _ = self.payload()
+                binary = b'PK\x03\x04mobile-package-bytes'
+                direct = self.upload(filename, binary)
+                fid = uuid.uuid4().hex
+                split = 10
+                self.assertEqual(self.chunk(fid, binary[:split], 0, len(binary), **{'X-File-Name': filename})[0], 200)
+                self.assertEqual(self.chunk(fid, binary[split:], split, len(binary), **{'X-File-Name': filename})[0], 201)
+                payload.update(platform=platform, installers=[{'id': direct, 'platform': platform}, {'id': fid, 'platform': platform}])
+                status, data, _ = self.request('POST', '/api/admin/software', payload, 'super')
+                self.assertEqual(status, 201)
+                item = data['item']
+                for package in item['installers']:
+                    self.assertEqual(package['platform'], platform)
+                    self.assertEqual(package['sha256'], hashlib.sha256(binary).hexdigest())
+                    status, body, headers = self.request('GET', package['downloadUrl'])
+                    self.assertEqual((status, body), (200, binary))
+                    self.assertIn(filename, headers['Content-Disposition'])
+                    self.assertEqual(self.request('GET', package['downloadUrl'], headers={'Range': 'bytes=2-5'})[:2], (206, binary[2:6]))
+                payload['published'] = False
+                self.assertEqual(self.request('PUT', '/api/admin/software/' + item['id'], payload, 'super')[0], 200)
+                for package in item['installers']:
+                    self.assertEqual(self.request('GET', package['downloadUrl'])[0], 404)
+
     def test_role_permissions_and_invalid_uploads(self):
         for token in (None,'user','admin'):
             expected=401 if token is None else 403

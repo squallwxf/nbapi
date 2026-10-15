@@ -3,6 +3,7 @@
 ## Context discipline
 
 - Start with `HANDOFF.md`, then use `rg` to locate the relevant function or DOM ID.
+- Read `MEMORY.md` for cross-session invariants. Historical handoffs are not current deployment instructions.
 - Read only the matching line ranges. Do not load all of `server.py` or `assets/nbapi.js` unless the task genuinely spans the whole file.
 - Keep command output focused. Prefer filtered logs and short tails over full files.
 - Do not load local databases, certificates, private keys, backups, generated previews, or spreadsheet inspection dumps into model context.
@@ -15,6 +16,9 @@
 - `assets/nbapi.js`: browser state, API calls, rendering, and event handlers.
 - `server.py`: HTTP API, authentication, proxying, billing, payment, database migrations, and static file serving.
 - `tools/test_usage_parsing.py`: billing, usage parsing, streaming, and protocol regression tests.
+- `software_downloads.py` and `assets/software.js`: software catalog, publication, verified chunk uploads and downloads.
+- `assets/qrcode.js`: vendored MIT QR library; `tools/test_software_qr.cjs`: desktop/mobile QR browser regression.
+- `assets/contact.js`: repository contact copy handler; production historically embeds this in the main script, so deploy matching HTML and assets.
 - `nbapi.nginx`, `nbapi.service`: production service definitions.
 
 ## Safety rules

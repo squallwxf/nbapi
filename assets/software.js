@@ -6,8 +6,22 @@
   const fields = ['name','version','platform','category','summary','description','requirements','changelog'];
   const bytes = n => n >= 1024**3 ? (n / 1024**3).toFixed(2) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
   const date = n => new Date(n * 1000).toLocaleDateString('zh-CN');
-  const packagePlatform = p => p.platform !== '跨平台' ? p.platform : /(?:windows|win32|win64|win[-_.])|\.(exe|msi)$/i.test(p.filename) ? 'Windows' : /(?:macos|mac[-_.]|darwin)|\.(dmg|pkg)$/i.test(p.filename) ? 'macOS' : /(?:linux)|\.(deb|rpm|appimage)$/i.test(p.filename) ? 'Linux' : p.platform;
-  const downloadLinks = x => x.published ? x.installers.map((p,i) => `<a class="btn primary" href="${escape(p.downloadUrl)}" title="${escape(p.filename)}">下载 ${escape(packagePlatform(p))}${x.installers.filter(q=>packagePlatform(q)===packagePlatform(p)).length>1 ? ' · 安装包 '+(i+1) : ''}<span>（${bytes(p.size)}）</span></a>`).join('') : '';
+  const packagePlatform = p => p.platform !== '跨平台' ? p.platform : /\.apk$/i.test(p.filename) ? 'Android' : /\.ipa$/i.test(p.filename) ? 'iOS' : /(?:windows|win32|win64|win[-_.])|\.(exe|msi)$/i.test(p.filename) ? 'Windows' : /(?:macos|mac[-_.]|darwin)|\.(dmg|pkg)$/i.test(p.filename) ? 'macOS' : /(?:linux)|\.(deb|rpm|appimage)$/i.test(p.filename) ? 'Linux' : p.platform;
+  function mobileQr(p) {
+    const platform = packagePlatform(p);
+    if (!['Android', 'iOS'].includes(platform)) return '';
+    try {
+      const url = new URL(p.downloadUrl, location.origin);
+      if (!['http:', 'https:'].includes(url.protocol) || url.origin !== location.origin) return '';
+      const code = qrcode(0, 'M');
+      code.addData(url.href, 'Byte');
+      code.make();
+      return `<figure class="software-qr"><img src="${code.createDataURL(4, 16)}" width="196" height="196" alt="${escape(p.filename)} 的 ${platform} 下载二维码" /><figcaption>${platform} 扫码下载</figcaption><small class="muted">${platform === 'iOS' ? 'IPA 安装需有效签名及相应分发方式，扫码仅下载文件。' : '下载 APK 后，请按手机系统提示安装。'}</small></figure>`;
+    } catch (error) {
+      return '<span class="muted" role="status">二维码暂不可用，请使用下载按钮。</span>';
+    }
+  }
+  const downloadLinks = x => x.published ? x.installers.map((p,i) => `<div class="software-download"><a class="btn primary" href="${escape(p.downloadUrl)}" title="${escape(p.filename)}">下载 ${escape(packagePlatform(p))}${x.installers.filter(q=>packagePlatform(q)===packagePlatform(p)).length>1 ? ' · 安装包 '+(i+1) : ''}<span>（${bytes(p.size)}）</span></a>${mobileQr(p)}</div>`).join('') : '';
   async function api(path, options = {}) {
     const response = await fetch(path, {...options, headers: {'Authorization':'Bearer ' + session(), ...(options.body ? {'Content-Type':'application/json'} : {}), ...options.headers}});
     const data = await response.json();
@@ -32,7 +46,7 @@
   function clearPreviews() { previews.forEach(URL.revokeObjectURL); previews = []; }
   function packageEditor() {
     $('softwareInstaller').required = !packages.length;
-    $('softwarePackages').innerHTML = packages.map((p,i)=>`<div class="software-package-row"><span>${escape(p.filename)} · ${bytes(p.size)}${p.id?'（已上传）':''}</span><select class="auth-input" aria-label="${escape(p.filename)} 的系统" data-package="${i}">${['Windows','macOS','Linux','跨平台'].map(s=>`<option${s===p.platform?' selected':''}>${s}</option>`).join('')}</select><button type="button" class="btn" data-remove-package="${i}">移除</button></div>`).join('');
+    $('softwarePackages').innerHTML = packages.map((p,i)=>`<div class="software-package-row"><span>${escape(p.filename)} · ${bytes(p.size)}${p.id?'（已上传）':''}</span><select class="auth-input" aria-label="${escape(p.filename)} 的系统" data-package="${i}">${['Windows','macOS','Linux','Android','iOS','跨平台'].map(s=>`<option${s===p.platform?' selected':''}>${s}</option>`).join('')}</select><button type="button" class="btn" data-remove-package="${i}">移除</button></div>`).join('');
     $('softwarePackages').querySelectorAll('[data-package]').forEach(s=>s.onchange=()=>packages[Number(s.dataset.package)].platform=s.value);
     $('softwarePackages').querySelectorAll('[data-remove-package]').forEach(b=>b.onclick=()=>{ if($('softwareSubmit').disabled)return; packages.splice(Number(b.dataset.removePackage),1);packageEditor(); });
   }
@@ -127,7 +141,7 @@
   };
   $('softwareInstaller').onchange = () => {
     for (const file of $('softwareInstaller').files) {
-      if (!packages.some(p=>p.filename===file.name && p.size===file.size)) packages.push({file,filename:file.name,size:file.size,platform:/\.(dmg|pkg)$/i.test(file.name)?'macOS':/\.(deb|rpm|appimage)$/i.test(file.name)?'Linux':$('softwareSystem').value});
+      if (!packages.some(p=>p.filename===file.name && p.size===file.size)) packages.push({file,filename:file.name,size:file.size,platform:/\.apk$/i.test(file.name)?'Android':/\.ipa$/i.test(file.name)?'iOS':/\.(dmg|pkg)$/i.test(file.name)?'macOS':/\.(deb|rpm|appimage)$/i.test(file.name)?'Linux':$('softwareSystem').value});
     }
     $('softwareInstaller').value = '';
     packageEditor();

@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
-INSTALLERS = {'.exe', '.msi', '.zip', '.7z', '.dmg', '.pkg', '.deb', '.rpm', '.appimage', '.tar.gz'}
+INSTALLERS = {'.exe', '.msi', '.zip', '.7z', '.dmg', '.pkg', '.deb', '.rpm', '.appimage', '.tar.gz', '.apk', '.ipa'}
 IMAGES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp'}
 INSTALLER_LIMIT = 1024 ** 3
 CHUNK_LIMIT = 8 * 1024 ** 2
@@ -181,7 +181,7 @@ def handle(handler, method, db_path):
                 if packages is None:
                     existing = db.execute('SELECT file_id AS id,platform FROM software_release_installers WHERE release_id=? ORDER BY position',(rid,)).fetchall() if old and 'installerId' not in payload else []
                     packages = [dict(p) for p in existing] or [{'id':installer,'platform':values['platform']}]
-                if not isinstance(packages,list) or not packages or any(not isinstance(p,dict) or not isinstance(p.get('id'),str) or p.get('platform') not in ('Windows','macOS','Linux','跨平台') for p in packages):
+                if not isinstance(packages,list) or not packages or any(not isinstance(p,dict) or not isinstance(p.get('id'),str) or p.get('platform') not in ('Windows','macOS','Linux','Android','iOS','跨平台') for p in packages):
                     raise ValueError('请上传安装包并选择对应系统')
                 if len(set(p['id'] for p in packages)) != len(packages):
                     raise ValueError('安装包不能重复')

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NBAPI | AI 模型聚合网关</title>
-  <link rel="stylesheet" href="assets/nbapi.css?v=20261010.contact2" />
+  <link rel="stylesheet" href="assets/nbapi.css?v=20261015.1" />
 </head>
 <body>
   <div class="app">
@@ -67,7 +67,7 @@
         </section>
         <section id="downloads" class="software-page">
           <div class="panel software-intro"><div><h1>NB ai工具下载</h1><p class="muted">发现适合你的 AI 工具，查看软件界面、版本说明与安装要求。</p></div><button class="btn primary" id="softwareNew" type="button" hidden>上传软件</button></div>
-          <div class="software-toolbar"><input class="auth-input" id="softwareSearch" placeholder="搜索软件名称、功能或版本" aria-label="搜索软件" /><select class="auth-input" id="softwarePlatform" aria-label="筛选系统"><option value="">全部系统</option><option>Windows</option><option>macOS</option><option>Linux</option><option>跨平台</option></select><span class="muted" id="softwareCount"></span></div>
+          <div class="software-toolbar"><input class="auth-input" id="softwareSearch" placeholder="搜索软件名称、功能或版本" aria-label="搜索软件" /><select class="auth-input" id="softwarePlatform" aria-label="筛选系统"><option value="">全部系统</option><option>Windows</option><option>macOS</option><option>Linux</option><option>Android</option><option>iOS</option><option>跨平台</option></select><span class="muted" id="softwareCount"></span></div>
           <div id="softwareStatus" class="muted" role="status"></div>
           <div class="software-grid" id="softwareGrid"></div>
           <section class="panel software-detail" id="softwareDetail" hidden></section>
@@ -78,13 +78,13 @@
               <div class="software-form-grid">
                 <div class="auth-field"><label for="softwareName">软件名称 *</label><input class="auth-input" id="softwareName" name="name" required maxlength="80" /></div>
                 <div class="auth-field"><label for="softwareVersion">版本号 *</label><input class="auth-input" id="softwareVersion" name="version" required maxlength="40" placeholder="例如 1.0.0" /></div>
-                <div class="auth-field"><label for="softwareSystem">支持系统 *</label><select class="auth-input" id="softwareSystem" name="platform"><option>Windows</option><option>macOS</option><option>Linux</option><option>跨平台</option></select></div>
+                <div class="auth-field"><label for="softwareSystem">支持系统 *</label><select class="auth-input" id="softwareSystem" name="platform"><option>Windows</option><option>macOS</option><option>Linux</option><option>Android</option><option>iOS</option><option>跨平台</option></select></div>
                 <div class="auth-field"><label for="softwareCategory">分类 *</label><select class="auth-input" id="softwareCategory" name="category"><option>AI 创作</option><option>图像处理</option><option>视频工具</option><option>效率工具</option><option>开发工具</option><option>其他</option></select></div>
                 <div class="auth-field full"><label for="softwareSummary">简短介绍 *</label><input class="auth-input" id="softwareSummary" name="summary" required maxlength="240" /></div>
                 <div class="auth-field full"><label for="softwareDescription">功能说明与安装方法 *</label><textarea class="auth-input" id="softwareDescription" name="description" required maxlength="12000" rows="5"></textarea></div>
                 <div class="auth-field"><label for="softwareRequirements">系统要求</label><textarea class="auth-input" id="softwareRequirements" name="requirements" maxlength="2000" rows="3" placeholder="操作系统、内存、显卡等"></textarea></div>
                 <div class="auth-field"><label for="softwareChangelog">版本更新说明</label><textarea class="auth-input" id="softwareChangelog" name="changelog" maxlength="6000" rows="3"></textarea></div>
-                <div class="auth-field full"><label for="softwareInstaller">软件安装包 *</label><input class="auth-input" id="softwareInstaller" type="file" multiple accept=".exe,.msi,.zip,.7z,.dmg,.pkg,.deb,.rpm,.AppImage,.gz" /><small class="muted">可同时选择 Windows、macOS 等多个安装包，共用截图与说明。每个不超过 1 GB（1024 MB），支持分片上传和完整性校验。编辑时选择文件可追加安装包，也可移除现有安装包。</small><div id="softwarePackages"></div></div>
+                <div class="auth-field full"><label for="softwareInstaller">软件安装包 *</label><input class="auth-input" id="softwareInstaller" type="file" multiple accept=".exe,.msi,.zip,.7z,.dmg,.pkg,.deb,.rpm,.AppImage,.gz,.apk,.ipa" /><small class="muted">可同时选择 Windows、macOS、Linux、Android（APK）、iOS（IPA）等多个安装包，共用截图与说明。每个不超过 1 GB（1024 MB），支持分片上传和完整性校验。编辑时选择文件可追加安装包，也可移除现有安装包。iOS 安装需有效签名及相应分发方式，下载 IPA 不代表可直接安装。</small><div id="softwarePackages"></div></div>
                 <div class="auth-field full"><label for="softwareScreenshots">软件界面截图 *</label><input class="auth-input" id="softwareScreenshots" type="file" accept="image/png,image/jpeg,image/webp" multiple /><small class="muted">上传 1–6 张 PNG / JPG / WebP，每张不超过 8 MB。编辑时不选择即保留原截图。</small><div id="softwarePreview" class="software-preview"></div></div>
               </div>
               <label class="software-publish"><input type="checkbox" id="softwarePublished" checked /> 发布后允许用户下载（取消勾选可保存为草稿或下架）</label>
@@ -626,6 +626,7 @@ console.log(result.choices[0].message.content);</pre></div></section>
   </div>
   <script src="assets/nbapi.js?v=20261010.contact2"></script>
   <script src="assets/contact.js?v=20261010.contact2"></script>
-  <script src="assets/software.js?v=20261003.1"></script>
+  <script src="assets/qrcode.js?v=1.4.4"></script>
+  <script src="assets/software.js?v=20261015.1"></script>
 </body>
 </html>

@@ -1,234 +1,101 @@
-# NBAPI Current Handoff
+# NBAPI 项目接力
 
-## 2026-10-10 Contact page revision — local, not deployed
+更新：2026-10-15（北京时间）。先读本文、`MEMORY.md`、`AGENTS.md`，再按任务局部搜索代码。聊天记录不会随 Git 同步，关键结论在本文。
 
-- Public `#contact` with top/mobile/sidebar and console shortcut. Two equal QQ/email cards, responsive light/dark styling, copy actions and mailto. QQ `1109594338`, email `yk@nb-api.cn`. Revised copy explains channel purpose and useful troubleshooting details.
-- User removed WeChat entirely. QR asset, upload editor/dialog, QR backend module, public metadata/upload endpoints and QR tests removed. Contact information is static and requires no routine maintenance. Existing settings data is left untouched; no schema or account changes.
-- Deploy HTML/CSS/main JS/contact JS and updated backend while preserving other uncommitted local/production edits. No push or deployment performed.
+## 当前仓库与服务器
 
-Updated: 2026-10-07
+- GitHub：https://github.com/squallwxf/nbapi ，分支 `main`。
+- 本机真实源码：`C:\Users\Administrator\Documents\ChatGPT\NBAPI`。聊天登记目录 `C:\Users\Administrator\Documents\ChatGPT\nbapi 2` 不是实际源码目录，勿维护错副本。
+- 当前生产：`154.36.173.186:/opt/nbapi`，网站 https://nbapi.win ，`nbapi.service`，Python监听 `127.0.0.1:8765`，Nginx反代。
+- 10-15已SSH只读核实 nbapi/nginx 均active，后端 `/health` 返回ok。旧 `195.72.185.130` 已退役，禁止按历史记录部署到旧IP。
+- SSH身份root，本机密钥 `%USERPROFILE%\.ssh\nbapi_admin`；服务用户nbapi，环境文件 `/etc/nbapi.env`。密钥不在Git，新电脑须安全配置访问权限。
+- 仓库 service/nginx 是模板，不等于完整线上配置，不能直接覆盖。
 
-## 2026-10-09 Gemini Chat protocol correction — deployed
+## 已完成功能
 
-- Fixed Google dialogue bridging to honor explicit protocol metadata: only native `gemini_generate_content` models (and legacy rows without protocol metadata) bridge Chat to Gemini. `gemini-3.8-flash` now forwards Chat media fields and max_tokens without native conversion. Native Gemini behavior preserved.
-- Confirmed user requests `ac3792cb803b43b691b546b4ddcfae86` and `bcf0676a3fd74885b565592f3b4769c4` were bridged, shrinking audio 219623 bytes to 286 and video 368254 to 317. Converter omitted input_audio/video_url. Ledger: audio 50 input/998 output, 5670 micros charged; video 65 input/1269 output, 7212 micros charged. No refund applied.
-- 56 local and isolated production regressions passed. Patched only two backend lines and appended focused regression; preserved production changes. Backup DB/source/tests: `/opt/nbapi-backups/gemini-protocol-20261008-161024` (UTC timestamp). Restart active, health verified. Exact user media not available, so supplier audio/video semantic support is still unverified. Old converted completion_tokens includes candidates plus thoughts; max_tokens maps to maxOutputTokens, not a gateway truncation guarantee.
+| 功能 | 当前状态与保护点 |
+| --- | --- |
+| 用户/权限/令牌 | 注册登录、邮箱找回密码、用户数据隔离；超级管理员日志支持自己/全部。维护不重建账号令牌。 |
+| 钱包/ZPAY | 固定10/20/50/100充值、充值记录、今日/本周/本月消费与模型图表；用户确认支付多次测试成功。1元充值=1余额，目前显示人民币，不做汇率换算。 |
+| 计费 | 权威usage、缓存读写、动态阶梯、原子预扣、幂等结算与失败退款。用户确认token扣费已校准，不把旧问题重复当现状。 |
+| 模型 | Chat/Responses/Anthropic/Gemini/图像视频，显式协议优先；不得仅凭厂商品牌转换协议。 |
+| 流式/用时 | 逐行转发，响应禁用Nginx缓冲；区分首数据、首内容与总时长。客户端断开仍读上游并结算。 |
+| 首页/操练场/广场 | 双主题、真实统计、筛选与动态价格详情；保护DOM ID、路由、请求和事件。 |
+| 余额API | `GET /v1/account/balance`，API Key身份、CNY六位小数字符串、no-store、10次/60秒；见 `docs/ACCOUNT_BALANCE_API.md`。 |
+| 联系我们 | `#contact`，QQ客服群1109594338、邮箱yk@nb-api.cn、复制及邮件入口；无微信二维码或二维码后台编辑。 |
+| NB ai工具下载 | `#downloads`，公开已发布目录，仅超级管理员管理；每包1GiB、8MiB顺序分片、SHA-256、Range、多平台安装包及截图。支持Android APK/iOS IPA及扫码下载；IPA仍需签名/分发资格。 |
+| NB画布 | 独立工程曾在 `D:\NB助手`，软件下载不等于完整画布在线运行移植，独立工程不会自动随本仓库同步。 |
 
-## 2026-10-07 Gemini 3.8 Flash — configured in production
+## 各会话成果与部署记录
 
-- Visible `gemini-3.8-flash`, provider Google, explicit qiaomo supplier 217. Use `openai_chat` and `/v1/chat/completions`; supplier pricing lists only OpenAI Chat for this model. Do not use the native Gemini endpoint for it.
-- User approved 3x supplier default-group pricing: ratio 0.375, completion ratio 5, group ratio 0.5 gives upstream 0.375 input / 1.875 output per million; customer rates 1.125 input / 5.625 output. Cache read/write use input rate; supplier publishes no separate cache discount.
-- Direct production-to-supplier generation returned 200, usage 7 input / 87 output; existing parser and settlement verified (498 micros). No real gateway generation or ledger charge test performed. Existing 55 local regressions and JS syntax/diff checks pass.
-- Added website documentation with dedicated copyable Chat curl example and preserved native Gemini example. Patched only the Gemini documentation block in production HTML; no backend deployment or restart. Database and original HTML backup: `/opt/nbapi-backups/gemini38flash-20261007-090147`. Temporary admin session removed; service active.
+- **主线迁移**：10-12旧服务器迁至154.36.173.186，包含真实源码、DB、环境及软件存储，停止旧写入后最终备份。迁移时users45、tokens16、ledger15407等摘要一致，仅为历史快照。备份 `/root/nbapi-migration-20261012`；本机同级迁移目录含敏感材料，不入Git。
+- **新加板块**：联系页10-13只更新生产静态文件，未重启后端；备份 `/opt/nbapi-backups/contact-20261013`。
+- **工具下载页面**：移动平台10-13部署，备份 `/opt/nbapi-backups/mobile-20261013`；原未提交代码本次收回。10-15从线上额外收回二维码实现、MIT生成库及浏览器测试，避免换机漏功能。
+- **继续主线**：`9e82508` 联系页面和Gemini Chat多模态修复原已提交但未成功推送，本次一并上传；前一提交 `bed7a5e` 是余额API。
+- **模型添加**：新模型显隐、价格、供应商关系多为生产DB配置，不是代码部署，见下表。
+- **网络排查**：旧机器部分失败来包未见guest网卡，具体外部故障点未最终证实，勿沿用“必需供应商放行旧IP”的旧推断。曾授权开CF Zero Trust免费版并配置恢复Tunnel，不代表当前主域经Tunnel。用户后来改回直连并申请HTTPS证书；当前访问策略须现场核实。
 
-## 2026-10-07 API Key account balance — deployed
+## 模型记录与未完成验收
 
-- Added `GET /v1/account/balance`, reusing API token authentication and IP checks. Returns only six-decimal string `balance` and `currency: CNY`; account derives exclusively from the token. No billing, quota consumption, model call or schema migration; existing authentication updates `last_used_at`.
-- Success/authentication/rate-limit JSON responses use `Cache-Control: no-store`. Dedicated existing IP limiter: 10 requests/60 seconds, 429 with Retry-After. Token quota/model allowlists do not block this account-level read.
-- All 55 regressions passed locally and in server-isolated staging; Python/JavaScript syntax/diff checks passed. Contract: `docs/ACCOUNT_BALANCE_API.md`. Deployed after VPN was disabled and SSH recovered. Verified production source differed only by the 11 added lines and tests by the 3 added tests. Replaced only backend/test source, preserving all existing production edits, frontend, environment and database. Backup source and consistent SQLite snapshot: `/opt/nbapi-backups/balance-20261007`. Restart/health, existing real API Key balance, no quota/ledger charge, no-store and anonymous rejection verified. No model calls or paid generation performed.
+| 模型 | 配置/风险与验证边界 |
+| --- | --- |
+| gpt-6-sol / gpt-6 | gpt-6是透明兼容别名，固定指向gpt-6-sol，不改指6.1。客户端可选名称以实际版本为准。 |
+| gpt-6.1-sol | 源码一次性隐藏种子复制6-sol价格，保留后续后台改价。生产显隐与路由查DB，种子状态不等于当前线上状态。 |
+| grok-4.7 | 巧模217，openai_responses，/v1/responses；记录售价输入0.60/输出1.80每百万。Chat混用零input/output及非零prompt/completion造成解析歧义，暂用Responses；未实测真实网关扣费。 |
+| gemini-3.8-flash | 巧模217，openai_chat，/v1/chat/completions；输入1.125/输出5.625每百万，缓存按输入价。不能强制native。 |
+| gpt-image-2.5 | 巧模217，openai_images，/v1/images/generations；上游0.12/次，批准2.5倍，售价0.30/次。上游文字生图成功；编辑接口直接测试503 `No available compatible accounts`，截图网关约90秒502且0.30已退回；不能宣称编辑可用。 |
 
-## 2026-10-05 Grok 4.7 — configured in production
+这些是批准/配置时记录，不替代当前后台数据。Gemini修复保留显式Chat媒体与max_tokens，具体供应商音视频语义支持仍未验收。历史两次错误转换媒体的扣费未退款，详情见归档，不擅自改账。gpt-image-2-super早期0.22是暂定价，不当作供应商确认成本。
 
-- Created visible `grok-4.7` through the existing super-admin model API; provider xAI, explicit supplier assignment to existing active qiaomo channel 217. No source deployment or service restart. Production source has local modifications and HEAD `575750b`; do not reset or overwrite it.
-- Uses `openai_responses` and `/v1/responses`. Both upstream protocols returned HTTP 200, but Chat usage included zero `input_tokens`/`output_tokens` alongside positive `prompt_tokens`/`completion_tokens`; the current parser prioritizes the zero fields. Use Responses for this model. Responses usage parsing and settlement fixture passed (210 input, 287 output, 192 cached input; charge 643 micros). No real NBAPI gateway generation/ledger test was performed; direct upstream tests incurred supplier usage only.
-- User approved 3x supplier pricing. Qiaomo public pricing has model ratio 1, completion ratio 3, model-specific default group ratio 0.1: upstream USD 0.20 input / 0.60 output per million tokens. NBAPI numerical rates are 0.60 input / 1.80 output per million, with cache read/write at the input rate because no separate cache discount was published. Existing website currency presentation is unchanged.
-- Consistent pre-change SQLite backup: `/opt/nbapi-backups/grok47-20261005-100233/nbapi.sqlite3`; configuration record beside it in `change.json`. Temporary administration sessions were removed. Public catalog, supplier routing and active service verified. Server requests to the public domain encountered HTTP 403; verify the public catalog from the local host as well.
+## 本次源码对比与收回范围
 
-## 2026-10-03 download layout — deployed
+生产Git工作区有大量未提交/未跟踪文件，HEAD不代表实际部署。10-15只读下载比较：核心代理/计费逻辑一致，usage测试仅换行差异，软件后端及测试哈希一致。
 
-- Fixed inherited grid stretching on the download route with start alignment; removed empty status spacing. Catalog uses full-width horizontal screenshot/content rows on desktop and single-column cards on smaller screens. Summaries clamp to three lines in the catalog; detail retains full text. Download buttons wrap safely and show concise platform/size labels instead of long filenames; original filenames remain available in tooltips/details. Cross-platform package labels infer Windows/macOS/Linux from clear filenames for presentation/filtering only; stored metadata and download URLs are unchanged.
-- CSS/software JS release `v=20261003.1`. Replaced only HTML, CSS and software JS, without backend restart or DB changes. Backup `/opt/nbapi-backups/download-layout-20261002-164316` (server UTC directory timestamp). Local and server staging passed all 52 regressions; syntax/diff checks passed. Live NB智能画布 verified at desktop and 390px viewport with no horizontal overflow; Windows/macOS download links retain original IDs. Service health active/ok. Screenshot `C:/Users/Administrator/AppData/Local/Temp/nbapi-downloads-layout-fixed.png`.
+- 收回线上二维码CSS/JS、QR库与测试，保留本地 `assets/contact.js`；线上同等复制处理附在主JS，不单独加载contact.js。
+- 仓库静态白名单同时允许contact.js及qrcode.js；线上仅后者。HTML脚本组织、缓存版本和CSS注释存在差异，不能只替换其中一个文件。
+- 除静态组织、版本及换行外，本次所比较源文件未发现其他核心差异。线上构建输出、备份和业务存储不收进Git。
+- 本次仅整理、回收源码、测试与推送，**未部署、未重启、未修改线上账务/配置**。不要把Git已上传等同生产已按新提交发布。
 
-## 2026-10-02 1 GiB and multiple installers — deployed
+## 换电脑步骤
 
-- Installer limit is now 1 GiB (1024 MB) per file. Browser sends sequential 8 MiB chunks to the existing super-admin upload route; every chunk carries original-byte SHA-256, upload ID, offset and total. Server binds uploads to owner/name/total, rejects offsets/concurrent writes and checks all stored chunks again before registering a file. Final SHA-256 covers the assembled installer. Screenshots remain 8 MiB each. Whole installers are never buffered/unpacked/executed. Incomplete `.partial`/`.upload.json` files stay private and are retained; an interrupted browser upload starts a new upload ID on retry. A process crash can leave a `.lock` directory requiring operator cleanup for that old upload ID.
-- Same software release supports multiple platform-labelled packages sharing version/screenshots/description. Additive `software_release_installers` table; existing `installer_id` and original download route are preserved. Catalog includes `installers`; platform-specific download routes validate release membership and publication. Old releases without association rows fall back to their original installer. Editor supports multi-select/append/remove/platform labels; public page has separate Windows/macOS/etc. buttons and hashes. Frontend release queries for CSS/software JS are `v=20261002.5`.
-- All 52 tests pass, including existing 44 billing/protocol regressions. Added chunk checks, >112 MiB transfer and exact hash, size boundary, wrong owner/offset/name/total/checksum, disk corruption rejection, legacy releases, multi-platform download/Range/edit/remove/unpublish. Browser local super-admin uploaded a harmless 131,257,298-byte ZIP plus a tiny macOS fixture under one release; public download size/hash equals original exactly. No production sample or paid call made. Syntax/diff checks pass.
-- Deployed after connectivity recovered on 2026-10-02; CSS/software JS `v=20261002.5`. Server staging passed all 52 tests. An initial static-resource failure was caused by missing existing `assets/nbapi.js` in staging; copying the unchanged production file fixed the fixture. Backup of replaced sources and consistent SQLite snapshot: `/opt/nbapi-backups/multi-installer-20261002-155120`. Replaced only software module, software JS, HTML, CSS and software tests; preserved production DB/environment/billing sources. Existing Nginx 500m permits 8 MiB requests; no proxy-size change needed. Restart/local and public health passed, public catalog returns 200, unauthenticated admin catalog returns 401. Live browser verified new asset versions, multiple file input and 1 GB copy. No production test release or paid call made; large upload and exact download/hash were verified locally and in server-isolated tests, not with a full 1 GiB production transfer.
-
-## 2026-10-02 software downloads — deployed
-
-- New top navigation and mobile link `NB ai工具下载` opens the public `#downloads` page in the existing app shell. Catalog includes search/platform filters, screenshots, version, description, install instructions, system requirements, changelog, file size and SHA-256. Existing light/dark theme and responsive styles are reused.
-- Only super-admins can upload installation packages/screenshots, create releases or edit/publish/unpublish them. Forms include upload progress, screenshot previews, required metadata and errors. New versions are separate release entries; editing can retain existing files. Unpublished files cannot be downloaded through public routes. Downloading is free and has no billing side effects.
-- Isolated backend module `software_downloads.py`, frontend `assets/software.js`, and additive tables `software_files`/`software_releases`. Files live beside the database in `software-storage/`, or `NBAPI_SOFTWARE_DIR`; exclude them from Git and back them up separately. Random storage IDs prevent user filenames becoming paths. Packages are streamed in 1 MB chunks and never executed/unpacked. Downloads support HTTP Range. Screenshots are restricted to signature-checked PNG/JPEG/WebP.
-- Installer limit 90 MB (below usual CDN single-request limits); screenshot limit 8 MB, 1–6 per release. ZIP/7z/EXE/MSI/DMG/PKG/DEB/RPM/AppImage/tar.gz supported. Uploaded but unused files remain private and retained; no automatic cleanup/deletion. Larger installers require a future chunked/object-storage upload design. No existing payment, wallet, model proxy or billing code changed.
-- 47 tests passed: all 44 existing tests and 3 new real-HTTP software tests covering publish/edit/unpublish, exact file download/hash, Range, role denial, invalid file types/paths/sizes, screenshot validation, drafts and missing metadata. Browser localhost verified super-admin login, upload with preview, publish, details, download and logout; preview fixtures are only in a temporary database. Screenshot: `C:/Users/Administrator/AppData/Local/Temp/nbapi-software-preview.png`.
-- Deployed on 2026-10-02 after VPN was disabled and SSH access recovered. Release `v=20261002.4`; backup source and consistent SQLite snapshot at `/opt/nbapi-backups/downloads-20261002`. Server staging passed all 47 tests before replacing sources. Fixed a publication race exposed by Linux tests: commit release metadata before returning success, so an immediate public refresh sees the release. Restart and localhost/public health passed; public catalog and assets return 200, unauthenticated management returns 401, authenticated super-admin catalog returns 200. Live browser shows the download link/page with an empty catalog. No sample software was published in production and no production balance was changed. Local browser and isolated real HTTP tests cover uploads/downloads.
-
-## 2026-10-02 own super-admin balance — deployed with downloads
-
-- Added a dedicated 我的余额（超级管理员） card at the top of user management, independent of user search/pagination. It sets the total balance using the existing super-admin-only `PUT /api/admin/users/{currentUser.id}` endpoint. Saves update the header balance immediately; user list refresh reads `/api/me`. Other roles do not see the card and the handler rejects them.
-- Backend already permits super-admin self balance updates; no backend change is required. Amount limits and six-decimal precision reuse existing validation. New frontend release query: `v=20261002.3`.
-- All 44 regression tests pass, including self balance precision, `/api/me` consistency, rejection of admin/user edits and invalid amounts, self-role protection and preservation of other accounts. JavaScript handler fixture checks pass for super-admin/admin/user. Syntax and diff checks pass. No production balance was modified for verification.
-- Deployed together with downloads on 2026-10-02, release `v=20261002.4`. Own-balance markup and scripts verified publicly; existing super-admin `/api/me` confirmed with a temporary verification session, then session removed. No live balance edit performed.
-
-## 2026-10-02 RMB display only
-
-- All built-in frontend monetary dollar symbols now display `¥`; dollar currency labels now say 人民币. Numeric values, precision, form input values, submitted payloads and JavaScript template expressions are unchanged. This is a display relabeling with no exchange-rate conversion.
-- Covers wallet/top-up, dashboard/header balance, model plaza and tier dialog, pricing, token quota, user/customer management, usage ledger and playground charge/refund messages. User-authored content is untouched.
-- Backend and regression-test source bytes were verified unchanged from the start of this task. All 43 existing regression tests, Python/JavaScript syntax checks and diff checks passed. Fixture comparisons for guest/user/admin/super-admin roles preserve amount values, input attributes and controls; complete frontend source comparisons permit only the approved text replacements and JS release query.
-- Deployed only `api-website.html` and `assets/nbapi.js`, release `v=20261002.2`. Frontend rollback copies: `/opt/nbapi-backups/rmb-display-20261002`. No backend restart, database writes, real recharge or paid model test was needed. Production backend SHA-256 remains `6d7ec3c6f799227f87bb0b18f74124bbe7b9ef15fcba1a965197762b47d7219d`; service and public health check remain healthy.
-
-## 2026-10-02 GPT image supplier management
-
-- `gpt-image-2` now uses explicit supplier selections in the pricing page. The one-time migration preserves the enabled suppliers permitted by its former allowlists, its visibility and its $0.22/task customer price; production assignments remain suppliers 1 and 2.
-- Added visible `gpt-image-2-super` with provider label GPT 图片 Super, provider 巧模, OpenAI Images protocol and `/v1/images/generations`. Production assigns only existing `qiaomo` supplier 217. Its initial $0.22/task customer price copies `gpt-image-2`; this is provisional customer pricing, not a confirmed upstream cost. Subsequent administrator supplier/price/visibility edits survive restarts.
-- Playground GPT image requests convert ratio/resolution to pixel dimensions, use the documented `size` field and omit the unrelated `image_size`. Completed URL or Base64 results are displayed before considering task IDs, since the supplier returns both a completed URL and task ID.
-- `/v1/images/edits` now reads the model from multipart form metadata while forwarding image bytes unchanged. Other protocol routing and billing semantics are unchanged.
-- Local and server staging checks passed all 43 regression tests plus JavaScript syntax and focused image request/response checks. Direct upstream and production gateway generation tests returned HTTP 200 with image URLs at 1024x1024; the gateway charged $0.22 and this verification charge was returned through an audited deployment_test_refund.
-- Deployed to the current server 195.72.185.130. Rollback source and SQLite snapshot: `/opt/nbapi-backups/image-models-20261002`. JavaScript release query is `v=20261002.1`. Public model catalog and authenticated admin pricing catalog both contain the two models.
-- Production gateway multipart image editing also returned HTTP 200 with an image URL; its $0.22 verification charge was returned with a deployment_test_refund audit entry. Generation and editing used synthetic circle/white-background test content. Verified the new card in the public model plaza. Higher resolutions and asynchronous-only image responses have not been live-tested.
-- Preserved the production GPT 6.1 Sol seed metadata correction (OpenAI/dialogue) in local source.
-
-## 2026-09-30 GPT 6.1 Sol preparation
-
-- Added `gpt-6.1-sol` as a hidden, explicit-supplier OpenAI Responses model. The one-time seed copies the current `gpt-6-sol` pricing and dynamic tiers, then preserves any later super-admin price changes. It does not change the existing `gpt-6` alias or its canonical `gpt-6-sol` route.
-- Before making the new model visible, confirm the upstream supplier accepts the exact model ID `gpt-6.1-sol` through `/v1/responses`, assign that supplier in the model pricing page, and set the customer price from confirmed upstream pricing. The copied `gpt-6-sol` rates are provisional.
-- Codex support for the exact new ID depends on its installed client model picker/configuration. Do not repoint the existing `gpt-6` alias; if Codex rejects `gpt-6.1-sol` before sending an HTTP request, verify client support and choose an unused compatible alias only after checking for collisions.
-- Local regression tests cover seed idempotency, hidden state, supplier requirement and model discovery. No live upstream or Codex end-to-end verification has been completed for this new model.
-
-## 2026-09-25 Codex compatibility alias
-
-- Added the transparent client alias `gpt-6` for the canonical `gpt-6-sol` model because current Codex clients recognize `gpt-6` but do not expose `gpt-6-sol` in their built-in picker.
-- `/v1/models` now publishes both IDs when `gpt-6-sol` is active and allowed for the token. Requests using `gpt-6` are normalized before authorization, supplier routing, reservation, settlement and ledger writes; the supplier always receives `gpt-6-sol`.
-- The model plaza labels the Codex compatibility name and remains searchable by either ID. Pricing and historical identity remain attached only to `gpt-6-sol`.
-- Deployed to `195.72.185.130` on 2026-09-25. Database and replaced-source backups are in `/opt/nbapi-backups/alias-20260925-123901`; checksums are recorded in that directory.
-- Production verification returned HTTP `200` through the `gpt-6` alias with authoritative usage of 3,714 input and 5 output tokens. The ledger recorded canonical model `gpt-6-sol`, charge `$0.007354`, and `openai_compatible` usage; the supplier remained healthy. The verification charge was fully returned to the affected account with a `deployment_test_refund` audit transaction.
-
-## 2026-09-25 explicit model supplier management
-
-- Added `gpt-6-sol` as a hidden OpenAI Responses model with the same approved dynamic two-tier prices and `272K` threshold as `gpt-5.6-sol`. It has no supplier assignment by default and cannot be shown until a super administrator assigns at least one supplier.
-- Existing models keep the legacy `channels.allowed_models` routing behavior unchanged. Only newly created models use explicit many-to-many supplier assignments, preserving every historical model/channel relationship.
-- The super-admin “供应商对接” area is now “供应商管理” with create, edit, test, enable/disable and delete actions. Deleting the final assigned supplier automatically hides affected explicit models.
-- Fixed supplier creation consuming the POST body twice. The create form now validates required fields, shows a submitting state and reports API errors inline.
-- Added the OpenAI-compatible `GET /v1/models` catalog for Codex and other clients. It lists active models allowed by the requesting API token, and the playground refreshes its model list when opened or after visibility changes.
-- The pricing page can create and configure models with protocol, pricing, visibility and multiple supplier selections. Supported protocol metadata covers OpenAI Chat/Responses, Anthropic Messages, Gemini Generate Content, images and videos.
-- `/api/admin/models` provides super-admin model creation/listing; the existing model update endpoint now supports metadata and explicit supplier assignments. Public `/api/models` includes protocol and endpoint metadata without exposing API keys.
-- The playground recognizes OpenAI Responses models and extracts Responses API output text. Frontend JavaScript uses release query `v=20260925.3` so the model list refresh fix is not hidden by browser or CDN caches.
-- Regression coverage is now 39 tests, including seed idempotency, legacy routing preservation, explicit supplier routing, alias normalization, API validation, model discovery and automatic hiding after supplier deletion.
-
-### New-server deployment status
-
-- Deployed on 2026-09-25 only to the current server `195.72.185.130` in `/opt/nbapi`; the legacy server was not changed.
-- Pre-deployment rollback archive: `/opt/nbapi-backups/nbapi-pre-model-discovery-20260925-0224.tar.gz`, SHA-256 `eff1e565efd81504d385453e29b27b417421c2a131e07610072808b4669ad3e0`.
-- `nbapi.service` is active, `https://nbapi.win/health` returns `ok`, and the public page references `assets/nbapi.js?v=20260925.3`.
-- A real active NBAPI token verified that `GET /v1/models` returns an OpenAI-compatible list containing active `gpt-6-sol`. Requests without a token return `401`.
-- The `qiaomo` supplier base URL was normalized in production from `https://qiaomoapi.cn/v1` to `https://qiaomoapi.cn`; the proxy appends `/v1/responses` itself.
-- Remaining external blocker: TLS negotiation from the new server to `qiaomoapi.cn:443` times out. The supplier must allow the new server IP `195.72.185.130` or remove the applicable region/CDN/firewall restriction. Until then the model is discoverable but real calls through this supplier will fail.
-- After supplier access is restored, run the supplier connection test and confirm a healthy status before selecting `gpt-6-sol` in Codex. Codex uses `base_url = "https://nbapi.win/v1"`, `wire_api = "responses"`, and `model = "gpt-6-sol"`.
-
-## 2026-09-23 dynamic tier billing
-
-- The three models shown with upstream context-length pricing now use NBAPI dynamic billing: `gpt-5.6-sol` switches at `272K`, `gpt-5.6-terra` at `200K`, and `gpt-6-astra` at `272K` input tokens. `gpt-5.6-sol` keeps its separately approved customer rates; `gpt-5.6-terra` and `gpt-6-astra` use 1.8x the screenshot upstream rates. Each second tier follows the upstream multipliers: input/cache x2 and output x1.5.
-- `gpt-5.6-sol` first tier is input `1.7000`, output `14.5000`, cache read `0.1170`, cache create `1.4625`; second tier is `3.4000`, `21.7500`, `0.2340`, `2.9250` USD per 1M tokens.
-- `gpt-5.6-terra` first/second tiers are `0.7020 / 6.0120 / 0.0702 / 0.8775` and `1.4040 / 9.0180 / 0.1404 / 1.7550`; `gpt-6-astra` first/second tiers are `3.5100 / 17.5500 / 0.3510 / 4.3875` and `7.0200 / 26.3250 / 0.7020 / 8.7750` USD per 1M tokens.
-- The migration adds only dynamic pricing columns and fills them once. Correction version 2 applies the approved prices to these three dynamic models; it does not rewrite users, balances, tokens, channels, or historical ledger rows.
-- Final settlement selects the tier from authoritative upstream input usage, including the threshold boundary; reservation estimates use the same selector. Input, output, cache-read and cache-create charges all use the selected tier.
-- `/api/models` and the super-admin pricing screen expose both tiers, thresholds and all four prices. The model plaza displays the same dynamic pricing information.
-- The model plaza keeps dynamic cards compact by showing only the first-tier input, output, cache-read and cache-create prices. The clickable `动态计费 · 2档` label opens a responsive detail dialog with the threshold and both complete pricing tiers; this is presentation-only and does not change settlement behavior.
-- The page references the plaza CSS and JavaScript with release query `v=20260923.2` so browsers and Cloudflare do not keep serving the pre-dialog assets from the four-hour static cache.
-
-## 2026-09-23 pricing correction
-
-- `gpt-5.6-sol` customer pricing is set to input `1.7000` and output `14.5000` USD per 1M tokens, with cache read `0.1170` and cache write `1.4625` USD per 1M tokens. The input/output values are the approved fixed rates; cache values are the upstream reference rates plus 50%.
-- The one-time `dynamic_pricing_correction_version=2` migration aligns all three production rows and the code defaults with these values; the production database is backed up before deployment.
-- Existing ledger rows are not rewritten. New calls use the corrected prices after the service reload.
-
-## Read this first
-
-This file is the concise current state. Older investigations and deployment history are preserved in `docs/HANDOFF_HISTORY.md`; search that file only when a task needs historical detail.
-
-Repository: `https://github.com/squallwxf/nbapi`
-
-Production:
-
-- Site: `https://nbapi.win`
-- App directory: `/opt/nbapi`
-- Service: `nbapi.service`
-- Backend: Python `ThreadingHTTPServer` on `127.0.0.1:8765`
-- Reverse proxy: Nginx
-- Production database and `/etc/nbapi.env` must never be overwritten by deployment.
-
-## Current architecture
-
-- `api-website.html`: page structure and stable DOM IDs.
-- `assets/nbapi.css`: extracted visual styles and responsive layout.
-- `assets/nbapi.js`: extracted browser logic, rendering, API calls, and event handlers.
-- `server.py`: API, authentication, SQLite migrations, upstream proxy, protocol bridge, billing, refunds, ZPAY, and static asset serving.
-- `tools/test_usage_parsing.py`: 39 regression tests covering usage parsing, dynamic tier selection, supplier routing, model aliases, model management and discovery, approved customer rates, reservations, settlement, refunds, streaming, disconnect behavior, Gemini bridging, ZPAY idempotency, and static assets.
-- `AGENTS.md`: context and safety instructions for future Codex work.
-
-The frontend extraction is behavior-preserving: CSS and JavaScript were copied byte-for-byte after line-ending normalization, and all 190 DOM IDs remain unchanged. `server.py` now serves only the fixed asset paths `/assets/nbapi.css` and `/assets/nbapi.js`; arbitrary filesystem paths are not exposed.
-
-## Production-critical behavior
-
-- Real model calls use authenticated `/v1`, `/v1beta`, and compatible proxy routes.
-- Per-token billing settles only from authoritative upstream input/output usage. Unverifiable usage is refunded instead of estimated and charged.
-- Reservations are atomic, capped, idempotent, and finalized exactly once.
-- Failed upstream calls refund the reservation. Client disconnects do not cancel upstream reading or final settlement.
-- Native SSE is forwarded immediately with Nginx buffering disabled for that response.
-- Gemini native models can be bridged from OpenAI chat requests and converted back to OpenAI-compatible responses.
-- Channel routing keeps one matching enabled channel as a recovery probe when every matching channel is in health cooldown; this prevents transient `no_eligible_upstream_channel` errors without bypassing model allowlists.
-- ZPAY credits paid orders transactionally and idempotently. Current user-facing payment method is Alipay only.
-- Wallet orders, transactions, usage logs, tokens, and balances are scoped to the authenticated user. Super administrators have explicit elevated views.
-- API token secrets remain copyable from the token page and must not be invalidated by normal code deployments.
-
-## Roles
-
-- User: own tokens, wallet, playground, usage logs, and API access.
-- Admin: managed customer list and customer recharge statistics.
-- Super admin: admin capabilities plus balances, model pricing/visibility/deletion, customer assignment, channels, and scoped/all-user logs.
-
-## Required verification
-
-Use an available Python 3 executable; on the Codex desktop host the bundled runtime can be obtained with `load_workspace_dependencies`.
+本地PowerShell：
 
 ```powershell
-python -m py_compile server.py
-python -m unittest tools.test_usage_parsing -v
+git clone https://github.com/squallwxf/nbapi.git
+cd nbapi
+git status -sb
+git log -3 --oneline
+```
+
+已有正确仓库先看 `git status -sb`，干净才 `git pull --ff-only`，有改动先审阅保存，不reset。新会话选真实源码目录，让它读HANDOFF/MEMORY/AGENTS即可接手，不必复制全部旧聊天。
+
+```powershell
+python -m py_compile server.py software_downloads.py
+python -m unittest tools.test_usage_parsing tools.test_software_downloads -q
 node --check assets/nbapi.js
+node --check assets/contact.js
+node --check assets/software.js
+node --check assets/qrcode.js
 git diff --check
 ```
 
-Expected regression result: 39 tests pass.
+QR测试另需Playwright/jsqr及可用浏览器，设置NODE_PATH后 `node tools/test_software_qr.cjs`；QR_TEST_CHROME可指定浏览器。它用模拟目录、截图写系统临时目录，不消耗线上模型和余额。
 
-For frontend changes, verify desktop and mobile widths, browser console errors, authentication visibility, and no horizontal overflow. For proxy or billing changes, also run a real low-cost streaming request against a controlled account and reconcile reservation, ledger amount, wallet balance, usage source, and upstream charge.
+本次合并实际验证：57项Python回归通过，Python编译与四份JS语法检查通过；QR浏览器测试通过桌面/390px手机解码、目录/详情显示、草稿不显示二维码、无横向溢出及无页面错误。未执行真实充值或付费模型调用。
 
-## Deployment safety
+## 部署与备份
 
-Before deploying:
+1. Git只同步源码/文档，不恢复用户、令牌、余额、模型配置、订单或安装包。
+2. 另备份SQLite一致性快照（`tools/backup_db.py`或SQLite backup API）、software-storage、环境、证书、Nginx/systemd。WAL活跃时不能仅复制主DB，切流避免双写。
+3. 当前生产脏工作区不能盲目git pull或整目录覆盖；先比对文件哈希、合并线上独有改动并备份源码与DB，确认目标IP。
+4. 隔离目录/测试DB先验证，再按清单发布。保护 `/etc/nbapi.env`、DB、证书及存储；仅静态修改不必重启后端。
+5. 发布后检查服务、`nginx -t`、本机及公网health、页面实际引用资源、受影响权限及账务。真实收费测试须受控账户与授权，逐项对账，模拟测试不能当真实支付验收。
 
-1. Commit and push only source and documentation.
-2. Confirm that `nbapi.sqlite3`, `.env`, certificates, private keys, logs, backups, and generated inspection files are absent from the commit.
-3. Back up the production SQLite database.
-4. Pull the selected commit in `/opt/nbapi`.
-5. Restart `nbapi.service` and check `/health`, service logs, the homepage, CSS, and JavaScript asset responses.
-6. Do not copy a local database or local environment file to production.
+## 下一步
 
-Production secrets belong only in `/etc/nbapi.env`. Important variable families include super-admin bootstrap password, ZPAY merchant settings, SMTP password reset settings, upstream timeouts, reservation cap, and allowed origins. Never record their values in Git.
+- 上游修复image2.5编辑账户池后，单独做低成本编辑与网关账务验收。
+- 建立生产可审阅发布基线，当前未清理生产脏文件/修改生产Git。
+- 建立DB和软件存储异机备份、恢复演练；GitHub不是业务数据备份。
+- 每会话完成后记录修改文件、测试边界、提交/推送、是否部署、目标服务器、备份及未验收项。
 
-## Known operational finding
-
-Long Codex desktop tasks can send roughly 40 MB of accumulated context per model request. NBAPI receives that body and forwards it upstream, so server aggregate receive/send traffic is roughly twice the request body before responses. The repository source itself is only about 0.5 MB; the primary cause is long conversation history, screenshots, and tool output, not application code size.
-
-For future work:
-
-- Start from this file and `AGENTS.md`.
-- Use `rg` and narrow line reads instead of loading whole large files.
-- Open a fresh task after each major feature and carry only this concise handoff.
-- Keep command output and screenshots focused on the fault being investigated.
-
-## Next safe improvements
-
-- Add response-byte and per-user traffic metrics before making hosting decisions.
-- Add HTTP-level tests for authentication scope, wallet queries, token persistence, static assets, and administrative permissions.
-- Only after those tests exist, consider splitting backend domains out of `server.py`. Do not refactor billing, proxy, payment, and auth simultaneously.
-
-## 2026-10-12 Production server migration completed
-- Migrated actual production files, software assets, environment, Nginx config and origin certificate from 195.72.185.130 to 154.36.173.186, preserving uncommitted production changes. Local contact-page revision remains undeployed.
-- Old NBAPI stopped before final SQLite backup and disabled to prevent duplicate writes. Old data retained. New nbapi/nginx enabled and active.
-- Final snapshot integrity OK; exact table row digests match after startup for users (45), tokens (16), balance transactions (836), ledger (15407), wallet orders (22), models (49), channels/settings/software files.
-- Python/JS syntax, Nginx config and 48 production-source regressions passed. diff check shows pre-existing HANDOFF EOF blank line after accounting for CRLF; no source edits made.
-- Public HTTPS health returned 200 through Cloudflare and confirmed in new server access log; homepage/model catalog 200. Origin certificate uses Cloudflare trust; localhost HTTPS checked with -k.
-- Protected backups on both servers: /root/nbapi-migration-20261012. Local copy: C:/Users/Administrator/Documents/ChatGPT/nbapi-migration-20261012. Final DB SHA256 8f6d9e117779d18a34edb81e5a4eb0e677846efc3748322a2ae20c050f099d3d.
-- Temporary reverse SSH tunnel on new server loopback port 22022 remains attached to user's old-server VNC shell; may close after migration.
+旧完整接力已归档 `docs/HANDOFF_SNAPSHOT_2026-10-15.md`；更早的 `docs/HANDOFF_HISTORY.md`、`项目接力补充-2026-09-02.md` 仅历史参考，冲突以本文和当前证据为准。

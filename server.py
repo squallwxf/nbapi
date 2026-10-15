@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NBAPI_DB_PATH", str(ROOT / "nbapi.sqlite3"))).expanduser()
 HTML_PATH = ROOT / "api-website.html"
 STATIC_ASSETS = {
+    "/assets/qrcode.js": (ROOT / "assets" / "qrcode.js", "text/javascript; charset=utf-8"),
     "/assets/contact.js": (ROOT / "assets" / "contact.js", "text/javascript; charset=utf-8"),
     "/assets/nbapi.css": (ROOT / "assets" / "nbapi.css", "text/css; charset=utf-8"),
     "/assets/nbapi.js": (ROOT / "assets" / "nbapi.js", "text/javascript; charset=utf-8"),
