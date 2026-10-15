@@ -664,6 +664,30 @@ class BillingStabilityTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT active,price_micros FROM models WHERE name='gpt-image-2-super'").fetchone(), (0,456789))
             self.assertEqual(server.model_supplier_ids(db, 'gpt-image-2-super'), [])
 
+    def test_banana_supplier_configuration_preserves_metadata_and_admin_edits(self):
+        names = ('T香蕉2', 'T香蕉pro')
+        with sqlite3.connect(server.DB_PATH) as db:
+            db.execute("DELETE FROM settings WHERE key='banana_supplier_config_version'")
+            db.execute("UPDATE channels SET allowed_models='T香蕉2,T香蕉pro'")
+            db.execute("INSERT INTO channels(name,upstream_base_url,upstream_api_key,active,priority,allowed_models,created_at,updated_at) VALUES ('巧模','https://example.test','test-key',1,100,'gpt-6-sol',?,?)", (server.now(), server.now()))
+            qid = db.execute("SELECT id FROM channels WHERE name='巧模'").fetchone()[0]
+            before = {}
+            for name in names:
+                db.execute("UPDATE models SET routing_mode='legacy' WHERE name=?", (name,))
+                before[name] = db.execute("SELECT price_micros,active,api_protocol,endpoint FROM models WHERE name=?", (name,)).fetchone()
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            for name in names:
+                self.assertEqual(db.execute("SELECT routing_mode FROM models WHERE name=?", (name,)).fetchone()[0], 'explicit')
+                self.assertEqual(db.execute("SELECT price_micros,active,api_protocol,endpoint FROM models WHERE name=?", (name,)).fetchone(), before[name])
+                self.assertIn(qid, server.model_supplier_ids(db, name))
+                self.assertIn(qid, [r['channel_id'] for r in server.get_upstream_routes(db, name)])
+                server.replace_model_suppliers(db, name, [])
+        server.init_db()
+        with sqlite3.connect(server.DB_PATH) as db:
+            for name in names:
+                self.assertEqual(server.model_supplier_ids(db, name), [])
+
     def test_gpt_6_sol_seed_is_hidden_explicit_and_idempotent(self):
         with sqlite3.connect(server.DB_PATH) as db:
             before_channels = db.execute("SELECT id, allowed_models FROM channels ORDER BY id").fetchall()

@@ -813,6 +813,22 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (name, upstream_base_url, upstream_api_key, active, priority, note, timestamp, timestamp),
             )
+        if get_setting(db, "banana_supplier_config_version") != "1":
+            qiaomo_ids = [row[0] for row in db.execute(
+                "SELECT id FROM channels WHERE lower(trim(name))='qiaomo' OR trim(name)='巧模'"
+            )]
+            for banana_name in ("T香蕉2", "T香蕉pro"):
+                banana = db.execute("SELECT routing_mode FROM models WHERE name=?", (banana_name,)).fetchone()
+                if not banana:
+                    continue
+                supplier_ids = model_supplier_ids(db, banana_name)
+                if banana[0] == "legacy":
+                    supplier_ids = [row[0] for row in db.execute(
+                        "SELECT id,allowed_models FROM channels WHERE active=1 ORDER BY priority,id"
+                    ) if channel_allows_model(row[1], banana_name)]
+                replace_model_suppliers(db, banana_name, sorted(set(supplier_ids + qiaomo_ids)))
+                db.execute("UPDATE models SET routing_mode='explicit',updated_at=? WHERE name=?", (timestamp, banana_name))
+            set_setting(db, "banana_supplier_config_version", "1")
         if get_setting(db, "gpt_image_supplier_seed_version") != "1":
             image = db.execute("SELECT routing_mode FROM models WHERE name='gpt-image-2'").fetchone()
             if image and image[0] == "legacy":
