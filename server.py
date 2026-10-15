@@ -655,6 +655,9 @@ def init_db() -> None:
         ):
             if column not in channel_columns:
                 db.execute(f"ALTER TABLE channels ADD COLUMN {column} {definition}")
+        task_columns = {row[1] for row in db.execute("PRAGMA table_info(media_tasks)")}
+        if "channel_id" not in task_columns:
+            db.execute("ALTER TABLE media_tasks ADD COLUMN channel_id INTEGER")
         timestamp = now()
         super_admin_row = db.execute(
             "SELECT id, username FROM users WHERE role='super_admin' ORDER BY id LIMIT 1"
@@ -2132,13 +2135,26 @@ def settle_media_task_status(db, user_id: int, token_id: int, task_id: str, payl
     return True
 
 
-def record_media_task(db, user_id: int, token_id: int, task_id: str, request_id: str):
+def record_media_task(db, user_id: int, token_id: int, task_id: str, request_id: str, channel_id=None):
     if not task_id:
         return
     db.execute(
-        "INSERT OR IGNORE INTO media_tasks(user_id, token_id, task_id, request_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'submitted', ?, ?)",
-        (user_id, token_id, task_id, request_id, now(), now()),
+        "INSERT OR IGNORE INTO media_tasks(user_id, token_id, task_id, request_id, status, created_at, updated_at, channel_id) VALUES (?, ?, ?, ?, 'submitted', ?, ?, ?)",
+        (user_id, token_id, task_id, request_id, now(), now(), channel_id),
     )
+
+
+def media_task_routes(db, user_id, token_id, task_id):
+    task = db.execute("SELECT channel_id FROM media_tasks WHERE user_id=? AND token_id=? AND task_id=?", (user_id, token_id, task_id)).fetchone()
+    if not task or task[0] is None:
+        return None
+    row = db.execute("SELECT id,name,upstream_base_url,upstream_api_key FROM channels WHERE id=?", (task[0],)).fetchone()
+    if not row:
+        return []
+    base = str(row[2] or UPSTREAM).strip().rstrip("/")
+    if base.lower().endswith(("/v1", "/v1beta")):
+        base = base.rsplit("/", 1)[0]
+    return [{"channel_id": row[0], "channel_name": row[1], "base_url": base, "api_key": str(row[3] or "").strip() or get_setting(db, "upstream_api_key", "")}]
 
 
 def mask_secret(value: str, prefix: int = 4, suffix: int = 4) -> str:
@@ -2422,6 +2438,10 @@ class Handler(BaseHTTPRequestHandler):
 
         with sqlite3.connect(DB_PATH) as db:
             routes = get_upstream_routes(db, model_name)
+            if method == "GET" and path.startswith(("/v1/images/tasks/", "/v1/videos/", "/v1/video/fetch/")):
+                task_routes = media_task_routes(db, api_user[1], api_user[0], unquote(path.rstrip("/").rsplit("/", 1)[-1]))
+                if task_routes is not None:
+                    routes = task_routes
             # Preserve legacy single-upstream behavior only before any channel
             # records exist. Once channels are configured, an explicit model
             # allowlist must never be bypassed by a fallback route.
@@ -2673,7 +2693,7 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("BEGIN IMMEDIATE")
                     charge_result = settle_billing(db, api_user[1], api_user[0], model_name, idempotency_key, amount_micros, billing_unit, input_tokens, output_tokens, client_ip, round((time.perf_counter() - started_at) * 1000), first_token_ms, path, idempotency_key, cache_read_tokens, cache_write_tokens, usage_source)
                     if billing_unit == "per_task":
-                        record_media_task(db, api_user[1], api_user[0], extract_task_id(response_payload), idempotency_key)
+                        record_media_task(db, api_user[1], api_user[0], extract_task_id(response_payload), idempotency_key, route["channel_id"])
                     db.execute("COMMIT")
                 except ValueError as exc:
                     db.execute("ROLLBACK")

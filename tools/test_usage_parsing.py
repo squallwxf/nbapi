@@ -503,6 +503,21 @@ class StaticAssetTests(unittest.TestCase):
 
 
 class BillingStabilityTests(unittest.TestCase):
+    def test_media_task_routes_are_pinned_and_scoped(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            channel_id = db.execute("SELECT id FROM channels ORDER BY id DESC LIMIT 1").fetchone()[0]
+            db.execute("UPDATE channels SET upstream_base_url='https://supplier.test/v1',upstream_api_key='supplier-key',active=0 WHERE id=?", (channel_id,))
+            server.record_media_task(db, self.user_id, self.token_id, 'task_pinned', 'request-pinned', channel_id)
+            routes = server.media_task_routes(db, self.user_id, self.token_id, 'task_pinned')
+            self.assertEqual(routes[0]['channel_id'], channel_id)
+            self.assertEqual(routes[0]['base_url'], 'https://supplier.test')
+            self.assertIsNone(server.media_task_routes(db, self.user_id + 1, self.token_id, 'task_pinned'))
+            self.assertIsNone(server.media_task_routes(db, self.user_id, self.token_id + 1, 'task_pinned'))
+            server.record_media_task(db, self.user_id, self.token_id, 'task_legacy', 'request-legacy')
+            self.assertIsNone(server.media_task_routes(db, self.user_id, self.token_id, 'task_legacy'))
+            db.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+            self.assertEqual(server.media_task_routes(db, self.user_id, self.token_id, 'task_pinned'), [])
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
