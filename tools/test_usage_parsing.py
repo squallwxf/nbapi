@@ -835,6 +835,26 @@ class BillingStabilityTests(unittest.TestCase):
         self.assertEqual([route["channel_id"] for route in explicit_routes], [second_id])
         self.assertEqual([route["channel_id"] for route in legacy_routes], [first_id, second_id])
 
+    def test_super_admin_users_balance_order_search_and_scope(self):
+        with sqlite3.connect(server.DB_PATH) as db:
+            super_id = db.execute("SELECT id FROM users WHERE role='super_admin'").fetchone()[0]
+            db.execute("INSERT INTO sessions VALUES ('test-super-session',?,?)", (super_id, server.now()+3600))
+            admin_id = db.execute("INSERT INTO users(username,password_hash,role,active,balance_micros,created_at) VALUES ('sort-admin','unused','admin',1,0,?)", (server.now(),)).lastrowid
+            db.execute("INSERT INTO sessions VALUES ('sort-admin-session',?,?)", (admin_id, server.now()+3600))
+            db.execute("INSERT INTO sessions VALUES ('sort-user-session',?,?)", (self.user_id, server.now()+3600))
+            for name, balance, manager in [('sort-low',-1,None),('sort-high',900000001,admin_id),('sort-equal',900000001,None)]:
+                db.execute("INSERT INTO users(username,password_hash,role,active,balance_micros,created_at,manager_id) VALUES (?,'unused','user',1,?,?,?)", (name,balance,server.now(),manager))
+        status, first = self.admin_api_request('GET','/api/admin/users?q=sort-&pageSize=2')
+        self.assertEqual(status,200)
+        self.assertEqual([u['username'] for u in first['items']],['sort-equal','sort-high'])
+        _, second = self.admin_api_request('GET','/api/admin/users?q=sort-&pageSize=2&page=2')
+        self.assertEqual([u['username'] for u in second['items']],['sort-admin','sort-low'])
+        _, found = self.admin_api_request('GET','/api/admin/users?q=SORT-HIGH')
+        self.assertEqual([u['username'] for u in found['items']],['sort-high'])
+        _, scoped = self.admin_api_request('GET','/api/admin/users?q=sort-',token='sort-admin-session')
+        self.assertEqual([u['username'] for u in scoped['items']],['sort-high'])
+        self.assertEqual(self.admin_api_request('GET','/api/admin/users',token='sort-user-session')[0],403)
+
     def test_super_admin_own_balance_edit_preserves_role_and_other_accounts(self):
         with sqlite3.connect(server.DB_PATH) as db:
             super_id = db.execute("SELECT id FROM users WHERE role='super_admin'").fetchone()[0]

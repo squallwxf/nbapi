@@ -2918,7 +2918,7 @@ class Handler(BaseHTTPRequestHandler):
                               (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?),
                               (SELECT COALESCE(SUM(o.amount_micros),0) FROM wallet_orders o WHERE o.user_id=u.id AND o.status='paid' AND o.created_at>=?)
                        FROM users u LEFT JOIN users m ON m.id=u.manager_id {where}
-                       ORDER BY u.id DESC LIMIT ? OFFSET ?""",
+                       ORDER BY {'u.balance_micros DESC, u.id DESC' if admin[2] == 'super_admin' else 'u.id DESC'} LIMIT ? OFFSET ?""",
                     [week_start, month_start, *params, page_size, offset],
                 ).fetchall()
             self.send_json(200, {
